@@ -44,7 +44,7 @@ paths:
           name: timeframe
           schema:
             type: string
-            enum: ["1m", "15m", "30m", "1h", "1d"]
+            enum: ["15m", "30m", "1h", "1d"]
             default: "1d"
           description: Bar timeframe used to compute pivots and zones
         - in: query
@@ -103,7 +103,7 @@ paths:
           name: timeframe
           schema:
             type: string
-            enum: ["1m", "15m", "30m", "1h", "1d"]
+            enum: ["15m", "30m", "1h", "1d"]
             default: "1d"
           description: Bar timeframe used for the backtest
       responses:
@@ -131,7 +131,7 @@ paths:
           name: timeframe
           schema:
             type: string
-            enum: ["1m", "15m", "30m", "1h", "1d"]
+            enum: ["15m", "30m", "1h", "1d"]
             default: "1d"
           description: Bar timeframe
         - in: query

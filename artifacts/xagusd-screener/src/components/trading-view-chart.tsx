@@ -20,7 +20,6 @@ import type { Timeframe } from "@/components/timeframe-selector";
 import { SYMBOLS, fmtPrice, type Symbol } from "@/lib/symbols";
 
 const REFETCH_MS: Record<Timeframe, number> = {
-  "1m": 30_000,
   "15m": 60_000,
   "30m": 60_000,
   "1h": 60_000,

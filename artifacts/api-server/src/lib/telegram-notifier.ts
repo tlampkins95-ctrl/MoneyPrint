@@ -21,7 +21,6 @@ const POLL_INTERVAL_MS = 60_000;
 // Minimum gap between alerts for the same symbol/timeframe. Prevents
 // flip-flop spam when price hovers around a zone edge.
 const COOLDOWN_BY_TIMEFRAME: Record<Timeframe, number> = {
-  "1m": 10 * 60_000,
   "15m": 30 * 60_000,
   "30m": 60 * 60_000,
   "1h": 3 * 60 * 60_000,
@@ -29,7 +28,6 @@ const COOLDOWN_BY_TIMEFRAME: Record<Timeframe, number> = {
 };
 
 const TIMEFRAME_LABEL: Record<Timeframe, string> = {
-  "1m": "1-min",
   "15m": "15-min",
   "30m": "30-min",
   "1h": "1-hour",

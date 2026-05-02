@@ -63,18 +63,46 @@ interface Trade {
 }
 
 const MAX_HOLD_BARS: Record<Timeframe, number> = {
-  "1m": 60,
   "15m": 24,
   "30m": 16,
   "1h": 12,
   "1d": 10,
 };
 
+// Standard EMA via the recursive (close - prev) * alpha + prev formula. Uses
+// SMA seed for the first `period` bars to avoid a cold-start bias toward zero.
+function calcEMASeries(closes: number[], period: number): number[] {
+  if (closes.length === 0) return [];
+  const k = 2 / (period + 1);
+  const out: number[] = new Array(closes.length);
+  // Seed with SMA of first `period` bars (or all bars if shorter).
+  const seedLen = Math.min(period, closes.length);
+  let sum = 0;
+  for (let i = 0; i < seedLen; i++) {
+    sum += closes[i];
+    out[i] = sum / (i + 1);
+  }
+  for (let i = seedLen; i < closes.length; i++) {
+    out[i] = (closes[i] - out[i - 1]) * k + out[i - 1];
+  }
+  return out;
+}
+
 function runBacktest(candles: CandleRaw[], timeframe: Timeframe, symbol: Symbol): Trade[] {
   const meta = SYMBOLS[symbol];
   const round = makeRounder(meta.decimals);
   const trades: Trade[] = [];
   const maxHold = MAX_HOLD_BARS[timeframe];
+
+  // Precompute EMA21/EMA50 series for the trend filter. Mirrors the live
+  // signal logic: only allow BUY when EMA21 ≥ EMA50 (uptrend / ranging),
+  // only allow SELL when EMA21 ≤ EMA50 (downtrend / ranging). Counter-trend
+  // pivot bounces have the worst expectancy historically.
+  const closes = candles.map((c) => c.close);
+  const ema21 = calcEMASeries(closes, 21);
+  const ema50 = calcEMASeries(closes, 50);
+  const TREND_THRESHOLD = 0.001; // 0.1% gap counts as a real trend, smaller is "ranging"
+
   let i = 15;
 
   while (i < candles.length) {
@@ -91,15 +119,23 @@ function runBacktest(candles: CandleRaw[], timeframe: Timeframe, symbol: Symbol)
     const sellZoneHigh = round(r1 + halfWidth);
     const atr = calcATR(candles, i - 1, 14);
 
+    // Trend bias from EMAs at i-1 (no lookahead). RANGING = both directions
+    // allowed; UPTREND = longs only; DOWNTREND = shorts only.
+    const e21 = ema21[i - 1] ?? 0;
+    const e50 = ema50[i - 1] ?? 0;
+    const gap = e50 > 0 ? (e21 - e50) / e50 : 0;
+    const buyAllowed = gap >= -TREND_THRESHOLD;
+    const sellAllowed = gap <= TREND_THRESHOLD;
+
     const touchesBuy = today.low <= buyZoneHigh && today.high >= buyZoneLow;
     const touchesSell = today.high >= sellZoneLow && today.low <= sellZoneHigh;
 
     let direction: "BUY" | "SELL" | null = null;
-    if (touchesBuy && touchesSell) {
+    if (touchesBuy && buyAllowed && touchesSell && sellAllowed) {
       direction = Math.abs(today.open - s1) < Math.abs(today.open - r1) ? "BUY" : "SELL";
-    } else if (touchesBuy) {
+    } else if (touchesBuy && buyAllowed) {
       direction = "BUY";
-    } else if (touchesSell) {
+    } else if (touchesSell && sellAllowed) {
       direction = "SELL";
     }
     if (!direction) { i++; continue; }

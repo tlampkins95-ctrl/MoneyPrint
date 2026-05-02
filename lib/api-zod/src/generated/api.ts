@@ -48,7 +48,7 @@ export const GetLevelsQueryParams = zod.object({
     .default(getLevelsQuerySymbolDefault)
     .describe("Trading instrument"),
   timeframe: zod
-    .enum(["1m", "15m", "30m", "1h", "1d"])
+    .enum(["15m", "30m", "1h", "1d"])
     .default(getLevelsQueryTimeframeDefault)
     .describe("Bar timeframe used to compute pivots and zones"),
   accountSize: zod.coerce
@@ -235,7 +235,7 @@ export const GetBacktestQueryParams = zod.object({
     .default(getBacktestQuerySymbolDefault)
     .describe("Trading instrument"),
   timeframe: zod
-    .enum(["1m", "15m", "30m", "1h", "1d"])
+    .enum(["15m", "30m", "1h", "1d"])
     .default(getBacktestQueryTimeframeDefault)
     .describe("Bar timeframe used for the backtest"),
 });
@@ -305,7 +305,7 @@ export const GetPriceHistoryQueryParams = zod.object({
     .default(getPriceHistoryQuerySymbolDefault)
     .describe("Trading instrument"),
   timeframe: zod
-    .enum(["1m", "15m", "30m", "1h", "1d"])
+    .enum(["15m", "30m", "1h", "1d"])
     .default(getPriceHistoryQueryTimeframeDefault)
     .describe("Bar timeframe"),
   bars: zod.coerce

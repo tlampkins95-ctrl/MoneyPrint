@@ -10,7 +10,6 @@ export type GetPriceHistoryTimeframe =
   (typeof GetPriceHistoryTimeframe)[keyof typeof GetPriceHistoryTimeframe];
 
 export const GetPriceHistoryTimeframe = {
-  "1m": "1m",
   "15m": "15m",
   "30m": "30m",
   "1h": "1h",

@@ -158,7 +158,6 @@ function findSwingHighLow(candles: CandleRaw[], lookback = 60) {
 }
 
 const TIMEFRAME_LABELS: Record<Timeframe, string> = {
-  "1m": "1-minute",
   "15m": "15-minute",
   "30m": "30-minute",
   "1h": "1-hour",
@@ -508,7 +507,14 @@ export function computeLevels(
 
   const tfLabel = TIMEFRAME_LABELS[timeframe];
 
-  if (inBuyZone || (approachingBuy && trend !== "DOWNTREND")) {
+  // Trend filter: only allow BUY when EMA21 ≥ EMA50 (uptrend or ranging),
+  // only allow SELL when EMA21 ≤ EMA50 (downtrend or ranging). Counter-trend
+  // pivot bounces are the lowest-edge setups in the historical data, so we
+  // explicitly suppress them and emit WAIT instead.
+  const buyAllowed = trend !== "DOWNTREND";
+  const sellAllowed = trend !== "UPTREND";
+
+  if ((inBuyZone || approachingBuy) && buyAllowed) {
     signal = "BUY";
     // Anchor entry to the planned limit price at S1 — the trader stages an
     // order there regardless of where price drifted within the zone, so the
@@ -518,17 +524,33 @@ export function computeLevels(
     takeProfit1 = round(floorTarget(entryPrice, stopLoss, pivots.pivot, MIN_RR_TP1, "BUY"));
     takeProfit2 = round(floorTarget(entryPrice, stopLoss, sellZoneLow, MIN_RR_TP2, "BUY"));
     signalReason = inBuyZone
-      ? `[${tfLabel}] Price is at the buy zone around pivot S1 (${fmt(pivots.s1)}). ${trend === "UPTREND" ? "Uptrend intact — bounce setup." : "Look for a bullish reversal candle to confirm entry."}`
+      ? `[${tfLabel}] Price is at the buy zone around pivot S1 (${fmt(pivots.s1)}). ${trend === "UPTREND" ? "Uptrend intact — bounce setup." : "EMA trend neutral — look for a bullish reversal candle to confirm entry."}`
       : `[${tfLabel}] Price is within ${fmt(currentPrice - buyZoneHigh)} of the buy zone (${fmt(buyZoneLow)}–${fmt(buyZoneHigh)}). Stage a limit order near S1 ${fmt(pivots.s1)}.`;
-  } else if (inSellZone || (approachingSell && trend !== "UPTREND")) {
+  } else if ((inSellZone || approachingSell) && sellAllowed) {
     signal = "SELL";
     entryPrice = round(pivots.r1);
     stopLoss = round(sellZoneHigh + atr * 0.5);
     takeProfit1 = round(floorTarget(entryPrice, stopLoss, pivots.pivot, MIN_RR_TP1, "SELL"));
     takeProfit2 = round(floorTarget(entryPrice, stopLoss, buyZoneHigh, MIN_RR_TP2, "SELL"));
     signalReason = inSellZone
-      ? `[${tfLabel}] Price is at the sell zone around pivot R1 (${fmt(pivots.r1)}). ${trend === "DOWNTREND" ? "Downtrend in force — distribution zone." : "Look for a bearish rejection candle to confirm short entry."}`
+      ? `[${tfLabel}] Price is at the sell zone around pivot R1 (${fmt(pivots.r1)}). ${trend === "DOWNTREND" ? "Downtrend in force — distribution zone." : "EMA trend neutral — look for a bearish rejection candle to confirm short entry."}`
       : `[${tfLabel}] Price is within ${fmt(sellZoneLow - currentPrice)} of the sell zone (${fmt(sellZoneLow)}–${fmt(sellZoneHigh)}). Stage a limit sell order near R1 ${fmt(pivots.r1)}.`;
+  } else if (inBuyZone && !buyAllowed) {
+    // Price is in the buy zone but the trend filter blocks the long. Show a
+    // pending sell setup at R1 instead so the trader sees the next opportunity.
+    signal = "WAIT";
+    signalReason = `[${tfLabel}] Price is in the buy zone (${fmt(buyZoneLow)}–${fmt(buyZoneHigh)}) but EMA21 < EMA50 (downtrend) — counter-trend longs filtered out. Wait for trend to flip or for price to reach the sell zone (${fmt(sellZoneLow)}–${fmt(sellZoneHigh)}).`;
+    entryPrice = round(pivots.r1);
+    stopLoss = round(sellZoneHigh + atr * 0.5);
+    takeProfit1 = round(floorTarget(entryPrice, stopLoss, pivots.pivot, MIN_RR_TP1, "SELL"));
+    takeProfit2 = round(floorTarget(entryPrice, stopLoss, buyZoneHigh, MIN_RR_TP2, "SELL"));
+  } else if (inSellZone && !sellAllowed) {
+    signal = "WAIT";
+    signalReason = `[${tfLabel}] Price is in the sell zone (${fmt(sellZoneLow)}–${fmt(sellZoneHigh)}) but EMA21 > EMA50 (uptrend) — counter-trend shorts filtered out. Wait for trend to flip or for price to reach the buy zone (${fmt(buyZoneLow)}–${fmt(buyZoneHigh)}).`;
+    entryPrice = round(pivots.s1);
+    stopLoss = round(buyZoneLow - atr * 0.5);
+    takeProfit1 = round(floorTarget(entryPrice, stopLoss, pivots.pivot, MIN_RR_TP1, "BUY"));
+    takeProfit2 = round(floorTarget(entryPrice, stopLoss, sellZoneLow, MIN_RR_TP2, "BUY"));
   } else {
     signal = "WAIT";
     const aboveSellZone = currentPrice > sellZoneHigh;
@@ -723,6 +745,20 @@ export function computeLevelsStable(
 
   // Invalidate if SL or TP2 hit.
   if (existing && isInvalidated(existing, fresh.currentPrice)) {
+    activeTrades.delete(k);
+    persistActiveTrades();
+  }
+
+  // Invalidate when the live signal flips to the opposite direction. The
+  // trend has reversed enough that the original thesis is dead — keep the
+  // dashboard in sync with the new signal instead of leaving stale levels up.
+  // WAIT does NOT invalidate (the active trade is still mathematically open).
+  const stillActiveBeforeFlip = activeTrades.get(k);
+  if (
+    stillActiveBeforeFlip &&
+    (fresh.signal === "BUY" || fresh.signal === "SELL") &&
+    fresh.signal !== stillActiveBeforeFlip.signal
+  ) {
     activeTrades.delete(k);
     persistActiveTrades();
   }

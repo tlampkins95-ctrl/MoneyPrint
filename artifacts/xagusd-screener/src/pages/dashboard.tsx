@@ -10,7 +10,7 @@ import {
 import { SymbolSelector } from "@/components/symbol-selector";
 import { SYMBOLS, type Symbol } from "@/lib/symbols";
 
-const VALID_TIMEFRAMES: readonly Timeframe[] = ["1m", "15m", "30m", "1h", "1d"];
+const VALID_TIMEFRAMES: readonly Timeframe[] = ["15m", "30m", "1h", "1d"];
 
 // Read ?symbol=…&timeframe=… so notification links and shared URLs deep-link
 // straight to the right chart.

@@ -7,7 +7,7 @@ import type { CandleRaw } from "./yahoo-fetch";
 
 const BASE = "https://www.okx.com/api/v5";
 
-type OkxBar = "1m" | "15m" | "30m" | "1H" | "1D";
+type OkxBar = "15m" | "30m" | "1H" | "1D";
 
 interface PerpConfig {
   bar: OkxBar;
@@ -20,7 +20,6 @@ interface PerpConfig {
 // Intraday timeframes: enough bars for ~weeks of context. Daily: ~4 years.
 // 1H gets a deeper sample so backtest stats stay meaningful.
 const PERP_TIMEFRAME_MAP: Record<string, PerpConfig> = {
-  "1m": { bar: "1m", targetBars: 300, isIntraday: true },
   "15m": { bar: "15m", targetBars: 1500, isIntraday: true },
   "30m": { bar: "30m", targetBars: 1500, isIntraday: true },
   "1h": { bar: "1H", targetBars: 2500, isIntraday: true },
