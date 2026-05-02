@@ -1,15 +1,37 @@
 import { useEffect, useRef } from "react";
-import { useGetLevels, getGetLevelsQueryKey } from "@workspace/api-client-react";
+import {
+  createChart,
+  CandlestickSeries,
+  LineStyle,
+  CrosshairMode,
+  type IChartApi,
+  type ISeriesApi,
+  type CandlestickData,
+  type Time,
+  type IPriceLine,
+} from "lightweight-charts";
+import {
+  useGetLevels,
+  getGetLevelsQueryKey,
+  useGetPriceHistory,
+  getGetPriceHistoryQueryKey,
+} from "@workspace/api-client-react";
 import type { Timeframe } from "@/components/timeframe-selector";
-import { SYMBOLS, fmtPrice, fmtPriceCompact, type Symbol } from "@/lib/symbols";
+import { SYMBOLS, fmtPrice, type Symbol } from "@/lib/symbols";
 
-const TV_INTERVAL: Record<Timeframe, string> = {
-  "1m": "1",
-  "15m": "15",
-  "30m": "30",
-  "1h": "60",
-  "1d": "D",
+const REFETCH_MS: Record<Timeframe, number> = {
+  "1m": 30_000,
+  "15m": 60_000,
+  "30m": 60_000,
+  "1h": 60_000,
+  "1d": 60_000,
 };
+
+function toUnixTime(dateStr: string): Time {
+  // lightweight-charts wants a UTCTimestamp (seconds) or business day string.
+  // Use seconds-from-epoch for both intraday and daily so ordering is stable.
+  return Math.floor(new Date(dateStr).getTime() / 1000) as Time;
+}
 
 export function TradingViewChart({
   symbol,
@@ -19,109 +41,195 @@ export function TradingViewChart({
   timeframe: Timeframe;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const widgetRef = useRef<HTMLDivElement>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+  const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+  const linesRef = useRef<IPriceLine[]>([]);
+
+  const refetchInterval = REFETCH_MS[timeframe];
+
+  const { data: history } = useGetPriceHistory(
+    { symbol, timeframe, bars: 240 },
+    {
+      query: {
+        queryKey: getGetPriceHistoryQueryKey({ symbol, timeframe, bars: 240 }),
+        refetchInterval,
+      },
+    },
+  );
 
   const { data: levels } = useGetLevels(
     { symbol, timeframe },
     {
       query: {
         queryKey: getGetLevelsQueryKey({ symbol, timeframe }),
-        refetchInterval: 60000,
+        refetchInterval,
       },
     },
   );
 
+  // Create chart once
   useEffect(() => {
-    if (!widgetRef.current) return;
-    widgetRef.current.innerHTML = "";
-    const script = document.createElement("script");
-    script.src =
-      "https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js";
-    script.type = "text/javascript";
-    script.async = true;
-    script.innerHTML = JSON.stringify({
-      autosize: true,
-      symbol: SYMBOLS[symbol].tv,
-      interval: TV_INTERVAL[timeframe],
-      timezone: "Etc/UTC",
-      theme: "dark",
-      style: "1",
-      locale: "en",
-      allow_symbol_change: false,
-      calendar: false,
-      hide_side_toolbar: true,
-      hide_top_toolbar: true,
-      hide_legend: false,
-      withdateranges: false,
-      save_image: false,
-      support_host: "https://www.tradingview.com",
+    if (!containerRef.current) return;
+    const chart = createChart(containerRef.current, {
+      autoSize: true,
+      layout: {
+        background: { color: "#0a0a0a" },
+        textColor: "#a1a1aa",
+        fontFamily:
+          "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+        fontSize: 11,
+      },
+      grid: {
+        vertLines: { color: "rgba(63,63,70,0.25)" },
+        horzLines: { color: "rgba(63,63,70,0.25)" },
+      },
+      rightPriceScale: {
+        borderColor: "rgba(63,63,70,0.5)",
+      },
+      timeScale: {
+        borderColor: "rgba(63,63,70,0.5)",
+        timeVisible: true,
+        secondsVisible: false,
+      },
+      crosshair: { mode: CrosshairMode.Normal },
     });
-    widgetRef.current.appendChild(script);
-  }, [symbol, timeframe]);
+    const series = chart.addSeries(CandlestickSeries, {
+      upColor: "#00c950",
+      downColor: "#e53e3e",
+      borderUpColor: "#00c950",
+      borderDownColor: "#e53e3e",
+      wickUpColor: "#00c950",
+      wickDownColor: "#e53e3e",
+      priceFormat: {
+        type: "price",
+        precision: SYMBOLS[symbol].decimals,
+        minMove: Math.pow(10, -SYMBOLS[symbol].decimals),
+      },
+    });
+    chartRef.current = chart;
+    seriesRef.current = series;
+    return () => {
+      chart.remove();
+      chartRef.current = null;
+      seriesRef.current = null;
+      linesRef.current = [];
+    };
+  }, [symbol]);
+
+  // Update candle data
+  useEffect(() => {
+    if (!seriesRef.current || !history) return;
+    // Sort first, then dedupe by timestamp keeping the last occurrence —
+    // lightweight-charts requires strictly ascending unique times.
+    const sorted = history.candles
+      .map((c) => ({
+        time: toUnixTime(c.date),
+        open: c.open,
+        high: c.high,
+        low: c.low,
+        close: c.close,
+      }))
+      .sort((a, b) => (a.time as number) - (b.time as number));
+    const byTime = new Map<number, CandlestickData>();
+    for (const d of sorted) byTime.set(d.time as number, d);
+    const data: CandlestickData[] = Array.from(byTime.values());
+    seriesRef.current.setData(data);
+    chartRef.current?.timeScale().fitContent();
+  }, [history]);
+
+  // Draw signal price lines (entry / SL / TP1 / TP2 / zones)
+  useEffect(() => {
+    const series = seriesRef.current;
+    if (!series || !levels) return;
+
+    // Clear previous lines
+    for (const line of linesRef.current) {
+      try {
+        series.removePriceLine(line);
+      } catch {
+        // ignore — series may have been recreated
+      }
+    }
+    linesRef.current = [];
+
+    const isBuy = levels.signal === "BUY";
+    const isSell = levels.signal === "SELL";
+
+    const add = (
+      price: number,
+      color: string,
+      title: string,
+      style: LineStyle = LineStyle.Solid,
+      width: 1 | 2 | 3 | 4 = 2,
+    ) => {
+      const line = series.createPriceLine({
+        price,
+        color,
+        lineWidth: width,
+        lineStyle: style,
+        axisLabelVisible: true,
+        title,
+      });
+      linesRef.current.push(line);
+    };
+
+    // Buy zone (emerald) — dashed band
+    add(levels.buyZone.high, "rgba(0,201,80,0.55)", "Buy ▲", LineStyle.Dashed, 1);
+    add(levels.buyZone.low, "rgba(0,201,80,0.55)", "Buy ▼", LineStyle.Dashed, 1);
+
+    // Sell zone (red) — dashed band
+    add(levels.sellZone.high, "rgba(229,62,62,0.55)", "Sell ▲", LineStyle.Dashed, 1);
+    add(levels.sellZone.low, "rgba(229,62,62,0.55)", "Sell ▼", LineStyle.Dashed, 1);
+
+    // Active trade (only when there's a real signal)
+    if (isBuy || isSell) {
+      add(levels.entryPrice, "#fafafa", `Entry ${fmtPrice(symbol, levels.entryPrice)}`, LineStyle.Solid, 2);
+      add(levels.stopLoss, "#e53e3e", `SL ${fmtPrice(symbol, levels.stopLoss)}`, LineStyle.Solid, 2);
+      add(levels.takeProfit1, "#4ade80", `TP1 ${fmtPrice(symbol, levels.takeProfit1)}`, LineStyle.Solid, 2);
+      add(levels.takeProfit2, "#86efac", `TP2 ${fmtPrice(symbol, levels.takeProfit2)}`, LineStyle.Dotted, 2);
+    }
+
+    // Pivot
+    add(levels.pivot, "rgba(251,191,36,0.6)", `Pivot ${fmtPrice(symbol, levels.pivot)}`, LineStyle.Dotted, 1);
+  }, [levels, symbol]);
+
+  const meta = SYMBOLS[symbol];
+  const signalColor =
+    levels?.signal === "BUY"
+      ? "bg-emerald-500/95 text-black border-emerald-400"
+      : levels?.signal === "SELL"
+        ? "bg-red-500/95 text-black border-red-400"
+        : "bg-amber-500/95 text-black border-amber-400";
 
   return (
-    <div
-      ref={containerRef}
-      className="relative tradingview-widget-container h-full w-full bg-card rounded-sm overflow-hidden border"
-    >
-      <div
-        ref={widgetRef}
-        className="tradingview-widget-container__widget h-[calc(100%-32px)] w-full"
-      />
-
-      {/* Floating signals overlay — top-right corner, doesn't block OHLC header */}
-      {levels && (
-        <div className="absolute top-12 right-2 z-10 pointer-events-none flex flex-col gap-1 font-mono text-[10px] uppercase tracking-wider w-[210px]">
-          <div className="flex items-center gap-1">
+    <div className="relative h-full w-full bg-[#0a0a0a] rounded-sm overflow-hidden border border-zinc-800">
+      {/* Header: symbol + signal + price */}
+      <div className="absolute top-0 left-0 right-0 z-10 flex items-center justify-between px-3 py-2 pointer-events-none">
+        <div className="flex items-center gap-2 font-mono text-[11px]">
+          <span className="text-zinc-300 font-bold tracking-wider">
+            {meta.short}
+          </span>
+          <span className="text-zinc-600">·</span>
+          <span className="text-zinc-500 uppercase tracking-widest">
+            {timeframe} · OANDA
+          </span>
+        </div>
+        {levels && (
+          <div className="flex items-center gap-1 font-mono">
             <span
-              className={`px-2 py-0.5 rounded-sm font-bold tracking-widest border text-[11px] ${
-                levels.signal === "BUY"
-                  ? "bg-emerald-500/95 text-black border-emerald-400"
-                  : levels.signal === "SELL"
-                    ? "bg-red-500/95 text-black border-red-400"
-                    : "bg-amber-500/95 text-black border-amber-400"
-              }`}
+              className={`px-2 py-0.5 rounded-sm font-bold tracking-widest border text-[11px] ${signalColor}`}
             >
               {levels.signal}
             </span>
-            <span className="px-2 py-0.5 rounded-sm bg-black/80 border border-border/60 text-foreground text-[11px] flex-1 text-right">
+            <span className="px-2 py-0.5 rounded-sm bg-black/80 border border-zinc-700 text-zinc-100 text-[11px]">
               {fmtPrice(symbol, levels.currentPrice)}
             </span>
           </div>
+        )}
+      </div>
 
-          <div className="flex flex-col gap-0.5 bg-black/80 backdrop-blur-sm border border-border/60 rounded-sm p-1.5">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-emerald-400">BUY</span>
-              <span className="text-foreground/90 text-[10px]">
-                {fmtPriceCompact(symbol, levels.buyZone.low, 1)}–{fmtPriceCompact(symbol, levels.buyZone.high, 1)}
-              </span>
-            </div>
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-red-400">SELL</span>
-              <span className="text-foreground/90 text-[10px]">
-                {fmtPriceCompact(symbol, levels.sellZone.low, 1)}–{fmtPriceCompact(symbol, levels.sellZone.high, 1)}
-              </span>
-            </div>
-            <div className="border-t border-border/40 my-0.5" />
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-muted-foreground">ENTRY</span>
-              <span className="text-foreground">{fmtPrice(symbol, levels.entryPrice)}</span>
-            </div>
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-red-400">SL</span>
-              <span className="text-foreground">{fmtPrice(symbol, levels.stopLoss)}</span>
-            </div>
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-emerald-400">TP1</span>
-              <span className="text-foreground">{fmtPrice(symbol, levels.takeProfit1)}</span>
-            </div>
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-emerald-400">TP2</span>
-              <span className="text-foreground">{fmtPrice(symbol, levels.takeProfit2)}</span>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Chart area */}
+      <div ref={containerRef} className="h-full w-full" />
     </div>
   );
 }

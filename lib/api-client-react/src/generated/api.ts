@@ -298,7 +298,7 @@ export function useGetBacktest<
 }
 
 /**
- * @summary Get XAGUSD price history
+ * @summary Get price history aligned to live OANDA spot
  */
 export const getGetPriceHistoryUrl = (params?: GetPriceHistoryParams) => {
   const normalizedParams = new URLSearchParams();
@@ -365,7 +365,7 @@ export type GetPriceHistoryQueryResult = NonNullable<
 export type GetPriceHistoryQueryError = ErrorType<unknown>;
 
 /**
- * @summary Get XAGUSD price history
+ * @summary Get price history aligned to live OANDA spot
  */
 
 export function useGetPriceHistory<

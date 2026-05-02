@@ -5,8 +5,18 @@
  * XAGUSD Screener API
  * OpenAPI spec version: 0.2.0
  */
+import type { GetPriceHistorySymbol } from "./getPriceHistorySymbol";
+import type { GetPriceHistoryTimeframe } from "./getPriceHistoryTimeframe";
 
 export type GetPriceHistoryParams = {
+  /**
+   * Trading instrument
+   */
+  symbol?: GetPriceHistorySymbol;
+  /**
+   * Bar timeframe
+   */
+  timeframe?: GetPriceHistoryTimeframe;
   /**
    * Number of bars to return
    */

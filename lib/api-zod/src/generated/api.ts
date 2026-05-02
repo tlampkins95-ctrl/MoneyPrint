@@ -156,11 +156,30 @@ export const GetBacktestResponse = zod.object({
 });
 
 /**
- * @summary Get XAGUSD price history
+ * @summary Get price history aligned to live OANDA spot
  */
-export const getPriceHistoryQueryBarsDefault = 60;
+export const getPriceHistoryQuerySymbolDefault = `XAGUSD`;
+export const getPriceHistoryQueryTimeframeDefault = `1d`;
+export const getPriceHistoryQueryBarsDefault = 200;
 
 export const GetPriceHistoryQueryParams = zod.object({
+  symbol: zod
+    .enum([
+      "XAGUSD",
+      "XAUUSD",
+      "EURUSD",
+      "GBPUSD",
+      "AUDUSD",
+      "USDJPY",
+      "GBPJPY",
+      "BTCUSD",
+    ])
+    .default(getPriceHistoryQuerySymbolDefault)
+    .describe("Trading instrument"),
+  timeframe: zod
+    .enum(["1m", "15m", "30m", "1h", "1d"])
+    .default(getPriceHistoryQueryTimeframeDefault)
+    .describe("Bar timeframe"),
   bars: zod.coerce
     .number()
     .default(getPriceHistoryQueryBarsDefault)
@@ -179,5 +198,8 @@ export const GetPriceHistoryResponse = zod.object({
       volume: zod.number(),
     }),
   ),
+  currentPrice: zod
+    .number()
+    .describe("Live OANDA spot price (also used to align candles)"),
   lastUpdated: zod.string(),
 });

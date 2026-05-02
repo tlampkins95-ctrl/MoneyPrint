@@ -10,5 +10,7 @@ import type { Candle } from "./candle";
 export interface PriceHistory {
   symbol: string;
   candles: Candle[];
+  /** Live OANDA spot price (also used to align candles) */
+  currentPrice: number;
   lastUpdated: string;
 }

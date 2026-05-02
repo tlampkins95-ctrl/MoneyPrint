@@ -18,6 +18,8 @@ export * from "./getLevelsParams";
 export * from "./getLevelsSymbol";
 export * from "./getLevelsTimeframe";
 export * from "./getPriceHistoryParams";
+export * from "./getPriceHistorySymbol";
+export * from "./getPriceHistoryTimeframe";
 export * from "./healthStatus";
 export * from "./levelsData";
 export * from "./levelsDataSignal";

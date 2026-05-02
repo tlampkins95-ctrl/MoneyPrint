@@ -21,6 +21,8 @@ export interface Candle {
 export interface PriceHistory {
   symbol: string;
   candles: Candle[];
+  /** Live OANDA spot price (also used to align candles) */
+  currentPrice: number;
   lastUpdated: string;
 }
 
@@ -241,7 +243,40 @@ export const GetBacktestTimeframe = {
 
 export type GetPriceHistoryParams = {
   /**
+   * Trading instrument
+   */
+  symbol?: GetPriceHistorySymbol;
+  /**
+   * Bar timeframe
+   */
+  timeframe?: GetPriceHistoryTimeframe;
+  /**
    * Number of bars to return
    */
   bars?: number;
 };
+
+export type GetPriceHistorySymbol =
+  (typeof GetPriceHistorySymbol)[keyof typeof GetPriceHistorySymbol];
+
+export const GetPriceHistorySymbol = {
+  XAGUSD: "XAGUSD",
+  XAUUSD: "XAUUSD",
+  EURUSD: "EURUSD",
+  GBPUSD: "GBPUSD",
+  AUDUSD: "AUDUSD",
+  USDJPY: "USDJPY",
+  GBPJPY: "GBPJPY",
+  BTCUSD: "BTCUSD",
+} as const;
+
+export type GetPriceHistoryTimeframe =
+  (typeof GetPriceHistoryTimeframe)[keyof typeof GetPriceHistoryTimeframe];
+
+export const GetPriceHistoryTimeframe = {
+  "1m": "1m",
+  "15m": "15m",
+  "30m": "30m",
+  "1h": "1h",
+  "1d": "1d",
+} as const;
