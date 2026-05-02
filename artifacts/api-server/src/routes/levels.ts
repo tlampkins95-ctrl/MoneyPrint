@@ -27,25 +27,55 @@ let cachedSpotPrice: number | null = null;
 let spotCacheTimestamp = 0;
 const SPOT_CACHE_TTL_MS = 30 * 1000; // 30 seconds
 
-async function fetchSpotPrice(): Promise<number | null> {
-  const now = Date.now();
-  if (cachedSpotPrice !== null && now - spotCacheTimestamp < SPOT_CACHE_TTL_MS) {
-    return cachedSpotPrice;
+/** Scrape OANDA:XAGUSD close price from TradingView's public symbol page */
+async function fetchFromTradingView(): Promise<number | null> {
+  try {
+    const response = await fetch(
+      "https://www.tradingview.com/symbols/XAGUSD/?exchange=OANDA",
+      {
+        headers: { "User-Agent": "Mozilla/5.0 (compatible; XAGUSD-Screener/1.0)" },
+        signal: AbortSignal.timeout(4000),
+      },
+    );
+    if (!response.ok) return null;
+    const html = await response.text();
+    const match = html.match(/"close":"([0-9.]+)"/);
+    if (!match) return null;
+    const price = parseFloat(match[1]);
+    return isFinite(price) ? price : null;
+  } catch {
+    return null;
   }
+}
+
+/** Fallback: gold-api.com spot silver */
+async function fetchFromGoldApi(): Promise<number | null> {
   try {
     const response = await fetch("https://api.gold-api.com/price/XAG", {
       headers: { "User-Agent": "Mozilla/5.0 (compatible; XAGUSD-Screener/1.0)" },
       signal: AbortSignal.timeout(4000),
     });
-    if (!response.ok) return cachedSpotPrice; // fall back to last good
-    const json = await response.json() as { price: number };
-    if (typeof json.price !== "number" || !isFinite(json.price)) return cachedSpotPrice;
-    cachedSpotPrice = json.price;
-    spotCacheTimestamp = now;
-    return cachedSpotPrice;
+    if (!response.ok) return null;
+    const json = (await response.json()) as { price: number };
+    return typeof json.price === "number" && isFinite(json.price) ? json.price : null;
   } catch {
-    return cachedSpotPrice; // network failure → use last good or null
+    return null;
   }
+}
+
+async function fetchSpotPrice(): Promise<number | null> {
+  const now = Date.now();
+  if (cachedSpotPrice !== null && now - spotCacheTimestamp < SPOT_CACHE_TTL_MS) {
+    return cachedSpotPrice;
+  }
+  // Prefer TradingView OANDA:XAGUSD (matches the chart exactly), fall back to gold-api
+  const price = (await fetchFromTradingView()) ?? (await fetchFromGoldApi());
+  if (price !== null) {
+    cachedSpotPrice = price;
+    spotCacheTimestamp = now;
+    return price;
+  }
+  return cachedSpotPrice; // last known good or null
 }
 
 async function fetchPriceData(): Promise<CandleRaw[]> {
