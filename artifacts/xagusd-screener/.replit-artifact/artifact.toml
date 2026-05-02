@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "XAGUSD Screener"
+version = "1.0.0"
+id = "artifacts/xagusd-screener"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 21678
+
+[services.development]
+run = "pnpm --filter @workspace/xagusd-screener run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/xagusd-screener", "run", "build" ]
+publicDir = "artifacts/xagusd-screener/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "21678"
+BASE_PATH = "/"
