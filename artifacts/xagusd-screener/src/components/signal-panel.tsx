@@ -327,11 +327,16 @@ function ZoneRow({
       : `${fmtPriceCompact(symbol, Math.abs(distance), 1)} above`;
   }
 
+  const glow = isActive || inZone;
+  const glowShadow = isLong
+    ? "shadow-[inset_0_0_18px_rgba(0,201,80,0.45)] ring-1 ring-emerald-400/40"
+    : "shadow-[inset_0_0_18px_rgba(229,62,62,0.45)] ring-1 ring-red-400/40";
+
   return (
     <div
       className={cn(
-        "px-3 py-2.5 flex flex-col gap-1 min-w-0",
-        isActive ? sideBg : "",
+        "px-3 py-2.5 flex flex-col gap-1 min-w-0 transition-all",
+        glow ? `${sideBg} ${glowShadow}` : "",
       )}
     >
       <div className="flex items-center justify-between gap-2 min-w-0">
