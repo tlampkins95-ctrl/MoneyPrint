@@ -89,7 +89,7 @@ export function SignalPanel({
 
   if (isLoading) {
     return (
-      <div className="flex flex-col h-full bg-[#0a0a0a] rounded-xl border border-zinc-800 p-5 animate-pulse space-y-4">
+      <div className="flex flex-col h-full bg-[#0a0a0a]/65 rounded-xl border border-zinc-800 p-5 animate-pulse space-y-4">
         <div className="h-36 bg-white/5 rounded-lg" />
         <div className="h-12 bg-white/5 rounded-lg" />
         <div className="h-48 bg-white/5 rounded-lg" />
@@ -100,7 +100,7 @@ export function SignalPanel({
 
   if (isError || !data) {
     return (
-      <div className="flex flex-col items-center justify-center h-full bg-[#0a0a0a] rounded-xl border border-red-500/20 p-6 text-center">
+      <div className="flex flex-col items-center justify-center h-full bg-[#0a0a0a]/65 rounded-xl border border-red-500/20 p-6 text-center">
         <AlertTriangle className="w-8 h-8 text-red-500 mb-3" />
         <div className="text-red-500 mb-2 font-bold">Signal data unavailable</div>
         <p className="text-sm text-zinc-400 mb-6">
@@ -142,7 +142,7 @@ export function SignalPanel({
   const signalTextColor = data.signal === "WAIT" || data.signal === "BUY" ? "text-black" : "text-white";
 
   return (
-    <div className="flex flex-col h-full bg-[#0a0a0a] text-zinc-100 rounded-xl border border-zinc-800 overflow-hidden font-mono shadow-2xl">
+    <div className="flex flex-col h-full bg-[#0a0a0a]/65 backdrop-blur-md text-zinc-100 rounded-xl border border-zinc-800 overflow-hidden font-mono shadow-2xl">
 
       {/* ── 1. Signal Hero ─────────────────────────────────────────────── */}
       <div className={cn("px-5 py-5 flex flex-col items-center text-center shrink-0 relative", signalBg, signalTextColor)}>
@@ -510,7 +510,7 @@ export function SignalPanel({
                     </span>
                   </div>
                   <div className="grid grid-cols-3 gap-px bg-zinc-800 text-center">
-                    <div className="bg-[#0a0a0a] px-2 py-2">
+                    <div className="bg-[#0a0a0a]/65 px-2 py-2">
                       <div className="text-[8px] text-zinc-500 font-sans font-semibold tracking-widest">
                         LOTS
                       </div>
@@ -518,7 +518,7 @@ export function SignalPanel({
                         {data.positionSizing.mt5.lots.toFixed(2)}
                       </div>
                     </div>
-                    <div className="bg-[#0a0a0a] px-2 py-2">
+                    <div className="bg-[#0a0a0a]/65 px-2 py-2">
                       <div className="text-[8px] text-zinc-500 font-sans font-semibold tracking-widest">
                         POSITION
                       </div>
@@ -526,7 +526,7 @@ export function SignalPanel({
                         {formatPositionSize(data.positionSizing.mt5.positionSize, data.positionSizing.positionSizeUnit)}
                       </div>
                     </div>
-                    <div className="bg-[#0a0a0a] px-2 py-2">
+                    <div className="bg-[#0a0a0a]/65 px-2 py-2">
                       <div className="text-[8px] text-zinc-500 font-sans font-semibold tracking-widest">
                         NOTIONAL
                       </div>
@@ -584,7 +584,7 @@ export function SignalPanel({
                     )}
                   </div>
                   <div className="grid grid-cols-3 gap-px bg-zinc-800 text-center">
-                    <div className="bg-[#0a0a0a] px-2 py-2">
+                    <div className="bg-[#0a0a0a]/65 px-2 py-2">
                       <div className="text-[8px] text-zinc-500 font-sans font-semibold tracking-widest">
                         COLLATERAL
                       </div>
@@ -592,7 +592,7 @@ export function SignalPanel({
                         ${data.positionSizing.achievable.collateral.toFixed(2)}
                       </div>
                     </div>
-                    <div className="bg-[#0a0a0a] px-2 py-2">
+                    <div className="bg-[#0a0a0a]/65 px-2 py-2">
                       <div className="text-[8px] text-zinc-500 font-sans font-semibold tracking-widest">
                         LEVERAGE
                       </div>
@@ -600,7 +600,7 @@ export function SignalPanel({
                         {data.positionSizing.achievable.leverage.toFixed(1)}x
                       </div>
                     </div>
-                    <div className="bg-[#0a0a0a] px-2 py-2">
+                    <div className="bg-[#0a0a0a]/65 px-2 py-2">
                       <div className="text-[8px] text-zinc-500 font-sans font-semibold tracking-widest">
                         POSITION
                       </div>
@@ -796,7 +796,7 @@ function computeR(entry: number, stopLoss: number, target: number): number {
 
 function LotCell({ label, value }: { label: string; value: number }) {
   return (
-    <div className="flex flex-col gap-0.5 bg-[#0a0a0a] rounded px-1.5 py-1.5 border border-zinc-800/60">
+    <div className="flex flex-col gap-0.5 bg-[#0a0a0a]/65 rounded px-1.5 py-1.5 border border-zinc-800/60">
       <span className="text-[8px] tracking-widest text-zinc-500 font-sans font-semibold">
         {label}
       </span>

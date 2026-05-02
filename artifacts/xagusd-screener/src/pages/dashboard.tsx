@@ -47,9 +47,14 @@ export default function Dashboard() {
   }, [symbol, timeframe]);
 
   return (
-    <div className="min-h-[100dvh] w-full bg-background flex flex-col">
+    <div
+      className="min-h-[100dvh] w-full bg-background flex flex-col bg-cover bg-center bg-fixed bg-no-repeat"
+      style={{
+        backgroundImage: `linear-gradient(rgba(10,10,10,0.45), rgba(10,10,10,0.55)), url(${import.meta.env.BASE_URL}terminal-bg.png)`,
+      }}
+    >
       {/* Top Navbar */}
-      <header className="h-12 border-b bg-card flex items-center px-4 shrink-0 justify-between">
+      <header className="h-12 border-b border-border/60 bg-card/60 backdrop-blur-md flex items-center px-4 shrink-0 justify-between">
         <div className="flex items-center gap-3">
           <div
             className="h-7 w-7 rounded-lg bg-primary text-primary-foreground flex items-center justify-center font-black text-xs shadow-[0_0_16px_rgba(251,191,36,0.35)]"

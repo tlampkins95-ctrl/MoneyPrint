@@ -122,7 +122,7 @@ export function EdgeLeaderboard({
   }, [cells, sortKey]);
 
   return (
-    <div className="border border-border rounded-lg bg-card overflow-hidden">
+    <div className="border border-border rounded-lg bg-card/65 backdrop-blur-md overflow-hidden">
       {open && (
         <CellLoaders enabled={open} onCells={setCells} />
       )}

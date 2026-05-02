@@ -28,7 +28,7 @@ function BacktestShell({
   children: ReactNode;
 }) {
   return (
-    <div className="border border-border rounded-lg bg-card flex flex-col" data-testid="backtest-panel">
+    <div className="border border-border rounded-lg bg-card/65 backdrop-blur-md flex flex-col" data-testid="backtest-panel">
       <div className="px-4 py-3 border-b border-border/50 flex items-center justify-between">
         <button
           type="button"

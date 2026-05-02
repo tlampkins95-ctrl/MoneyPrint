@@ -207,7 +207,7 @@ export function TradingViewChart({
         : "bg-amber-500/95 text-black border-amber-400";
 
   return (
-    <div className="relative h-full w-full bg-[#0a0a0a] rounded-sm overflow-hidden border border-zinc-800">
+    <div className="relative h-full w-full bg-[#0a0a0a]/65 backdrop-blur-md rounded-sm overflow-hidden border border-zinc-800">
       {/* Header: symbol + signal + price */}
       <div className="absolute top-0 left-0 right-0 z-10 flex items-center justify-between px-3 py-2 pointer-events-none">
         <div className="flex items-center gap-2 font-mono text-[11px]">

@@ -124,7 +124,7 @@ function SignalRow(p: RowProps) {
     <button
       onClick={p.onClick}
       className={cn(
-        "group relative w-full text-left rounded-lg border bg-[#0a0a0a] hover:bg-white/[0.025] transition-colors",
+        "group relative w-full text-left rounded-lg border bg-[#0a0a0a]/65 hover:bg-white/[0.025] transition-colors",
         "flex flex-col gap-2 p-3 cursor-pointer",
         p.highlighted ? "border-primary/60 ring-1 ring-primary/30" : "border-zinc-800 hover:border-zinc-700",
       )}
@@ -267,7 +267,7 @@ export function ActiveSignalsOverview({
 
   return (
     <section
-      className="rounded-xl border border-zinc-800 bg-[#0a0a0a] overflow-hidden"
+      className="rounded-xl border border-zinc-800 bg-[#0a0a0a]/65 backdrop-blur-md overflow-hidden"
       data-testid="active-signals-overview"
     >
       <div
