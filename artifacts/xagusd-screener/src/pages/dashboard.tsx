@@ -50,7 +50,7 @@ export default function Dashboard() {
     <div
       className="min-h-[100dvh] w-full bg-background flex flex-col bg-cover bg-center bg-fixed bg-no-repeat"
       style={{
-        backgroundImage: `linear-gradient(rgba(10,10,10,0.45), rgba(10,10,10,0.55)), url(${import.meta.env.BASE_URL}terminal-bg.png)`,
+        backgroundImage: `linear-gradient(rgba(10,10,10,0.30), rgba(10,10,10,0.40)), url(${import.meta.env.BASE_URL}terminal-bg.png)`,
       }}
     >
       {/* Top Navbar */}
