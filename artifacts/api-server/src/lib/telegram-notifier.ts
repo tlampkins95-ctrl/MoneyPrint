@@ -4,7 +4,7 @@ import {
   fetchCandlesForTimeframe,
   type Timeframe,
 } from "./yahoo-fetch";
-import { computeLevels, fetchSpotPrice } from "./signals";
+import { computeLevelsStable, fetchSpotPrice } from "./signals";
 
 type SignalKind = "BUY" | "SELL" | "WAIT";
 
@@ -109,7 +109,7 @@ async function checkSymbol(
     ]);
     if (candles.length < 2) return;
 
-    const levels = computeLevels(candles, spot, timeframe, symbol);
+    const levels = computeLevelsStable(candles, spot, timeframe, symbol);
     const k = key(symbol, timeframe);
     const prev = stateMap.get(k);
     const now = Date.now();

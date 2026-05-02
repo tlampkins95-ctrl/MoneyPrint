@@ -466,3 +466,139 @@ export function computeLevels(
     positionSizing,
   };
 }
+
+// ─── Stable signal wrapper ───────────────────────────────────────────────────
+// Once a BUY/SELL signal fires, freeze entry/SL/TP1/TP2/zones until the trade
+// is invalidated. Without this the entry shifts every time a new bar closes
+// (because pivots are recomputed from prev.high/low/close), which is bad UX
+// for a live trader trying to enter the order book.
+//
+// Trade is invalidated when:
+//   - Stop loss is hit (price closes through SL)
+//   - TP2 is hit (full target reached)
+//   - Server restarts (in-memory only)
+//
+// Position sizing always recomputes against the caller's account/risk because
+// those are user inputs and must respond live.
+
+type Levels = ReturnType<typeof computeLevels>;
+
+interface ActiveTrade {
+  signal: "BUY" | "SELL";
+  signalReason: string;
+  entryPrice: number;
+  stopLoss: number;
+  takeProfit1: number;
+  takeProfit2: number;
+  riskRewardRatio: number;
+  buyZone: Levels["buyZone"];
+  sellZone: Levels["sellZone"];
+  pivot: number;
+  levelsArr: Levels["levels"];
+  trend: Levels["trend"];
+  trendStrength: number;
+  openedAt: number;
+  tp1Hit: boolean;
+}
+
+const activeTrades = new Map<string, ActiveTrade>();
+
+function tradeKey(symbol: Symbol, timeframe: Timeframe): string {
+  return `${symbol}::${timeframe}`;
+}
+
+function isInvalidated(trade: ActiveTrade, currentPrice: number): boolean {
+  if (trade.signal === "BUY") {
+    return currentPrice <= trade.stopLoss || currentPrice >= trade.takeProfit2;
+  }
+  return currentPrice >= trade.stopLoss || currentPrice <= trade.takeProfit2;
+}
+
+export function computeLevelsStable(
+  candles: CandleRaw[],
+  spotPrice: number | null,
+  timeframe: Timeframe,
+  symbol: Symbol,
+  accountSize: number = DEFAULT_ACCOUNT_SIZE,
+  riskPct: number = DEFAULT_RISK_PCT,
+): Levels {
+  const fresh = computeLevels(candles, spotPrice, timeframe, symbol, accountSize, riskPct);
+  const k = tradeKey(symbol, timeframe);
+  const existing = activeTrades.get(k);
+
+  // Invalidate if SL or TP2 hit.
+  if (existing && isInvalidated(existing, fresh.currentPrice)) {
+    activeTrades.delete(k);
+  }
+
+  // Keep frozen view if the trade is still active. Note we re-read `existing`
+  // because the delete above may have cleared it.
+  const stillActive = activeTrades.get(k);
+  if (stillActive) {
+    // Mark TP1 as hit (purely informational — does NOT invalidate the trade).
+    if (!stillActive.tp1Hit) {
+      const tp1Reached =
+        stillActive.signal === "BUY"
+          ? fresh.currentPrice >= stillActive.takeProfit1
+          : fresh.currentPrice <= stillActive.takeProfit1;
+      if (tp1Reached) {
+        stillActive.tp1Hit = true;
+      }
+    }
+    return {
+      ...fresh,
+      signal: stillActive.signal,
+      signalReason: stillActive.signalReason,
+      entryPrice: stillActive.entryPrice,
+      stopLoss: stillActive.stopLoss,
+      takeProfit1: stillActive.takeProfit1,
+      takeProfit2: stillActive.takeProfit2,
+      riskRewardRatio: stillActive.riskRewardRatio,
+      buyZone: stillActive.buyZone,
+      sellZone: stillActive.sellZone,
+      pivot: stillActive.pivot,
+      levels: stillActive.levelsArr,
+      // Recompute sizing fresh against the (possibly updated) account/risk
+      // inputs but using the FROZEN entry and stop loss.
+      positionSizing: computePositionSizing(
+        symbol,
+        stillActive.entryPrice,
+        stillActive.stopLoss,
+        accountSize,
+        riskPct,
+      ),
+    };
+  }
+
+  // No active trade. If fresh is BUY/SELL, snapshot it as the new active trade.
+  if (fresh.signal === "BUY" || fresh.signal === "SELL") {
+    activeTrades.set(k, {
+      signal: fresh.signal,
+      signalReason: fresh.signalReason,
+      entryPrice: fresh.entryPrice,
+      stopLoss: fresh.stopLoss,
+      takeProfit1: fresh.takeProfit1,
+      takeProfit2: fresh.takeProfit2,
+      riskRewardRatio: fresh.riskRewardRatio,
+      buyZone: fresh.buyZone,
+      sellZone: fresh.sellZone,
+      pivot: fresh.pivot,
+      levelsArr: fresh.levels,
+      trend: fresh.trend,
+      trendStrength: fresh.trendStrength,
+      openedAt: Date.now(),
+      tp1Hit: false,
+    });
+  }
+
+  return fresh;
+}
+
+// Exposed for diagnostics / testing.
+export function getActiveTrade(symbol: Symbol, timeframe: Timeframe): ActiveTrade | undefined {
+  return activeTrades.get(tradeKey(symbol, timeframe));
+}
+
+export function clearActiveTrade(symbol: Symbol, timeframe: Timeframe): void {
+  activeTrades.delete(tradeKey(symbol, timeframe));
+}

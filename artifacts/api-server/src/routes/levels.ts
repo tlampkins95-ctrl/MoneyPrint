@@ -10,7 +10,7 @@ import {
   type Timeframe,
 } from "../lib/yahoo-fetch";
 import { SYMBOLS, makeRounder, type Symbol } from "../lib/symbols";
-import { computeLevels, fetchSpotPrice } from "../lib/signals";
+import { computeLevelsStable, fetchSpotPrice } from "../lib/signals";
 
 const router: IRouter = Router();
 
@@ -33,7 +33,7 @@ router.get("/levels", async (req: Request, res: Response) => {
       return;
     }
     const data = GetLevelsResponse.parse(
-      computeLevels(candles, spotPrice, timeframe, symbol, accountSize, riskPctFrac),
+      computeLevelsStable(candles, spotPrice, timeframe, symbol, accountSize, riskPctFrac),
     );
     res.json(data);
   } catch (err) {
