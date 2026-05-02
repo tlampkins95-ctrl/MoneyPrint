@@ -1,3 +1,5 @@
+import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { SYMBOLS, makeRounder, type Symbol } from "./symbols";
 import { type CandleRaw, type Timeframe } from "./yahoo-fetch";
 import { fetchOkxPerpPrice } from "./crypto-perp-fetch";
@@ -657,6 +659,43 @@ interface ActiveTrade {
 
 const activeTrades = new Map<string, ActiveTrade>();
 
+// ─── Disk persistence for active trades ──────────────────────────────────────
+// The freeze-on-signal logic keeps entry/SL/TP stable from the moment a BUY
+// or SELL fires until SL or TP2 hits. Without disk persistence, every server
+// restart wiped the in-memory Map, which let the next request re-snapshot
+// fresh (drifted) levels. Persist to a JSON file so restarts preserve open
+// trades.
+
+const ACTIVE_TRADES_FILE =
+  process.env.ACTIVE_TRADES_FILE ??
+  join(process.cwd(), ".runtime", "active-trades.json");
+
+function loadActiveTradesFromDisk(): void {
+  try {
+    const raw = readFileSync(ACTIVE_TRADES_FILE, "utf-8");
+    const obj = JSON.parse(raw) as Record<string, ActiveTrade>;
+    for (const [k, v] of Object.entries(obj)) {
+      activeTrades.set(k, v);
+    }
+  } catch {
+    // No file yet, or unreadable — start fresh.
+  }
+}
+
+function persistActiveTrades(): void {
+  try {
+    mkdirSync(dirname(ACTIVE_TRADES_FILE), { recursive: true });
+    const obj: Record<string, ActiveTrade> = {};
+    for (const [k, v] of activeTrades) obj[k] = v;
+    writeFileSync(ACTIVE_TRADES_FILE, JSON.stringify(obj));
+  } catch {
+    // Persistence is best-effort — never crash the request path.
+  }
+}
+
+// Eager load on module init. Cheap (single small JSON file).
+loadActiveTradesFromDisk();
+
 function tradeKey(symbol: Symbol, timeframe: Timeframe): string {
   return `${symbol}::${timeframe}`;
 }
@@ -685,6 +724,7 @@ export function computeLevelsStable(
   // Invalidate if SL or TP2 hit.
   if (existing && isInvalidated(existing, fresh.currentPrice)) {
     activeTrades.delete(k);
+    persistActiveTrades();
   }
 
   // Keep frozen view if the trade is still active. Note we re-read `existing`
@@ -699,6 +739,7 @@ export function computeLevelsStable(
           : fresh.currentPrice <= stillActive.takeProfit1;
       if (tp1Reached) {
         stillActive.tp1Hit = true;
+        persistActiveTrades();
       }
     }
     return {
@@ -749,6 +790,7 @@ export function computeLevelsStable(
       openedAt: Date.now(),
       tp1Hit: false,
     });
+    persistActiveTrades();
   }
 
   return fresh;
@@ -761,4 +803,5 @@ export function getActiveTrade(symbol: Symbol, timeframe: Timeframe): ActiveTrad
 
 export function clearActiveTrade(symbol: Symbol, timeframe: Timeframe): void {
   activeTrades.delete(tradeKey(symbol, timeframe));
+  persistActiveTrades();
 }
