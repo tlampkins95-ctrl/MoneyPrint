@@ -133,27 +133,48 @@ export function SignalPanel({
     ? data.positionSizing?.mt5
     : data.positionSizing?.achievable;
 
+  // Inverted hero: instead of a bright signal-colored background with dark text,
+  // we render a near-black box and let the signal word itself glow in colour.
+  // A subtle vertical tint preserves each signal's identity without the
+  // billboard-bright wash of the old design.
   const signalBg = data.signal === "BUY"
-    ? "bg-[#00c950]"
+    ? "bg-gradient-to-b from-emerald-950/70 via-[#0a0a0a]/85 to-[#0a0a0a]/85"
     : data.signal === "SELL"
-    ? "bg-[#e53e3e]"
-    : "bg-[#FBBF24]";
+    ? "bg-gradient-to-b from-red-950/70 via-[#0a0a0a]/85 to-[#0a0a0a]/85"
+    : "bg-gradient-to-b from-amber-950/70 via-[#0a0a0a]/85 to-[#0a0a0a]/85";
 
-  const signalTextColor = data.signal === "WAIT" || data.signal === "BUY" ? "text-black" : "text-white";
+  // Body text (timeframe pill, reason copy) sits on the dark hero, so default
+  // to light text for everything; the BUY/SELL/WAIT word itself is overridden
+  // below with its own glow style.
+  const signalTextColor = "text-zinc-100";
 
-  // For BUY we render the big word in glowing gold instead of plain black —
-  // gives the "long the metal" call a luxe, treasury-bar feel against the
-  // green hero. Other signals keep their default high-contrast black/white.
-  const isBuy = data.signal === "BUY";
-  const signalWordStyle: React.CSSProperties = isBuy
-    ? {
-        fontFamily: "var(--app-font-display)",
-        color: "#FFD56B",
-        textShadow:
-          "0 0 6px rgba(255, 213, 107, 0.85), 0 0 18px rgba(255, 191, 71, 0.65), 0 0 36px rgba(255, 165, 0, 0.45), 0 1px 0 rgba(0,0,0,0.4)",
-        WebkitTextStroke: "0.5px rgba(120, 80, 0, 0.55)",
-      }
-    : { fontFamily: "var(--app-font-display)" };
+  const signalGlow: Record<typeof data.signal, { color: string; shadow: string; stroke: string }> = {
+    BUY: {
+      color: "#22E07A",
+      shadow:
+        "0 0 6px rgba(34,224,122,0.95), 0 0 20px rgba(0,201,80,0.75), 0 0 44px rgba(0,201,80,0.45)",
+      stroke: "0.5px rgba(0, 80, 35, 0.55)",
+    },
+    SELL: {
+      color: "#FF5F6D",
+      shadow:
+        "0 0 6px rgba(255,95,109,0.95), 0 0 20px rgba(229,62,62,0.75), 0 0 44px rgba(229,62,62,0.45)",
+      stroke: "0.5px rgba(110, 0, 0, 0.55)",
+    },
+    WAIT: {
+      color: "#FFD56B",
+      shadow:
+        "0 0 6px rgba(255,213,107,0.95), 0 0 20px rgba(255,191,36,0.7), 0 0 44px rgba(255,165,0,0.45)",
+      stroke: "0.5px rgba(120, 80, 0, 0.55)",
+    },
+  };
+  const glow = signalGlow[data.signal];
+  const signalWordStyle: React.CSSProperties = {
+    fontFamily: "var(--app-font-display)",
+    color: glow.color,
+    textShadow: glow.shadow,
+    WebkitTextStroke: glow.stroke,
+  };
 
   return (
     <div className="flex flex-col h-full bg-[#0a0a0a]/50 backdrop-blur-md text-zinc-100 rounded-xl border border-zinc-800 overflow-hidden font-mono shadow-2xl">
