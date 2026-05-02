@@ -100,6 +100,8 @@ export function TradingViewChart({
       borderDownColor: "#e53e3e",
       wickUpColor: "#00c950",
       wickDownColor: "#e53e3e",
+      priceLineColor: "#ffffff",
+      priceLineWidth: 1,
       priceFormat: {
         type: "price",
         precision: SYMBOLS[symbol].decimals,
