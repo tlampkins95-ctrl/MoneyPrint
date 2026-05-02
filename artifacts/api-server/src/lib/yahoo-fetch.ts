@@ -1,3 +1,5 @@
+import { SYMBOLS, type Symbol } from "./symbols";
+
 export type Timeframe = "1m" | "15m" | "30m" | "1h" | "1d";
 
 export interface CandleRaw {
@@ -35,19 +37,28 @@ const CACHE_TTL_MS: Record<Timeframe, number> = {
   "1d": 5 * 60 * 1000,
 };
 
-const cache = new Map<Timeframe, CacheEntry>();
+const cache = new Map<string, CacheEntry>();
+
+function cacheKey(symbol: Symbol, timeframe: Timeframe): string {
+  return `${symbol}::${timeframe}`;
+}
 
 export async function fetchCandlesForTimeframe(
+  symbol: Symbol,
   timeframe: Timeframe,
 ): Promise<CandleRaw[]> {
   const now = Date.now();
-  const existing = cache.get(timeframe);
+  const key = cacheKey(symbol, timeframe);
+  const existing = cache.get(key);
   if (existing && now - existing.timestamp < CACHE_TTL_MS[timeframe]) {
     return existing.candles;
   }
 
   const cfg = TIMEFRAME_MAP[timeframe];
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/SI%3DF?interval=${cfg.interval}&range=${cfg.range}`;
+  const yahooSymbol = SYMBOLS[symbol].yahoo;
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(
+    yahooSymbol,
+  )}?interval=${cfg.interval}&range=${cfg.range}`;
   const response = await fetch(url, {
     headers: { "User-Agent": "Mozilla/5.0 (compatible; XAGUSD-Screener/1.0)" },
   });
@@ -91,6 +102,6 @@ export async function fetchCandlesForTimeframe(
       volume: q.volume[i] ?? 0,
     });
   }
-  cache.set(timeframe, { candles, timestamp: now });
+  cache.set(key, { candles, timestamp: now });
   return candles;
 }

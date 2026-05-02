@@ -169,10 +169,28 @@ export interface BacktestResult {
 
 export type GetLevelsParams = {
   /**
+   * Trading instrument
+   */
+  symbol?: GetLevelsSymbol;
+  /**
    * Bar timeframe used to compute pivots and zones
    */
   timeframe?: GetLevelsTimeframe;
 };
+
+export type GetLevelsSymbol =
+  (typeof GetLevelsSymbol)[keyof typeof GetLevelsSymbol];
+
+export const GetLevelsSymbol = {
+  XAGUSD: "XAGUSD",
+  XAUUSD: "XAUUSD",
+  EURUSD: "EURUSD",
+  GBPUSD: "GBPUSD",
+  AUDUSD: "AUDUSD",
+  USDJPY: "USDJPY",
+  GBPJPY: "GBPJPY",
+  BTCUSD: "BTCUSD",
+} as const;
 
 export type GetLevelsTimeframe =
   (typeof GetLevelsTimeframe)[keyof typeof GetLevelsTimeframe];
@@ -187,10 +205,28 @@ export const GetLevelsTimeframe = {
 
 export type GetBacktestParams = {
   /**
+   * Trading instrument
+   */
+  symbol?: GetBacktestSymbol;
+  /**
    * Bar timeframe used for the backtest
    */
   timeframe?: GetBacktestTimeframe;
 };
+
+export type GetBacktestSymbol =
+  (typeof GetBacktestSymbol)[keyof typeof GetBacktestSymbol];
+
+export const GetBacktestSymbol = {
+  XAGUSD: "XAGUSD",
+  XAUUSD: "XAUUSD",
+  EURUSD: "EURUSD",
+  GBPUSD: "GBPUSD",
+  AUDUSD: "AUDUSD",
+  USDJPY: "USDJPY",
+  GBPJPY: "GBPJPY",
+  BTCUSD: "BTCUSD",
+} as const;
 
 export type GetBacktestTimeframe =
   (typeof GetBacktestTimeframe)[keyof typeof GetBacktestTimeframe];

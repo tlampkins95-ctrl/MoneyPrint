@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
-import { useGetLevels } from "@workspace/api-client-react";
+import { useGetLevels, getGetLevelsQueryKey } from "@workspace/api-client-react";
 import type { Timeframe } from "@/components/timeframe-selector";
+import { SYMBOLS, fmtPrice, fmtPriceCompact, type Symbol } from "@/lib/symbols";
 
 const TV_INTERVAL: Record<Timeframe, string> = {
   "1m": "1",
@@ -10,13 +11,24 @@ const TV_INTERVAL: Record<Timeframe, string> = {
   "1d": "D",
 };
 
-export function TradingViewChart({ timeframe }: { timeframe: Timeframe }) {
+export function TradingViewChart({
+  symbol,
+  timeframe,
+}: {
+  symbol: Symbol;
+  timeframe: Timeframe;
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
   const widgetRef = useRef<HTMLDivElement>(null);
 
   const { data: levels } = useGetLevels(
-    { timeframe },
-    { query: { refetchInterval: 60000 } },
+    { symbol, timeframe },
+    {
+      query: {
+        queryKey: getGetLevelsQueryKey({ symbol, timeframe }),
+        refetchInterval: 60000,
+      },
+    },
   );
 
   useEffect(() => {
@@ -29,7 +41,7 @@ export function TradingViewChart({ timeframe }: { timeframe: Timeframe }) {
     script.async = true;
     script.innerHTML = JSON.stringify({
       autosize: true,
-      symbol: "OANDA:XAGUSD",
+      symbol: SYMBOLS[symbol].tv,
       interval: TV_INTERVAL[timeframe],
       timezone: "Etc/UTC",
       theme: "dark",
@@ -45,7 +57,7 @@ export function TradingViewChart({ timeframe }: { timeframe: Timeframe }) {
       support_host: "https://www.tradingview.com",
     });
     widgetRef.current.appendChild(script);
-  }, [timeframe]);
+  }, [symbol, timeframe]);
 
   return (
     <div
@@ -73,7 +85,7 @@ export function TradingViewChart({ timeframe }: { timeframe: Timeframe }) {
               {levels.signal}
             </span>
             <span className="px-2 py-0.5 rounded-sm bg-black/80 border border-border/60 text-foreground text-[11px] flex-1 text-right">
-              ${levels.currentPrice.toFixed(3)}
+              {fmtPrice(symbol, levels.currentPrice)}
             </span>
           </div>
 
@@ -81,31 +93,31 @@ export function TradingViewChart({ timeframe }: { timeframe: Timeframe }) {
             <div className="flex items-center justify-between gap-2">
               <span className="text-emerald-400">BUY</span>
               <span className="text-foreground/90 text-[10px]">
-                {levels.buyZone.low.toFixed(2)}–{levels.buyZone.high.toFixed(2)}
+                {fmtPriceCompact(symbol, levels.buyZone.low, 1)}–{fmtPriceCompact(symbol, levels.buyZone.high, 1)}
               </span>
             </div>
             <div className="flex items-center justify-between gap-2">
               <span className="text-red-400">SELL</span>
               <span className="text-foreground/90 text-[10px]">
-                {levels.sellZone.low.toFixed(2)}–{levels.sellZone.high.toFixed(2)}
+                {fmtPriceCompact(symbol, levels.sellZone.low, 1)}–{fmtPriceCompact(symbol, levels.sellZone.high, 1)}
               </span>
             </div>
             <div className="border-t border-border/40 my-0.5" />
             <div className="flex items-center justify-between gap-2">
               <span className="text-muted-foreground">ENTRY</span>
-              <span className="text-foreground">${levels.entryPrice.toFixed(2)}</span>
+              <span className="text-foreground">{fmtPrice(symbol, levels.entryPrice)}</span>
             </div>
             <div className="flex items-center justify-between gap-2">
               <span className="text-red-400">SL</span>
-              <span className="text-foreground">${levels.stopLoss.toFixed(2)}</span>
+              <span className="text-foreground">{fmtPrice(symbol, levels.stopLoss)}</span>
             </div>
             <div className="flex items-center justify-between gap-2">
               <span className="text-emerald-400">TP1</span>
-              <span className="text-foreground">${levels.takeProfit1.toFixed(2)}</span>
+              <span className="text-foreground">{fmtPrice(symbol, levels.takeProfit1)}</span>
             </div>
             <div className="flex items-center justify-between gap-2">
               <span className="text-emerald-400">TP2</span>
-              <span className="text-foreground">${levels.takeProfit2.toFixed(2)}</span>
+              <span className="text-foreground">{fmtPrice(symbol, levels.takeProfit2)}</span>
             </div>
           </div>
         </div>

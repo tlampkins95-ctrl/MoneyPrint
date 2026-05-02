@@ -5,9 +5,14 @@
  * XAGUSD Screener API
  * OpenAPI spec version: 0.2.0
  */
+import type { GetLevelsSymbol } from "./getLevelsSymbol";
 import type { GetLevelsTimeframe } from "./getLevelsTimeframe";
 
 export type GetLevelsParams = {
+  /**
+   * Trading instrument
+   */
+  symbol?: GetLevelsSymbol;
   /**
    * Bar timeframe used to compute pivots and zones
    */

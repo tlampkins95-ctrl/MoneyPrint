@@ -5,9 +5,14 @@
  * XAGUSD Screener API
  * OpenAPI spec version: 0.2.0
  */
+import type { GetBacktestSymbol } from "./getBacktestSymbol";
 import type { GetBacktestTimeframe } from "./getBacktestTimeframe";
 
 export type GetBacktestParams = {
+  /**
+   * Trading instrument
+   */
+  symbol?: GetBacktestSymbol;
   /**
    * Bar timeframe used for the backtest
    */

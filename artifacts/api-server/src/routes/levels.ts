@@ -10,24 +10,26 @@ import {
   type Timeframe,
   type CandleRaw,
 } from "../lib/yahoo-fetch";
+import { SYMBOLS, makeRounder, type Symbol } from "../lib/symbols";
 
 const router: IRouter = Router();
 
-// ─── Live spot price (separate cache — refreshed often for real-time display) ─
+// ─── Live spot price (per-symbol cache) ──────────────────────────────────────
 
-let cachedSpotPrice: number | null = null;
-let spotCacheTimestamp = 0;
+interface SpotCacheEntry {
+  price: number;
+  timestamp: number;
+}
+const spotCache = new Map<Symbol, SpotCacheEntry>();
 const SPOT_CACHE_TTL_MS = 30 * 1000;
 
-async function fetchFromTradingView(): Promise<number | null> {
+async function fetchFromTradingView(symbol: Symbol): Promise<number | null> {
   try {
-    const response = await fetch(
-      "https://www.tradingview.com/symbols/XAGUSD/?exchange=OANDA",
-      {
-        headers: { "User-Agent": "Mozilla/5.0 (compatible; XAGUSD-Screener/1.0)" },
-        signal: AbortSignal.timeout(4000),
-      },
-    );
+    const path = SYMBOLS[symbol].tvScrapePath;
+    const response = await fetch(`https://www.tradingview.com${path}`, {
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; Forex-Screener/1.0)" },
+      signal: AbortSignal.timeout(4000),
+    });
     if (!response.ok) return null;
     const html = await response.text();
     const match = html.match(/"close":"([0-9.]+)"/);
@@ -39,10 +41,12 @@ async function fetchFromTradingView(): Promise<number | null> {
   }
 }
 
-async function fetchFromGoldApi(): Promise<number | null> {
+async function fetchFromGoldApi(symbol: Symbol): Promise<number | null> {
+  const goldApi = SYMBOLS[symbol].goldApi;
+  if (!goldApi) return null;
   try {
-    const response = await fetch("https://api.gold-api.com/price/XAG", {
-      headers: { "User-Agent": "Mozilla/5.0 (compatible; XAGUSD-Screener/1.0)" },
+    const response = await fetch(`https://api.gold-api.com/price/${goldApi}`, {
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; Forex-Screener/1.0)" },
       signal: AbortSignal.timeout(4000),
     });
     if (!response.ok) return null;
@@ -53,47 +57,46 @@ async function fetchFromGoldApi(): Promise<number | null> {
   }
 }
 
-async function fetchSpotPrice(): Promise<number | null> {
+async function fetchSpotPrice(symbol: Symbol): Promise<number | null> {
   const now = Date.now();
-  if (cachedSpotPrice !== null && now - spotCacheTimestamp < SPOT_CACHE_TTL_MS) {
-    return cachedSpotPrice;
+  const cached = spotCache.get(symbol);
+  if (cached && now - cached.timestamp < SPOT_CACHE_TTL_MS) {
+    return cached.price;
   }
-  const price = (await fetchFromTradingView()) ?? (await fetchFromGoldApi());
+  const price =
+    (await fetchFromTradingView(symbol)) ?? (await fetchFromGoldApi(symbol));
   if (price !== null) {
-    cachedSpotPrice = price;
-    spotCacheTimestamp = now;
+    spotCache.set(symbol, { price, timestamp: now });
     return price;
   }
-  return cachedSpotPrice;
+  return cached?.price ?? null;
 }
 
 // ─── Calculations ─────────────────────────────────────────────────────────────
 
-function round2(n: number) { return Math.round(n * 100) / 100; }
-
-function calcPivots(high: number, low: number, close: number) {
+function calcPivots(high: number, low: number, close: number, round: (n: number) => number) {
   const pivot = (high + low + close) / 3;
   return {
-    pivot: round2(pivot),
-    r1: round2(2 * pivot - low),
-    r2: round2(pivot + (high - low)),
-    r3: round2(high + 2 * (pivot - low)),
-    s1: round2(2 * pivot - high),
-    s2: round2(pivot - (high - low)),
-    s3: round2(low - 2 * (high - pivot)),
+    pivot: round(pivot),
+    r1: round(2 * pivot - low),
+    r2: round(pivot + (high - low)),
+    r3: round(high + 2 * (pivot - low)),
+    s1: round(2 * pivot - high),
+    s2: round(pivot - (high - low)),
+    s3: round(low - 2 * (high - pivot)),
   };
 }
 
-function calcFibLevels(swingHigh: number, swingLow: number) {
+function calcFibLevels(swingHigh: number, swingLow: number, round: (n: number) => number) {
   const range = swingHigh - swingLow;
   return {
-    fib236: round2(swingHigh - range * 0.236),
-    fib382: round2(swingHigh - range * 0.382),
-    fib500: round2(swingHigh - range * 0.5),
-    fib618: round2(swingHigh - range * 0.618),
-    fib786: round2(swingHigh - range * 0.786),
-    swingHigh: round2(swingHigh),
-    swingLow: round2(swingLow),
+    fib236: round(swingHigh - range * 0.236),
+    fib382: round(swingHigh - range * 0.382),
+    fib500: round(swingHigh - range * 0.5),
+    fib618: round(swingHigh - range * 0.618),
+    fib786: round(swingHigh - range * 0.786),
+    swingHigh: round(swingHigh),
+    swingLow: round(swingLow),
   };
 }
 
@@ -145,17 +148,22 @@ function computeLevels(
   candles: CandleRaw[],
   spotPrice: number | null,
   timeframe: Timeframe,
+  symbol: Symbol,
 ) {
+  const meta = SYMBOLS[symbol];
+  const round = makeRounder(meta.decimals);
+  const fmt = (n: number) => `${meta.prefix}${round(n).toFixed(meta.decimals)}`;
+
   const last = candles[candles.length - 1];
   const prev = candles[candles.length - 2];
 
   const currentPrice = spotPrice ?? last.close;
-  const priceChange = round2(currentPrice - prev.close);
-  const priceChangePct = round2((priceChange / prev.close) * 100);
+  const priceChange = round(currentPrice - prev.close);
+  const priceChangePct = Math.round((priceChange / prev.close) * 10000) / 100;
 
-  const pivots = calcPivots(prev.high, prev.low, prev.close);
+  const pivots = calcPivots(prev.high, prev.low, prev.close, round);
   const { swingHigh, swingLow } = findSwingHighLow(candles, 60);
-  const fibs = calcFibLevels(swingHigh, swingLow);
+  const fibs = calcFibLevels(swingHigh, swingLow, round);
   const atr = calcATR(candles, 14);
 
   const closes = candles.map((c) => c.close);
@@ -177,11 +185,11 @@ function computeLevels(
   }
 
   const zoneGap = pivots.r1 - pivots.s1;
-  const halfWidth = round2(zoneGap * 0.2);
-  const buyZoneLow = round2(pivots.s1 - halfWidth);
-  const buyZoneHigh = round2(pivots.s1 + halfWidth);
-  const sellZoneLow = round2(pivots.r1 - halfWidth);
-  const sellZoneHigh = round2(pivots.r1 + halfWidth);
+  const halfWidth = round(zoneGap * 0.2);
+  const buyZoneLow = round(pivots.s1 - halfWidth);
+  const buyZoneHigh = round(pivots.s1 + halfWidth);
+  const sellZoneLow = round(pivots.r1 - halfWidth);
+  const sellZoneHigh = round(pivots.r1 + halfWidth);
 
   const inBuyZone = currentPrice >= buyZoneLow && currentPrice <= buyZoneHigh;
   const inSellZone = currentPrice >= sellZoneLow && currentPrice <= sellZoneHigh;
@@ -199,81 +207,81 @@ function computeLevels(
 
   if (inBuyZone || (approachingBuy && trend !== "DOWNTREND")) {
     signal = "BUY";
-    entryPrice = round2(currentPrice);
-    stopLoss = round2(buyZoneLow - atr * 0.5);
-    takeProfit1 = round2(pivots.pivot);
-    takeProfit2 = round2(sellZoneLow);
+    entryPrice = round(currentPrice);
+    stopLoss = round(buyZoneLow - atr * 0.5);
+    takeProfit1 = round(pivots.pivot);
+    takeProfit2 = round(sellZoneLow);
     signalReason = inBuyZone
-      ? `[${tfLabel}] Price is at the buy zone around pivot S1 ($${pivots.s1}). ${trend === "UPTREND" ? "Uptrend intact — bounce setup." : "Look for a bullish reversal candle to confirm entry."}`
-      : `[${tfLabel}] Price is within $${round2(currentPrice - buyZoneHigh)} of the buy zone ($${buyZoneLow}–$${buyZoneHigh}). Stage a limit order near S1 $${pivots.s1}.`;
+      ? `[${tfLabel}] Price is at the buy zone around pivot S1 (${fmt(pivots.s1)}). ${trend === "UPTREND" ? "Uptrend intact — bounce setup." : "Look for a bullish reversal candle to confirm entry."}`
+      : `[${tfLabel}] Price is within ${fmt(currentPrice - buyZoneHigh)} of the buy zone (${fmt(buyZoneLow)}–${fmt(buyZoneHigh)}). Stage a limit order near S1 ${fmt(pivots.s1)}.`;
   } else if (inSellZone || (approachingSell && trend !== "UPTREND")) {
     signal = "SELL";
-    entryPrice = round2(currentPrice);
-    stopLoss = round2(sellZoneHigh + atr * 0.5);
-    takeProfit1 = round2(pivots.pivot);
-    takeProfit2 = round2(buyZoneHigh);
+    entryPrice = round(currentPrice);
+    stopLoss = round(sellZoneHigh + atr * 0.5);
+    takeProfit1 = round(pivots.pivot);
+    takeProfit2 = round(buyZoneHigh);
     signalReason = inSellZone
-      ? `[${tfLabel}] Price is at the sell zone around pivot R1 ($${pivots.r1}). ${trend === "DOWNTREND" ? "Downtrend in force — distribution zone." : "Look for a bearish rejection candle to confirm short entry."}`
-      : `[${tfLabel}] Price is within $${round2(sellZoneLow - currentPrice)} of the sell zone ($${sellZoneLow}–$${sellZoneHigh}). Stage a limit sell order near R1 $${pivots.r1}.`;
+      ? `[${tfLabel}] Price is at the sell zone around pivot R1 (${fmt(pivots.r1)}). ${trend === "DOWNTREND" ? "Downtrend in force — distribution zone." : "Look for a bearish rejection candle to confirm short entry."}`
+      : `[${tfLabel}] Price is within ${fmt(sellZoneLow - currentPrice)} of the sell zone (${fmt(sellZoneLow)}–${fmt(sellZoneHigh)}). Stage a limit sell order near R1 ${fmt(pivots.r1)}.`;
   } else {
     signal = "WAIT";
     const aboveSellZone = currentPrice > sellZoneHigh;
     const belowBuyZone = currentPrice < buyZoneLow;
 
     if (aboveSellZone) {
-      const distAboveSell = round2(currentPrice - sellZoneHigh);
-      const distToR2 = round2(pivots.r2 - currentPrice);
-      signalReason = `[${tfLabel}] Price ($${currentPrice}) has cleared the sell zone and is $${distAboveSell} above resistance. ${distToR2 > 0 ? `Watch R2 at $${pivots.r2} ($${distToR2} away) for the next sell opportunity.` : `Price is above R2 — momentum play, no clean entry zone yet.`} Wait for a pullback into a zone.`;
+      const distAboveSell = round(currentPrice - sellZoneHigh);
+      const distToR2 = round(pivots.r2 - currentPrice);
+      signalReason = `[${tfLabel}] Price (${fmt(currentPrice)}) has cleared the sell zone and is ${fmt(distAboveSell)} above resistance. ${distToR2 > 0 ? `Watch R2 at ${fmt(pivots.r2)} (${fmt(distToR2)} away) for the next sell opportunity.` : `Price is above R2 — momentum play, no clean entry zone yet.`} Wait for a pullback into a zone.`;
       entryPrice = sellZoneLow;
-      stopLoss = round2(sellZoneHigh + atr * 0.5);
-      takeProfit1 = round2(pivots.pivot);
+      stopLoss = round(sellZoneHigh + atr * 0.5);
+      takeProfit1 = round(pivots.pivot);
       takeProfit2 = buyZoneHigh;
     } else if (belowBuyZone) {
-      const distBelowBuy = round2(buyZoneLow - currentPrice);
-      const distToS2 = round2(currentPrice - pivots.s2);
-      signalReason = `[${tfLabel}] Price ($${currentPrice}) has broken below the buy zone and is $${distBelowBuy} below support. ${distToS2 > 0 ? `Watch S2 at $${pivots.s2} ($${distToS2} away) for the next buy opportunity.` : `Price is below S2 — wait for stabilization before entering.`}`;
+      const distBelowBuy = round(buyZoneLow - currentPrice);
+      const distToS2 = round(currentPrice - pivots.s2);
+      signalReason = `[${tfLabel}] Price (${fmt(currentPrice)}) has broken below the buy zone and is ${fmt(distBelowBuy)} below support. ${distToS2 > 0 ? `Watch S2 at ${fmt(pivots.s2)} (${fmt(distToS2)} away) for the next buy opportunity.` : `Price is below S2 — wait for stabilization before entering.`}`;
       entryPrice = buyZoneHigh;
-      stopLoss = round2(buyZoneLow - atr * 0.5);
-      takeProfit1 = round2(pivots.pivot);
+      stopLoss = round(buyZoneLow - atr * 0.5);
+      takeProfit1 = round(pivots.pivot);
       takeProfit2 = sellZoneLow;
     } else {
-      const distToBuy = round2(currentPrice - buyZoneHigh);
-      const distToSell = round2(sellZoneLow - currentPrice);
-      signalReason = `[${tfLabel}] Price ($${currentPrice}) is in no-trade territory — $${distToBuy} above the buy zone ($${buyZoneLow}–$${buyZoneHigh}) and $${distToSell} below the sell zone ($${sellZoneLow}–$${sellZoneHigh}). Wait for price to reach a zone.`;
+      const distToBuy = round(currentPrice - buyZoneHigh);
+      const distToSell = round(sellZoneLow - currentPrice);
+      signalReason = `[${tfLabel}] Price (${fmt(currentPrice)}) is in no-trade territory — ${fmt(distToBuy)} above the buy zone (${fmt(buyZoneLow)}–${fmt(buyZoneHigh)}) and ${fmt(distToSell)} below the sell zone (${fmt(sellZoneLow)}–${fmt(sellZoneHigh)}). Wait for price to reach a zone.`;
       entryPrice = trend === "UPTREND" ? buyZoneHigh : sellZoneLow;
-      stopLoss = trend === "UPTREND" ? round2(buyZoneLow - atr * 0.5) : round2(sellZoneHigh + atr * 0.5);
-      takeProfit1 = round2(pivots.pivot);
+      stopLoss = trend === "UPTREND" ? round(buyZoneLow - atr * 0.5) : round(sellZoneHigh + atr * 0.5);
+      takeProfit1 = round(pivots.pivot);
       takeProfit2 = trend === "UPTREND" ? sellZoneLow : buyZoneHigh;
     }
   }
 
   const riskDist = Math.abs(entryPrice - stopLoss);
   const rewardDist = Math.abs(takeProfit1 - entryPrice);
-  const riskRewardRatio = riskDist > 0 ? round2(rewardDist / riskDist) : 0;
+  const riskRewardRatio = riskDist > 0 ? Math.round((rewardDist / riskDist) * 100) / 100 : 0;
 
   type LevelType = "resistance" | "support" | "pivot";
   const levels: { label: string; price: number; type: LevelType }[] = [
-    { label: "R3",         price: pivots.r3,      type: "resistance" },
-    { label: "R2",         price: pivots.r2,      type: "resistance" },
-    { label: "R1",         price: pivots.r1,      type: "resistance" },
-    { label: "Pivot",      price: pivots.pivot,   type: "pivot"      },
-    { label: "S1",         price: pivots.s1,      type: "support"    },
-    { label: "S2",         price: pivots.s2,      type: "support"    },
-    { label: "S3",         price: pivots.s3,      type: "support"    },
-    { label: "Fib 23.6%",  price: fibs.fib236,    type: "resistance" },
-    { label: "Fib 38.2%",  price: fibs.fib382,    type: "resistance" },
-    { label: "Fib 50.0%",  price: fibs.fib500,    type: "pivot"      },
-    { label: "Fib 61.8%",  price: fibs.fib618,    type: "support"    },
-    { label: "Fib 78.6%",  price: fibs.fib786,    type: "support"    },
-    { label: "Swing High", price: fibs.swingHigh, type: "resistance" },
-    { label: "Swing Low",  price: fibs.swingLow,  type: "support"    },
+    { label: "R3",         price: pivots.r3,      type: "resistance" as LevelType },
+    { label: "R2",         price: pivots.r2,      type: "resistance" as LevelType },
+    { label: "R1",         price: pivots.r1,      type: "resistance" as LevelType },
+    { label: "Pivot",      price: pivots.pivot,   type: "pivot"      as LevelType },
+    { label: "S1",         price: pivots.s1,      type: "support"    as LevelType },
+    { label: "S2",         price: pivots.s2,      type: "support"    as LevelType },
+    { label: "S3",         price: pivots.s3,      type: "support"    as LevelType },
+    { label: "Fib 23.6%",  price: fibs.fib236,    type: "resistance" as LevelType },
+    { label: "Fib 38.2%",  price: fibs.fib382,    type: "resistance" as LevelType },
+    { label: "Fib 50.0%",  price: fibs.fib500,    type: "pivot"      as LevelType },
+    { label: "Fib 61.8%",  price: fibs.fib618,    type: "support"    as LevelType },
+    { label: "Fib 78.6%",  price: fibs.fib786,    type: "support"    as LevelType },
+    { label: "Swing High", price: fibs.swingHigh, type: "resistance" as LevelType },
+    { label: "Swing Low",  price: fibs.swingLow,  type: "support"    as LevelType },
   ]
     .filter((l) => l.price > 0)
     .sort((a, b) => b.price - a.price);
 
   return {
-    symbol: "XAGUSD",
-    currentPrice: round2(currentPrice),
+    symbol,
+    currentPrice: round(currentPrice),
     priceChange,
     priceChangePct,
     signal,
@@ -298,16 +306,19 @@ function computeLevels(
 router.get("/levels", async (req: Request, res: Response) => {
   try {
     const query = GetLevelsQueryParams.parse(req.query);
+    const symbol = (query.symbol ?? "XAGUSD") as Symbol;
     const timeframe = (query.timeframe ?? "1d") as Timeframe;
     const [candles, spotPrice] = await Promise.all([
-      fetchCandlesForTimeframe(timeframe),
-      fetchSpotPrice(),
+      fetchCandlesForTimeframe(symbol, timeframe),
+      fetchSpotPrice(symbol),
     ]);
     if (candles.length < 2) {
       res.status(503).json({ error: "Insufficient candle data for timeframe" });
       return;
     }
-    const data = GetLevelsResponse.parse(computeLevels(candles, spotPrice, timeframe));
+    const data = GetLevelsResponse.parse(
+      computeLevels(candles, spotPrice, timeframe, symbol),
+    );
     res.json(data);
   } catch (err) {
     req.log.error({ err }, "Failed to compute levels");
@@ -319,7 +330,7 @@ router.get("/price-history", async (req: Request, res: Response) => {
   try {
     const query = GetPriceHistoryQueryParams.parse(req.query);
     const bars = query.bars ?? 60;
-    const candles = await fetchCandlesForTimeframe("1d");
+    const candles = await fetchCandlesForTimeframe("XAGUSD", "1d");
     const data = GetPriceHistoryResponse.parse({
       symbol: "XAGUSD",
       candles: candles.slice(-bars),

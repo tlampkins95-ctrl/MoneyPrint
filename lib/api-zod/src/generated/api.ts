@@ -15,12 +15,26 @@ export const HealthCheckResponse = zod.object({
 });
 
 /**
- * Returns pivot-point-derived support/resistance levels, buy/sell zones, and a single clear trade signal for XAGUSD
+ * Returns pivot-point-derived support/resistance levels, buy/sell zones, and a single clear trade signal for the requested symbol
  * @summary Get key price levels and clear trade signal
  */
+export const getLevelsQuerySymbolDefault = `XAGUSD`;
 export const getLevelsQueryTimeframeDefault = `1d`;
 
 export const GetLevelsQueryParams = zod.object({
+  symbol: zod
+    .enum([
+      "XAGUSD",
+      "XAUUSD",
+      "EURUSD",
+      "GBPUSD",
+      "AUDUSD",
+      "USDJPY",
+      "GBPJPY",
+      "BTCUSD",
+    ])
+    .default(getLevelsQuerySymbolDefault)
+    .describe("Trading instrument"),
   timeframe: zod
     .enum(["1m", "15m", "30m", "1h", "1d"])
     .default(getLevelsQueryTimeframeDefault)
@@ -73,12 +87,26 @@ export const GetLevelsResponse = zod.object({
 });
 
 /**
- * Replays the buy/sell zone signal logic over historical candles for the requested timeframe and returns aggregate performance stats and individual trade outcomes.
+ * Replays the buy/sell zone signal logic over historical candles for the requested symbol and timeframe.
  * @summary Backtest the signal criteria over historical candles
  */
+export const getBacktestQuerySymbolDefault = `XAGUSD`;
 export const getBacktestQueryTimeframeDefault = `1d`;
 
 export const GetBacktestQueryParams = zod.object({
+  symbol: zod
+    .enum([
+      "XAGUSD",
+      "XAUUSD",
+      "EURUSD",
+      "GBPUSD",
+      "AUDUSD",
+      "USDJPY",
+      "GBPJPY",
+      "BTCUSD",
+    ])
+    .default(getBacktestQuerySymbolDefault)
+    .describe("Trading instrument"),
   timeframe: zod
     .enum(["1m", "15m", "30m", "1h", "1d"])
     .default(getBacktestQueryTimeframeDefault)

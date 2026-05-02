@@ -108,7 +108,7 @@ export function useHealthCheck<
 }
 
 /**
- * Returns pivot-point-derived support/resistance levels, buy/sell zones, and a single clear trade signal for XAGUSD
+ * Returns pivot-point-derived support/resistance levels, buy/sell zones, and a single clear trade signal for the requested symbol
  * @summary Get key price levels and clear trade signal
  */
 export const getGetLevelsUrl = (params?: GetLevelsParams) => {
@@ -203,7 +203,7 @@ export function useGetLevels<
 }
 
 /**
- * Replays the buy/sell zone signal logic over historical candles for the requested timeframe and returns aggregate performance stats and individual trade outcomes.
+ * Replays the buy/sell zone signal logic over historical candles for the requested symbol and timeframe.
  * @summary Backtest the signal criteria over historical candles
  */
 export const getGetBacktestUrl = (params?: GetBacktestParams) => {

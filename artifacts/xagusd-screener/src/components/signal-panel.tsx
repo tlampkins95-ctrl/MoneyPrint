@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { useGetLevels } from "@workspace/api-client-react";
+import { useGetLevels, getGetLevelsQueryKey } from "@workspace/api-client-react";
 import { format } from "date-fns";
 import { RefreshCw, TrendingUp, TrendingDown, ArrowRight, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Timeframe } from "@/components/timeframe-selector";
+import { SYMBOLS, fmtPrice, fmtPriceCompact, type Symbol } from "@/lib/symbols";
 
 const TIMEFRAME_LABEL: Record<Timeframe, string> = {
   "1m": "1m",
@@ -13,12 +14,23 @@ const TIMEFRAME_LABEL: Record<Timeframe, string> = {
   "1d": "Daily",
 };
 
-export function SignalPanel({ timeframe }: { timeframe: Timeframe }) {
+export function SignalPanel({
+  symbol,
+  timeframe,
+}: {
+  symbol: Symbol;
+  timeframe: Timeframe;
+}) {
   const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
 
   const { data, isLoading, isError, error, refetch, isFetching } = useGetLevels(
-    { timeframe },
-    { query: { refetchInterval: 60000 } },
+    { symbol, timeframe },
+    {
+      query: {
+        queryKey: getGetLevelsQueryKey({ symbol, timeframe }),
+        refetchInterval: 60000,
+      },
+    },
   );
 
   const handleRefresh = async () => {
@@ -61,6 +73,7 @@ export function SignalPanel({ timeframe }: { timeframe: Timeframe }) {
   }
 
   const isPositive = data.priceChange >= 0;
+  const meta = SYMBOLS[symbol];
 
   const signalBg = data.signal === "BUY"
     ? "bg-[#00c950]"
@@ -96,16 +109,16 @@ export function SignalPanel({ timeframe }: { timeframe: Timeframe }) {
           <div className="flex items-baseline justify-between bg-zinc-900/60 rounded-lg px-4 py-3 border border-zinc-800/50">
             <div>
               <div className="text-[10px] text-zinc-500 font-sans font-semibold tracking-widest mb-0.5">
-                XAGUSD
+                {meta.short}
               </div>
               <div className="text-3xl font-bold tracking-tight">
-                ${data.currentPrice.toFixed(3)}
+                {fmtPrice(symbol, data.currentPrice)}
               </div>
             </div>
             <div className={cn("text-right", isPositive ? "text-[#00c950]" : "text-[#e53e3e]")}>
               <div className="text-lg font-bold flex items-center justify-end gap-1">
                 {isPositive ? "+" : ""}
-                {data.priceChange.toFixed(3)}
+                {data.priceChange.toFixed(meta.decimals)}
                 {isPositive
                   ? <TrendingUp className="w-4 h-4" />
                   : <TrendingDown className="w-4 h-4" />}
@@ -147,10 +160,10 @@ export function SignalPanel({ timeframe }: { timeframe: Timeframe }) {
                       : "border-zinc-800",
                 )}
               >
-                <Row label="Entry" value={`$${data.entryPrice.toFixed(3)}`} />
-                <Row label="Stop Loss" value={`$${data.stopLoss.toFixed(3)}`} valueClass="text-[#e53e3e]" labelClass="text-[#e53e3e]" bg="bg-red-950/10" />
-                <Row label="Take Profit 1" value={`$${data.takeProfit1.toFixed(3)}`} valueClass="text-[#4ade80]" labelClass="text-[#4ade80]" bg="bg-emerald-950/10" />
-                <Row label="Take Profit 2" value={`$${data.takeProfit2.toFixed(3)}`} valueClass="text-[#86efac]" labelClass="text-[#86efac]" bg="bg-emerald-900/10" />
+                <Row label="Entry" value={fmtPrice(symbol, data.entryPrice)} />
+                <Row label="Stop Loss" value={fmtPrice(symbol, data.stopLoss)} valueClass="text-[#e53e3e]" labelClass="text-[#e53e3e]" bg="bg-red-950/10" />
+                <Row label="Take Profit 1" value={fmtPrice(symbol, data.takeProfit1)} valueClass="text-[#4ade80]" labelClass="text-[#4ade80]" bg="bg-emerald-950/10" />
+                <Row label="Take Profit 2" value={fmtPrice(symbol, data.takeProfit2)} valueClass="text-[#86efac]" labelClass="text-[#86efac]" bg="bg-emerald-900/10" />
                 <div className="flex justify-between items-center px-3 py-2.5 bg-zinc-950 gap-2">
                   <span className="text-[9px] font-sans font-semibold tracking-widest text-zinc-500">
                     R / R
@@ -170,16 +183,18 @@ export function SignalPanel({ timeframe }: { timeframe: Timeframe }) {
               </div>
               <div className="rounded-lg overflow-hidden border border-zinc-800 divide-y divide-zinc-800/60 bg-[#111]">
                 <ZoneRow
+                  symbol={symbol}
                   side="LONG"
-                  zoneLabel={`${data.buyZone.low.toFixed(2)}–${data.buyZone.high.toFixed(2)}`}
+                  zoneLabel={`${fmtPriceCompact(symbol, data.buyZone.low, 1)}–${fmtPriceCompact(symbol, data.buyZone.high, 1)}`}
                   price={data.currentPrice}
                   zoneLow={data.buyZone.low}
                   zoneHigh={data.buyZone.high}
                   isActive={data.signal === "BUY"}
                 />
                 <ZoneRow
+                  symbol={symbol}
                   side="SHORT"
-                  zoneLabel={`${data.sellZone.low.toFixed(2)}–${data.sellZone.high.toFixed(2)}`}
+                  zoneLabel={`${fmtPriceCompact(symbol, data.sellZone.low, 1)}–${fmtPriceCompact(symbol, data.sellZone.high, 1)}`}
                   price={data.currentPrice}
                   zoneLow={data.sellZone.low}
                   zoneHigh={data.sellZone.high}
@@ -273,6 +288,7 @@ function Row({
 }
 
 function ZoneRow({
+  symbol,
   side,
   zoneLabel,
   price,
@@ -280,6 +296,7 @@ function ZoneRow({
   zoneHigh,
   isActive,
 }: {
+  symbol: Symbol;
   side: "LONG" | "SHORT";
   zoneLabel: string;
   price: number;
@@ -299,13 +316,15 @@ function ZoneRow({
     distance = 0;
     status = "IN ZONE";
   } else if (isLong) {
-    // Long: zone is below price ideal entry below current
     distance = price - zoneHigh;
-    status = distance > 0 ? `${distance.toFixed(2)} above` : `${Math.abs(distance).toFixed(2)} below`;
+    status = distance > 0
+      ? `${fmtPriceCompact(symbol, distance, 1)} above`
+      : `${fmtPriceCompact(symbol, Math.abs(distance), 1)} below`;
   } else {
-    // Short: zone is above price ideal entry above current
     distance = zoneLow - price;
-    status = distance > 0 ? `${distance.toFixed(2)} below` : `${Math.abs(distance).toFixed(2)} above`;
+    status = distance > 0
+      ? `${fmtPriceCompact(symbol, distance, 1)} below`
+      : `${fmtPriceCompact(symbol, Math.abs(distance), 1)} above`;
   }
 
   return (
@@ -341,7 +360,7 @@ function ZoneRow({
       </div>
       <div className="flex items-center justify-between gap-2 min-w-0">
         <span className="text-[10px] font-bold text-zinc-100 tabular-nums truncate">
-          ${zoneLabel}
+          {zoneLabel}
         </span>
         <span
           className={cn(

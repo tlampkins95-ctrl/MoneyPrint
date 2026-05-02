@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useGetBacktest } from "@workspace/api-client-react";
 import { TrendingUp, TrendingDown, Target, AlertTriangle, ChevronDown, ChevronRight } from "lucide-react";
 import type { Timeframe } from "@/components/timeframe-selector";
+import { fmtPrice, type Symbol } from "@/lib/symbols";
 
 const TIMEFRAME_LABEL: Record<Timeframe, string> = {
   "1m": "1-minute",
@@ -43,8 +44,14 @@ function StatCard({
   );
 }
 
-export function BacktestPanel({ timeframe }: { timeframe: Timeframe }) {
-  const { data, isLoading, error } = useGetBacktest({ timeframe });
+export function BacktestPanel({
+  symbol,
+  timeframe,
+}: {
+  symbol: Symbol;
+  timeframe: Timeframe;
+}) {
+  const { data, isLoading, error } = useGetBacktest({ symbol, timeframe });
   const [tradesOpen, setTradesOpen] = useState(false);
 
   if (isLoading) {
@@ -229,10 +236,10 @@ export function BacktestPanel({ timeframe }: { timeframe: Timeframe }) {
                       {t.direction}
                     </td>
                     <td className="px-2 py-1.5 text-right">
-                      ${t.entry.toFixed(2)}
+                      {fmtPrice(symbol, t.entry)}
                     </td>
                     <td className="px-2 py-1.5 text-right">
-                      ${t.exitPrice.toFixed(2)}
+                      {fmtPrice(symbol, t.exitPrice)}
                     </td>
                     <td className="px-2 py-1.5 text-center">
                       <span
@@ -266,8 +273,8 @@ export function BacktestPanel({ timeframe }: { timeframe: Timeframe }) {
         <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
         <p className="text-[10px] text-muted-foreground font-mono leading-relaxed">
           Backtest assumes worst-case intrabar fill order (SL before TP when both
-          could fill same day). Uses Yahoo Finance SI=F daily candles as proxy for
-          OANDA spot. Past performance does not guarantee future results.
+          could fill same day). Uses Yahoo Finance candles as proxy for live spot.
+          Past performance does not guarantee future results.
         </p>
       </div>
     </div>

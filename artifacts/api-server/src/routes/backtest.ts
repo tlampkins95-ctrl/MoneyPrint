@@ -5,6 +5,7 @@ import {
   type Timeframe,
   type CandleRaw,
 } from "../lib/yahoo-fetch";
+import { SYMBOLS, makeRounder, type Symbol } from "../lib/symbols";
 
 const router: IRouter = Router();
 
@@ -12,19 +13,21 @@ interface BacktestCacheEntry {
   data: unknown;
   timestamp: number;
 }
-const cache = new Map<Timeframe, BacktestCacheEntry>();
+const cache = new Map<string, BacktestCacheEntry>();
 const CACHE_TTL_MS = 10 * 60 * 1000;
+
+function cacheKey(symbol: Symbol, timeframe: Timeframe): string {
+  return `${symbol}::${timeframe}`;
+}
 
 // ─── Math ────────────────────────────────────────────────────────────────────
 
-function round2(n: number) { return Math.round(n * 100) / 100; }
-
-function calcPivots(high: number, low: number, close: number) {
+function calcPivots(high: number, low: number, close: number, round: (n: number) => number) {
   const pivot = (high + low + close) / 3;
   return {
-    pivot: round2(pivot),
-    r1: round2(2 * pivot - low),
-    s1: round2(2 * pivot - high),
+    pivot: round(pivot),
+    r1: round(2 * pivot - low),
+    s1: round(2 * pivot - high),
   };
 }
 
@@ -58,7 +61,6 @@ interface Trade {
   barsHeld: number;
 }
 
-// Allow longer hold for shorter timeframes (more bars per "day")
 const MAX_HOLD_BARS: Record<Timeframe, number> = {
   "1m": 60,
   "15m": 24,
@@ -67,7 +69,9 @@ const MAX_HOLD_BARS: Record<Timeframe, number> = {
   "1d": 10,
 };
 
-function runBacktest(candles: CandleRaw[], timeframe: Timeframe): Trade[] {
+function runBacktest(candles: CandleRaw[], timeframe: Timeframe, symbol: Symbol): Trade[] {
+  const meta = SYMBOLS[symbol];
+  const round = makeRounder(meta.decimals);
   const trades: Trade[] = [];
   const maxHold = MAX_HOLD_BARS[timeframe];
   let i = 15;
@@ -76,14 +80,14 @@ function runBacktest(candles: CandleRaw[], timeframe: Timeframe): Trade[] {
     const prev = candles[i - 1];
     const today = candles[i];
 
-    const { pivot, r1, s1 } = calcPivots(prev.high, prev.low, prev.close);
+    const { pivot, r1, s1 } = calcPivots(prev.high, prev.low, prev.close, round);
     const zoneGap = r1 - s1;
     if (zoneGap <= 0) { i++; continue; }
-    const halfWidth = round2(zoneGap * 0.2);
-    const buyZoneLow = round2(s1 - halfWidth);
-    const buyZoneHigh = round2(s1 + halfWidth);
-    const sellZoneLow = round2(r1 - halfWidth);
-    const sellZoneHigh = round2(r1 + halfWidth);
+    const halfWidth = round(zoneGap * 0.2);
+    const buyZoneLow = round(s1 - halfWidth);
+    const buyZoneHigh = round(s1 + halfWidth);
+    const sellZoneLow = round(r1 - halfWidth);
+    const sellZoneHigh = round(r1 + halfWidth);
     const atr = calcATR(candles, i - 1, 14);
 
     const touchesBuy = today.low <= buyZoneHigh && today.high >= buyZoneLow;
@@ -102,12 +106,12 @@ function runBacktest(candles: CandleRaw[], timeframe: Timeframe): Trade[] {
     let entry: number, stopLoss: number, tp1: number, tp2: number;
     if (direction === "BUY") {
       entry = s1;
-      stopLoss = round2(buyZoneLow - atr * 0.5);
+      stopLoss = round(buyZoneLow - atr * 0.5);
       tp1 = pivot;
       tp2 = sellZoneLow;
     } else {
       entry = r1;
-      stopLoss = round2(sellZoneHigh + atr * 0.5);
+      stopLoss = round(sellZoneHigh + atr * 0.5);
       tp1 = pivot;
       tp2 = buyZoneHigh;
     }
@@ -155,17 +159,17 @@ function runBacktest(candles: CandleRaw[], timeframe: Timeframe): Trade[] {
     }
 
     const pnl = direction === "BUY" ? exitPrice - entry : entry - exitPrice;
-    const rMultiple = round2(pnl / risk);
+    const rMultiple = Math.round((pnl / risk) * 100) / 100;
 
     trades.push({
       entryDate: today.date,
       direction,
-      entry: round2(entry),
-      stopLoss: round2(stopLoss),
-      takeProfit1: round2(tp1),
-      takeProfit2: round2(tp2),
+      entry: round(entry),
+      stopLoss: round(stopLoss),
+      takeProfit1: round(tp1),
+      takeProfit2: round(tp2),
       exitDate,
-      exitPrice: round2(exitPrice),
+      exitPrice: round(exitPrice),
       outcome,
       rMultiple,
       barsHeld,
@@ -179,7 +183,11 @@ function runBacktest(candles: CandleRaw[], timeframe: Timeframe): Trade[] {
 
 // ─── Aggregation ─────────────────────────────────────────────────────────────
 
-function aggregate(trades: Trade[], candles: CandleRaw[]) {
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+function aggregate(trades: Trade[], candles: CandleRaw[], symbol: Symbol) {
   const wins = trades.filter((t) => t.rMultiple > 0);
   const losses = trades.filter((t) => t.rMultiple <= 0);
   const grossProfit = wins.reduce((s, t) => s + t.rMultiple, 0);
@@ -198,7 +206,7 @@ function aggregate(trades: Trade[], candles: CandleRaw[]) {
   const sells = trades.filter((t) => t.direction === "SELL");
 
   return {
-    symbol: "XAGUSD",
+    symbol,
     startDate: candles[0]?.date ?? "",
     endDate: candles[candles.length - 1]?.date ?? "",
     totalBars: candles.length,
@@ -233,21 +241,23 @@ function aggregate(trades: Trade[], candles: CandleRaw[]) {
 router.get("/backtest", async (req: Request, res: Response) => {
   try {
     const query = GetBacktestQueryParams.parse(req.query);
+    const symbol = (query.symbol ?? "XAGUSD") as Symbol;
     const timeframe = (query.timeframe ?? "1d") as Timeframe;
     const now = Date.now();
-    const cached = cache.get(timeframe);
+    const key = cacheKey(symbol, timeframe);
+    const cached = cache.get(key);
     if (cached && now - cached.timestamp < CACHE_TTL_MS) {
       res.json(cached.data);
       return;
     }
-    const candles = await fetchCandlesForTimeframe(timeframe);
+    const candles = await fetchCandlesForTimeframe(symbol, timeframe);
     if (candles.length < 20) {
       res.status(503).json({ error: "Insufficient data for backtest" });
       return;
     }
-    const trades = runBacktest(candles, timeframe);
-    const result = GetBacktestResponse.parse(aggregate(trades, candles));
-    cache.set(timeframe, { data: result, timestamp: now });
+    const trades = runBacktest(candles, timeframe, symbol);
+    const result = GetBacktestResponse.parse(aggregate(trades, candles, symbol));
+    cache.set(key, { data: result, timestamp: now });
     res.json(result);
   } catch (err) {
     req.log.error({ err }, "Backtest failed");
