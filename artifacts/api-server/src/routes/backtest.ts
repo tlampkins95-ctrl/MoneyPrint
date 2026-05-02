@@ -61,6 +61,7 @@ interface Trade {
 // Allow longer hold for shorter timeframes (more bars per "day")
 const MAX_HOLD_BARS: Record<Timeframe, number> = {
   "1m": 60,
+  "15m": 24,
   "30m": 16,
   "1h": 12,
   "1d": 10,

@@ -22,7 +22,7 @@ export const getLevelsQueryTimeframeDefault = `1d`;
 
 export const GetLevelsQueryParams = zod.object({
   timeframe: zod
-    .enum(["1m", "30m", "1h", "1d"])
+    .enum(["1m", "15m", "30m", "1h", "1d"])
     .default(getLevelsQueryTimeframeDefault)
     .describe("Bar timeframe used to compute pivots and zones"),
 });
@@ -80,7 +80,7 @@ export const getBacktestQueryTimeframeDefault = `1d`;
 
 export const GetBacktestQueryParams = zod.object({
   timeframe: zod
-    .enum(["1m", "30m", "1h", "1d"])
+    .enum(["1m", "15m", "30m", "1h", "1d"])
     .default(getBacktestQueryTimeframeDefault)
     .describe("Bar timeframe used for the backtest"),
 });

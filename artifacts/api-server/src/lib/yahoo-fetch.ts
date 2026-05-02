@@ -1,4 +1,4 @@
-export type Timeframe = "1m" | "30m" | "1h" | "1d";
+export type Timeframe = "1m" | "15m" | "30m" | "1h" | "1d";
 
 export interface CandleRaw {
   date: string;
@@ -16,6 +16,7 @@ interface YahooConfig {
 
 const TIMEFRAME_MAP: Record<Timeframe, YahooConfig> = {
   "1m": { interval: "1m", range: "5d" },
+  "15m": { interval: "15m", range: "60d" },
   "30m": { interval: "30m", range: "60d" },
   "1h": { interval: "60m", range: "730d" },
   "1d": { interval: "1d", range: "2y" },
@@ -28,6 +29,7 @@ interface CacheEntry {
 
 const CACHE_TTL_MS: Record<Timeframe, number> = {
   "1m": 30 * 1000,
+  "15m": 60 * 1000,
   "30m": 2 * 60 * 1000,
   "1h": 5 * 60 * 1000,
   "1d": 5 * 60 * 1000,

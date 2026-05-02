@@ -4,6 +4,7 @@ import type { Timeframe } from "@/components/timeframe-selector";
 
 const TV_INTERVAL: Record<Timeframe, string> = {
   "1m": "1",
+  "15m": "15",
   "30m": "30",
   "1h": "60",
   "1d": "D",

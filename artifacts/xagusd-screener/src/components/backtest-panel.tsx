@@ -4,6 +4,7 @@ import type { Timeframe } from "@/components/timeframe-selector";
 
 const TIMEFRAME_LABEL: Record<Timeframe, string> = {
   "1m": "1-minute",
+  "15m": "15-minute",
   "30m": "30-minute",
   "1h": "1-hour",
   "1d": "Daily",

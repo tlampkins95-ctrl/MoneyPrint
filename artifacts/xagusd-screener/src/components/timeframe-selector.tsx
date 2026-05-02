@@ -1,9 +1,10 @@
 import { cn } from "@/lib/utils";
 
-export type Timeframe = "1m" | "30m" | "1h" | "1d";
+export type Timeframe = "1m" | "15m" | "30m" | "1h" | "1d";
 
 const OPTIONS: { value: Timeframe; label: string }[] = [
   { value: "1m", label: "1m" },
+  { value: "15m", label: "15m" },
   { value: "30m", label: "30m" },
   { value: "1h", label: "1h" },
   { value: "1d", label: "D" },
