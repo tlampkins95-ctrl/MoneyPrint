@@ -6,6 +6,7 @@ import {
   type CandleRaw,
 } from "../lib/yahoo-fetch";
 import { SYMBOLS, makeRounder, type Symbol } from "../lib/symbols";
+import { floorTarget, MIN_RR_TP1, MIN_RR_TP2 } from "../lib/signals";
 
 const router: IRouter = Router();
 
@@ -107,13 +108,13 @@ function runBacktest(candles: CandleRaw[], timeframe: Timeframe, symbol: Symbol)
     if (direction === "BUY") {
       entry = s1;
       stopLoss = round(buyZoneLow - atr * 0.5);
-      tp1 = pivot;
-      tp2 = sellZoneLow;
+      tp1 = round(floorTarget(entry, stopLoss, pivot, MIN_RR_TP1, "BUY"));
+      tp2 = round(floorTarget(entry, stopLoss, sellZoneLow, MIN_RR_TP2, "BUY"));
     } else {
       entry = r1;
       stopLoss = round(sellZoneHigh + atr * 0.5);
-      tp1 = pivot;
-      tp2 = buyZoneHigh;
+      tp1 = round(floorTarget(entry, stopLoss, pivot, MIN_RR_TP1, "SELL"));
+      tp2 = round(floorTarget(entry, stopLoss, buyZoneHigh, MIN_RR_TP2, "SELL"));
     }
     const risk = Math.abs(entry - stopLoss);
     if (risk <= 0) { i++; continue; }

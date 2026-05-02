@@ -163,6 +163,25 @@ const TIMEFRAME_LABELS: Record<Timeframe, string> = {
   "1d": "daily",
 };
 
+// Minimum R-multiple targets. The structural target (pivot, opposite zone) is
+// kept when it is further from entry than these floors; otherwise the target
+// is pushed out so a winning trade always pays at least this many R.
+export const MIN_RR_TP1 = 1.5;
+export const MIN_RR_TP2 = 2.5;
+
+export function floorTarget(
+  entry: number,
+  stop: number,
+  structural: number,
+  minRR: number,
+  dir: "BUY" | "SELL",
+): number {
+  const risk = Math.abs(entry - stop);
+  if (risk <= 0) return structural;
+  const floor = dir === "BUY" ? entry + risk * minRR : entry - risk * minRR;
+  return dir === "BUY" ? Math.max(structural, floor) : Math.min(structural, floor);
+}
+
 // ─── Core signal logic ───────────────────────────────────────────────────────
 
 export function computeLevels(
@@ -228,19 +247,22 @@ export function computeLevels(
 
   if (inBuyZone || (approachingBuy && trend !== "DOWNTREND")) {
     signal = "BUY";
-    entryPrice = inBuyZone ? round(currentPrice) : round(pivots.s1);
+    // Anchor entry to the planned limit price at S1 — the trader stages an
+    // order there regardless of where price drifted within the zone, so the
+    // R/R math is deterministic instead of jittering with the live print.
+    entryPrice = round(pivots.s1);
     stopLoss = round(buyZoneLow - atr * 0.5);
-    takeProfit1 = round(pivots.pivot);
-    takeProfit2 = round(sellZoneLow);
+    takeProfit1 = round(floorTarget(entryPrice, stopLoss, pivots.pivot, MIN_RR_TP1, "BUY"));
+    takeProfit2 = round(floorTarget(entryPrice, stopLoss, sellZoneLow, MIN_RR_TP2, "BUY"));
     signalReason = inBuyZone
       ? `[${tfLabel}] Price is at the buy zone around pivot S1 (${fmt(pivots.s1)}). ${trend === "UPTREND" ? "Uptrend intact — bounce setup." : "Look for a bullish reversal candle to confirm entry."}`
       : `[${tfLabel}] Price is within ${fmt(currentPrice - buyZoneHigh)} of the buy zone (${fmt(buyZoneLow)}–${fmt(buyZoneHigh)}). Stage a limit order near S1 ${fmt(pivots.s1)}.`;
   } else if (inSellZone || (approachingSell && trend !== "UPTREND")) {
     signal = "SELL";
-    entryPrice = inSellZone ? round(currentPrice) : round(pivots.r1);
+    entryPrice = round(pivots.r1);
     stopLoss = round(sellZoneHigh + atr * 0.5);
-    takeProfit1 = round(pivots.pivot);
-    takeProfit2 = round(buyZoneHigh);
+    takeProfit1 = round(floorTarget(entryPrice, stopLoss, pivots.pivot, MIN_RR_TP1, "SELL"));
+    takeProfit2 = round(floorTarget(entryPrice, stopLoss, buyZoneHigh, MIN_RR_TP2, "SELL"));
     signalReason = inSellZone
       ? `[${tfLabel}] Price is at the sell zone around pivot R1 (${fmt(pivots.r1)}). ${trend === "DOWNTREND" ? "Downtrend in force — distribution zone." : "Look for a bearish rejection candle to confirm short entry."}`
       : `[${tfLabel}] Price is within ${fmt(sellZoneLow - currentPrice)} of the sell zone (${fmt(sellZoneLow)}–${fmt(sellZoneHigh)}). Stage a limit sell order near R1 ${fmt(pivots.r1)}.`;
@@ -253,26 +275,29 @@ export function computeLevels(
       const distAboveSell = round(currentPrice - sellZoneHigh);
       const distToR2 = round(pivots.r2 - currentPrice);
       signalReason = `[${tfLabel}] Price (${fmt(currentPrice)}) has cleared the sell zone and is ${fmt(distAboveSell)} above resistance. ${distToR2 > 0 ? `Watch R2 at ${fmt(pivots.r2)} (${fmt(distToR2)} away) for the next sell opportunity.` : `Price is above R2 — momentum play, no clean entry zone yet.`} Wait for a pullback into a zone.`;
-      entryPrice = sellZoneLow;
+      entryPrice = round(pivots.r1);
       stopLoss = round(sellZoneHigh + atr * 0.5);
-      takeProfit1 = round(pivots.pivot);
-      takeProfit2 = buyZoneHigh;
+      takeProfit1 = round(floorTarget(entryPrice, stopLoss, pivots.pivot, MIN_RR_TP1, "SELL"));
+      takeProfit2 = round(floorTarget(entryPrice, stopLoss, buyZoneHigh, MIN_RR_TP2, "SELL"));
     } else if (belowBuyZone) {
       const distBelowBuy = round(buyZoneLow - currentPrice);
       const distToS2 = round(currentPrice - pivots.s2);
       signalReason = `[${tfLabel}] Price (${fmt(currentPrice)}) has broken below the buy zone and is ${fmt(distBelowBuy)} below support. ${distToS2 > 0 ? `Watch S2 at ${fmt(pivots.s2)} (${fmt(distToS2)} away) for the next buy opportunity.` : `Price is below S2 — wait for stabilization before entering.`}`;
-      entryPrice = buyZoneHigh;
+      entryPrice = round(pivots.s1);
       stopLoss = round(buyZoneLow - atr * 0.5);
-      takeProfit1 = round(pivots.pivot);
-      takeProfit2 = sellZoneLow;
+      takeProfit1 = round(floorTarget(entryPrice, stopLoss, pivots.pivot, MIN_RR_TP1, "BUY"));
+      takeProfit2 = round(floorTarget(entryPrice, stopLoss, sellZoneLow, MIN_RR_TP2, "BUY"));
     } else {
       const distToBuy = round(currentPrice - buyZoneHigh);
       const distToSell = round(sellZoneLow - currentPrice);
       signalReason = `[${tfLabel}] Price (${fmt(currentPrice)}) is in no-trade territory — ${fmt(distToBuy)} above the buy zone (${fmt(buyZoneLow)}–${fmt(buyZoneHigh)}) and ${fmt(distToSell)} below the sell zone (${fmt(sellZoneLow)}–${fmt(sellZoneHigh)}). Wait for price to reach a zone.`;
-      entryPrice = trend === "UPTREND" ? buyZoneHigh : sellZoneLow;
-      stopLoss = trend === "UPTREND" ? round(buyZoneLow - atr * 0.5) : round(sellZoneHigh + atr * 0.5);
-      takeProfit1 = round(pivots.pivot);
-      takeProfit2 = trend === "UPTREND" ? sellZoneLow : buyZoneHigh;
+      const dir: "BUY" | "SELL" = trend === "UPTREND" ? "BUY" : "SELL";
+      entryPrice = round(dir === "BUY" ? pivots.s1 : pivots.r1);
+      stopLoss = round(dir === "BUY" ? buyZoneLow - atr * 0.5 : sellZoneHigh + atr * 0.5);
+      const structural1 = pivots.pivot;
+      const structural2 = dir === "BUY" ? sellZoneLow : buyZoneHigh;
+      takeProfit1 = round(floorTarget(entryPrice, stopLoss, structural1, MIN_RR_TP1, dir));
+      takeProfit2 = round(floorTarget(entryPrice, stopLoss, structural2, MIN_RR_TP2, dir));
     }
   }
 
