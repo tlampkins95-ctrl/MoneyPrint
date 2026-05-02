@@ -25,3 +25,29 @@ pnpm workspace monorepo using TypeScript. Each package manages its own dependenc
 - `pnpm --filter @workspace/api-server run dev` — run API server locally
 
 See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details.
+
+## Artifacts
+
+### XAGUSD Silver Screener (`artifacts/xagusd-screener`)
+- **Type**: react-vite, served at `/`
+- **Purpose**: Professional forex screener/signaler for XAGUSD (Silver)
+- **Price data**: Yahoo Finance (`SI=F` — Silver Futures COMEX), fetched server-side, cached 5 minutes
+- **Chart**: TradingView Advanced Chart widget, symbol `OANDA:XAGUSD`, dark theme
+- **Signals**: 8 technical indicators computed server-side:
+  - RSI (14)
+  - MACD (12, 26, 9)
+  - EMA Cross (9/21)
+  - EMA Cross (50/200) — golden/death cross
+  - Bollinger Bands (20, 2)
+  - Stochastic Oscillator (14, 3, 3)
+  - ADX (14)
+  - CCI (20)
+- **API endpoints**:
+  - `GET /api/signals` — all indicator signals
+  - `GET /api/signal-summary` — aggregated BUY/SELL/NEUTRAL recommendation + confidence
+  - `GET /api/price-history` — OHLCV candle data
+- **Auto-refresh**: every 60 seconds
+
+### API Server (`artifacts/api-server`)
+- **Type**: Express 5 API, served at `/api`
+- **Signals routes**: `src/routes/signals.ts`

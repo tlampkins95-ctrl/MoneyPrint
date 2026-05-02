@@ -3,13 +3,15 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: XAGUSD Screener API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: signals
+    description: XAGUSD signal operations
 paths:
   /healthz:
     get:
@@ -24,6 +26,56 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /signals:
+    get:
+      operationId: getSignals
+      tags: [signals]
+      summary: Get XAGUSD technical signals
+      description: Returns technical indicator signals for XAGUSD
+      responses:
+        "200":
+          description: Signal data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SignalData"
+
+  /price-history:
+    get:
+      operationId: getPriceHistory
+      tags: [signals]
+      summary: Get XAGUSD price history
+      description: Returns recent OHLCV price data for XAGUSD
+      parameters:
+        - in: query
+          name: bars
+          schema:
+            type: integer
+            default: 100
+          description: Number of bars to return
+      responses:
+        "200":
+          description: Price history
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PriceHistory"
+
+  /signal-summary:
+    get:
+      operationId: getSignalSummary
+      tags: [signals]
+      summary: Get aggregated signal summary
+      description: Returns overall buy/sell/neutral recommendation for XAGUSD
+      responses:
+        "200":
+          description: Signal summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SignalSummary"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +86,121 @@ components:
       required:
         - status
 
+    Candle:
+      type: object
+      properties:
+        date:
+          type: string
+        open:
+          type: number
+        high:
+          type: number
+        low:
+          type: number
+        close:
+          type: number
+        volume:
+          type: number
+      required:
+        - date
+        - open
+        - high
+        - low
+        - close
+        - volume
+
+    PriceHistory:
+      type: object
+      properties:
+        symbol:
+          type: string
+        candles:
+          type: array
+          items:
+            $ref: "#/components/schemas/Candle"
+        lastUpdated:
+          type: string
+      required:
+        - symbol
+        - candles
+        - lastUpdated
+
+    IndicatorSignal:
+      type: object
+      properties:
+        name:
+          type: string
+        signal:
+          type: string
+          enum: [BUY, SELL, NEUTRAL]
+        value:
+          type: number
+        description:
+          type: string
+      required:
+        - name
+        - signal
+        - value
+        - description
+
+    SignalData:
+      type: object
+      properties:
+        symbol:
+          type: string
+        currentPrice:
+          type: number
+        priceChange:
+          type: number
+        priceChangePct:
+          type: number
+        indicators:
+          type: array
+          items:
+            $ref: "#/components/schemas/IndicatorSignal"
+        lastUpdated:
+          type: string
+      required:
+        - symbol
+        - currentPrice
+        - priceChange
+        - priceChangePct
+        - indicators
+        - lastUpdated
+
+    SignalSummary:
+      type: object
+      properties:
+        symbol:
+          type: string
+        overallSignal:
+          type: string
+          enum: [STRONG_BUY, BUY, NEUTRAL, SELL, STRONG_SELL]
+        buyCount:
+          type: integer
+        sellCount:
+          type: integer
+        neutralCount:
+          type: integer
+        confidence:
+          type: number
+          description: Confidence score from 0 to 100
+        currentPrice:
+          type: number
+        priceChange:
+          type: number
+        priceChangePct:
+          type: number
+        lastUpdated:
+          type: string
+      required:
+        - symbol
+        - overallSignal
+        - buyCount
+        - sellCount
+        - neutralCount
+        - confidence
+        - currentPrice
+        - priceChange
+        - priceChangePct
+        - lastUpdated
