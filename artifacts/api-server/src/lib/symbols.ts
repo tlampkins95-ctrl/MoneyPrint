@@ -19,6 +19,9 @@ export interface SymbolMeta {
   goldApi?: "XAG" | "XAU";
   coinbase?: string;
   okxPerp?: string;
+  // Pyth Hermes price-feed IDs (mainnet). Used as the primary spot source for
+  // crypto so the Now-price line agrees with jup.ag's chart and oracle marks.
+  pythFeedId?: string;
   venue?: string;
 }
 
@@ -83,25 +86,27 @@ export const SYMBOLS: Record<Symbol, SymbolMeta> = {
   },
   BTCUSD: {
     yahoo: "BTC-USD",
-    tvSymbol: "OKX:BTCUSDT.P",
-    tvScrapePath: "/symbols/BTCUSDT.P/?exchange=OKX",
-    label: "Bitcoin Perp / USDT",
+    tvSymbol: "PYTH:BTCUSD",
+    tvScrapePath: "/symbols/BTCUSD/?exchange=PYTH",
+    label: "Bitcoin / USD (Pyth)",
     decimals: 1,
     prefix: "$",
     coinbase: "BTC-USD",
     okxPerp: "BTC-USDT-SWAP",
-    venue: "OKX PERP",
+    pythFeedId: "e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
+    venue: "PYTH · jup.ag",
   },
   ETHUSD: {
     yahoo: "ETH-USD",
-    tvSymbol: "OKX:ETHUSDT.P",
-    tvScrapePath: "/symbols/ETHUSDT.P/?exchange=OKX",
-    label: "Ethereum Perp / USDT",
+    tvSymbol: "PYTH:ETHUSD",
+    tvScrapePath: "/symbols/ETHUSD/?exchange=PYTH",
+    label: "Ethereum / USD (Pyth)",
     decimals: 2,
     prefix: "$",
     coinbase: "ETH-USD",
     okxPerp: "ETH-USDT-SWAP",
-    venue: "OKX PERP",
+    pythFeedId: "ff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace",
+    venue: "PYTH · jup.ag",
   },
 };
 

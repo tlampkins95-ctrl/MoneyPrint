@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { SYMBOLS, makeRounder, type Symbol } from "./symbols";
 import { type CandleRaw, type Timeframe } from "./yahoo-fetch";
 import { fetchOkxPerpPrice } from "./crypto-perp-fetch";
+import { fetchPythPrice } from "./pyth-fetch";
 
 // ─── Live spot price (per-symbol cache) ──────────────────────────────────────
 
@@ -53,6 +54,12 @@ async function fetchFromOkxPerp(symbol: Symbol): Promise<number | null> {
   return fetchOkxPerpPrice(perp);
 }
 
+async function fetchFromPyth(symbol: Symbol): Promise<number | null> {
+  const feedId = SYMBOLS[symbol].pythFeedId;
+  if (!feedId) return null;
+  return fetchPythPrice(feedId);
+}
+
 async function fetchFromCoinbase(symbol: Symbol): Promise<number | null> {
   const pair = SYMBOLS[symbol].coinbase;
   if (!pair) return null;
@@ -81,9 +88,12 @@ export async function fetchSpotPrice(symbol: Symbol): Promise<number | null> {
   if (cached && now - cached.timestamp < SPOT_CACHE_TTL_MS) {
     return cached.price;
   }
-  // For crypto perps prefer OKX (matches the perp candles we chart),
-  // then Coinbase spot, then TV scrape, then GoldAPI for metals.
+  // For crypto: Pyth Hermes first — same oracle that drives jup.ag's chart and
+  // perps marks, so the Now-price line and the chart agree to the cent. Fall
+  // back to OKX → Coinbase → TV scrape if Hermes is unreachable. For metals,
+  // GoldAPI is the only relevant source.
   const price =
+    (await fetchFromPyth(symbol)) ??
     (await fetchFromOkxPerp(symbol)) ??
     (await fetchFromCoinbase(symbol)) ??
     (await fetchFromTradingView(symbol)) ??
