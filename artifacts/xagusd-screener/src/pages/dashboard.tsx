@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { TradingViewChart } from "@/components/trading-view-chart";
 import { SignalPanel } from "@/components/signal-panel";
 import { BacktestPanel } from "@/components/backtest-panel";
+import { EdgeLeaderboard } from "@/components/edge-leaderboard";
 import {
   TimeframeSelector,
   type Timeframe,
@@ -88,6 +89,16 @@ export default function Dashboard() {
             <SignalPanel symbol={symbol} timeframe={timeframe} />
           </div>
         </div>
+
+        {/* Edge leaderboard — best win rate across all symbol × timeframe combos */}
+        <EdgeLeaderboard
+          selectedSymbol={symbol}
+          selectedTimeframe={timeframe}
+          onSelect={(s, t) => {
+            setSymbol(s);
+            setTimeframe(t);
+          }}
+        />
 
         {/* Backtest section */}
         <BacktestPanel symbol={symbol} timeframe={timeframe} />
