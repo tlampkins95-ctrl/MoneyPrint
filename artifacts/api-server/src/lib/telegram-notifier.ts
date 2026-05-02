@@ -35,6 +35,18 @@ function escapeHtml(s: string): string {
     .replace(/>/g, "&gt;");
 }
 
+// Build a deep link back to the screener for a given symbol/timeframe.
+// Prefers REPLIT_DOMAINS (set in production, comma-separated), falling back to
+// REPLIT_DEV_DOMAIN in development. Returns null if neither is set so we can
+// safely omit the link.
+function buildAppLink(symbol: Symbol, timeframe: Timeframe): string | null {
+  const prodDomains = process.env["REPLIT_DOMAINS"];
+  const devDomain = process.env["REPLIT_DEV_DOMAIN"];
+  const host = prodDomains?.split(",")[0]?.trim() || devDomain?.trim();
+  if (!host) return null;
+  return `https://${host}/?symbol=${symbol}&timeframe=${timeframe}`;
+}
+
 async function sendTelegramMessage(text: string): Promise<void> {
   const token = process.env["TELEGRAM_BOT_TOKEN"];
   const chatId = process.env["TELEGRAM_CHAT_ID"];
@@ -135,6 +147,10 @@ async function checkSymbol(
         "",
         escapeHtml(levels.signalReason),
       ];
+      const link = buildAppLink(symbol, timeframe);
+      if (link) {
+        lines.push("", `<a href="${link}">📈 Open chart →</a>`);
+      }
       await sendTelegramMessage(lines.join("\n"));
       logger.info(
         { symbol, timeframe, signal: next.signal, zone: next.zone, prev },

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { TradingViewChart } from "@/components/trading-view-chart";
 import { SignalPanel } from "@/components/signal-panel";
 import { BacktestPanel } from "@/components/backtest-panel";
@@ -9,9 +9,40 @@ import {
 import { SymbolSelector } from "@/components/symbol-selector";
 import { SYMBOLS, type Symbol } from "@/lib/symbols";
 
+const VALID_TIMEFRAMES: readonly Timeframe[] = ["1m", "15m", "30m", "1h", "1d"];
+
+// Read ?symbol=…&timeframe=… so notification links and shared URLs deep-link
+// straight to the right chart.
+function readInitial(): { symbol: Symbol; timeframe: Timeframe } {
+  if (typeof window === "undefined") {
+    return { symbol: "XAGUSD", timeframe: "1d" };
+  }
+  const params = new URLSearchParams(window.location.search);
+  const s = params.get("symbol");
+  const t = params.get("timeframe");
+  return {
+    symbol: s && s in SYMBOLS ? (s as Symbol) : "XAGUSD",
+    timeframe:
+      t && (VALID_TIMEFRAMES as readonly string[]).includes(t)
+        ? (t as Timeframe)
+        : "1d",
+  };
+}
+
 export default function Dashboard() {
-  const [symbol, setSymbol] = useState<Symbol>("XAGUSD");
-  const [timeframe, setTimeframe] = useState<Timeframe>("1d");
+  const initial = readInitial();
+  const [symbol, setSymbol] = useState<Symbol>(initial.symbol);
+  const [timeframe, setTimeframe] = useState<Timeframe>(initial.timeframe);
+
+  // Keep the URL in sync so the current view is always shareable / bookmarkable.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    params.set("symbol", symbol);
+    params.set("timeframe", timeframe);
+    const next = `${window.location.pathname}?${params.toString()}${window.location.hash}`;
+    window.history.replaceState(null, "", next);
+  }, [symbol, timeframe]);
 
   return (
     <div className="min-h-[100dvh] w-full bg-background flex flex-col">
