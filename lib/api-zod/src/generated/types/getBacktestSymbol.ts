@@ -18,4 +18,5 @@ export const GetBacktestSymbol = {
   USDJPY: "USDJPY",
   GBPJPY: "GBPJPY",
   BTCUSD: "BTCUSD",
+  ETHUSD: "ETHUSD",
 } as const;

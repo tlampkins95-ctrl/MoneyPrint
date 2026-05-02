@@ -192,6 +192,7 @@ export const GetLevelsSymbol = {
   USDJPY: "USDJPY",
   GBPJPY: "GBPJPY",
   BTCUSD: "BTCUSD",
+  ETHUSD: "ETHUSD",
 } as const;
 
 export type GetLevelsTimeframe =
@@ -228,6 +229,7 @@ export const GetBacktestSymbol = {
   USDJPY: "USDJPY",
   GBPJPY: "GBPJPY",
   BTCUSD: "BTCUSD",
+  ETHUSD: "ETHUSD",
 } as const;
 
 export type GetBacktestTimeframe =
@@ -268,6 +270,7 @@ export const GetPriceHistorySymbol = {
   USDJPY: "USDJPY",
   GBPJPY: "GBPJPY",
   BTCUSD: "BTCUSD",
+  ETHUSD: "ETHUSD",
 } as const;
 
 export type GetPriceHistoryTimeframe =

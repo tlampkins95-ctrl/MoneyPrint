@@ -6,7 +6,8 @@ export type Symbol =
   | "AUDUSD"
   | "USDJPY"
   | "GBPJPY"
-  | "BTCUSD";
+  | "BTCUSD"
+  | "ETHUSD";
 
 export interface SymbolMeta {
   yahoo: string;
@@ -16,6 +17,7 @@ export interface SymbolMeta {
   decimals: number;
   prefix: string;
   goldApi?: "XAG" | "XAU";
+  coinbase?: string;
 }
 
 export const SYMBOLS: Record<Symbol, SymbolMeta> = {
@@ -84,6 +86,16 @@ export const SYMBOLS: Record<Symbol, SymbolMeta> = {
     label: "Bitcoin / USD",
     decimals: 1,
     prefix: "$",
+    coinbase: "BTC-USD",
+  },
+  ETHUSD: {
+    yahoo: "ETH-USD",
+    tvSymbol: "BITSTAMP:ETHUSD",
+    tvScrapePath: "/symbols/ETHUSD/?exchange=BITSTAMP",
+    label: "Ethereum / USD",
+    decimals: 2,
+    prefix: "$",
+    coinbase: "ETH-USD",
   },
 };
 

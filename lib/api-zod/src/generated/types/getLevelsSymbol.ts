@@ -18,4 +18,5 @@ export const GetLevelsSymbol = {
   USDJPY: "USDJPY",
   GBPJPY: "GBPJPY",
   BTCUSD: "BTCUSD",
+  ETHUSD: "ETHUSD",
 } as const;

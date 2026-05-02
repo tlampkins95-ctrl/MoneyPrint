@@ -44,14 +44,39 @@ async function fetchFromGoldApi(symbol: Symbol): Promise<number | null> {
   }
 }
 
+async function fetchFromCoinbase(symbol: Symbol): Promise<number | null> {
+  const pair = SYMBOLS[symbol].coinbase;
+  if (!pair) return null;
+  try {
+    const response = await fetch(
+      `https://api.coinbase.com/v2/prices/${pair}/spot`,
+      {
+        headers: { "User-Agent": "Mozilla/5.0 (compatible; Forex-Screener/1.0)" },
+        signal: AbortSignal.timeout(4000),
+      },
+    );
+    if (!response.ok) return null;
+    const json = (await response.json()) as { data?: { amount?: string } };
+    const raw = json.data?.amount;
+    if (typeof raw !== "string") return null;
+    const price = parseFloat(raw);
+    return isFinite(price) && price > 0 ? price : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function fetchSpotPrice(symbol: Symbol): Promise<number | null> {
   const now = Date.now();
   const cached = spotCache.get(symbol);
   if (cached && now - cached.timestamp < SPOT_CACHE_TTL_MS) {
     return cached.price;
   }
+  // For crypto, prefer Coinbase (fast, accurate, no scraping); then fall back.
   const price =
-    (await fetchFromTradingView(symbol)) ?? (await fetchFromGoldApi(symbol));
+    (await fetchFromCoinbase(symbol)) ??
+    (await fetchFromTradingView(symbol)) ??
+    (await fetchFromGoldApi(symbol));
   if (price !== null) {
     spotCache.set(symbol, { price, timestamp: now });
     return price;

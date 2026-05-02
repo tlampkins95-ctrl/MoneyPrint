@@ -32,6 +32,7 @@ export const GetLevelsQueryParams = zod.object({
       "USDJPY",
       "GBPJPY",
       "BTCUSD",
+      "ETHUSD",
     ])
     .default(getLevelsQuerySymbolDefault)
     .describe("Trading instrument"),
@@ -104,6 +105,7 @@ export const GetBacktestQueryParams = zod.object({
       "USDJPY",
       "GBPJPY",
       "BTCUSD",
+      "ETHUSD",
     ])
     .default(getBacktestQuerySymbolDefault)
     .describe("Trading instrument"),
@@ -173,6 +175,7 @@ export const GetPriceHistoryQueryParams = zod.object({
       "USDJPY",
       "GBPJPY",
       "BTCUSD",
+      "ETHUSD",
     ])
     .default(getPriceHistoryQuerySymbolDefault)
     .describe("Trading instrument"),
