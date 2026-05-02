@@ -3,13 +3,22 @@ import { useGetLevels } from "@workspace/api-client-react";
 import { format } from "date-fns";
 import { RefreshCw, TrendingUp, TrendingDown, ArrowRight, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
+import type { Timeframe } from "@/components/timeframe-selector";
 
-export function SignalPanel() {
+const TIMEFRAME_LABEL: Record<Timeframe, string> = {
+  "1m": "1m",
+  "30m": "30m",
+  "1h": "1h",
+  "1d": "Daily",
+};
+
+export function SignalPanel({ timeframe }: { timeframe: Timeframe }) {
   const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
 
-  const { data, isLoading, isError, error, refetch, isFetching } = useGetLevels({
-    query: { refetchInterval: 60000 },
-  });
+  const { data, isLoading, isError, error, refetch, isFetching } = useGetLevels(
+    { timeframe },
+    { query: { refetchInterval: 60000 } },
+  );
 
   const handleRefresh = async () => {
     await refetch();
@@ -64,7 +73,10 @@ export function SignalPanel() {
     <div className="flex flex-col h-full bg-[#0a0a0a] text-zinc-100 rounded-xl border border-zinc-800 overflow-hidden font-mono shadow-2xl">
 
       {/* ── 1. Signal Hero ─────────────────────────────────────────────── */}
-      <div className={cn("px-5 py-5 flex flex-col items-center text-center shrink-0", signalBg, signalTextColor)}>
+      <div className={cn("px-5 py-5 flex flex-col items-center text-center shrink-0 relative", signalBg, signalTextColor)}>
+        <span className="absolute top-2 right-3 text-[10px] tracking-widest font-bold opacity-80 bg-black/30 rounded px-2 py-0.5">
+          {TIMEFRAME_LABEL[timeframe]}
+        </span>
         <div className="text-[72px] leading-none font-black tracking-tighter">
           {data.signal}
         </div>

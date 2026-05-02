@@ -15,6 +15,8 @@ import type {
 
 import type {
   BacktestResult,
+  GetBacktestParams,
+  GetLevelsParams,
   GetPriceHistoryParams,
   HealthStatus,
   LevelsData,
@@ -109,35 +111,57 @@ export function useHealthCheck<
  * Returns pivot-point-derived support/resistance levels, buy/sell zones, and a single clear trade signal for XAGUSD
  * @summary Get key price levels and clear trade signal
  */
-export const getGetLevelsUrl = () => {
-  return `/api/levels`;
+export const getGetLevelsUrl = (params?: GetLevelsParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/levels?${stringifiedParams}`
+    : `/api/levels`;
 };
 
-export const getLevels = async (options?: RequestInit): Promise<LevelsData> => {
-  return customFetch<LevelsData>(getGetLevelsUrl(), {
+export const getLevels = async (
+  params?: GetLevelsParams,
+  options?: RequestInit,
+): Promise<LevelsData> => {
+  return customFetch<LevelsData>(getGetLevelsUrl(params), {
     ...options,
     method: "GET",
   });
 };
 
-export const getGetLevelsQueryKey = () => {
-  return [`/api/levels`] as const;
+export const getGetLevelsQueryKey = (params?: GetLevelsParams) => {
+  return [`/api/levels`, ...(params ? [params] : [])] as const;
 };
 
 export const getGetLevelsQueryOptions = <
   TData = Awaited<ReturnType<typeof getLevels>>,
   TError = ErrorType<unknown>,
->(options?: {
-  query?: UseQueryOptions<Awaited<ReturnType<typeof getLevels>>, TError, TData>;
-  request?: SecondParameter<typeof customFetch>;
-}) => {
+>(
+  params?: GetLevelsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getLevels>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
   const { query: queryOptions, request: requestOptions } = options ?? {};
 
-  const queryKey = queryOptions?.queryKey ?? getGetLevelsQueryKey();
+  const queryKey = queryOptions?.queryKey ?? getGetLevelsQueryKey(params);
 
   const queryFn: QueryFunction<Awaited<ReturnType<typeof getLevels>>> = ({
     signal,
-  }) => getLevels({ signal, ...requestOptions });
+  }) => getLevels(params, { signal, ...requestOptions });
 
   return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
     Awaited<ReturnType<typeof getLevels>>,
@@ -158,11 +182,18 @@ export type GetLevelsQueryError = ErrorType<unknown>;
 export function useGetLevels<
   TData = Awaited<ReturnType<typeof getLevels>>,
   TError = ErrorType<unknown>,
->(options?: {
-  query?: UseQueryOptions<Awaited<ReturnType<typeof getLevels>>, TError, TData>;
-  request?: SecondParameter<typeof customFetch>;
-}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
-  const queryOptions = getGetLevelsQueryOptions(options);
+>(
+  params?: GetLevelsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getLevels>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetLevelsQueryOptions(params, options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;
@@ -172,44 +203,60 @@ export function useGetLevels<
 }
 
 /**
- * Replays the buy/sell zone signal logic over the last ~2 years of daily candles and returns aggregate performance stats and individual trade outcomes.
+ * Replays the buy/sell zone signal logic over historical candles for the requested timeframe and returns aggregate performance stats and individual trade outcomes.
  * @summary Backtest the signal criteria over historical candles
  */
-export const getGetBacktestUrl = () => {
-  return `/api/backtest`;
+export const getGetBacktestUrl = (params?: GetBacktestParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/backtest?${stringifiedParams}`
+    : `/api/backtest`;
 };
 
 export const getBacktest = async (
+  params?: GetBacktestParams,
   options?: RequestInit,
 ): Promise<BacktestResult> => {
-  return customFetch<BacktestResult>(getGetBacktestUrl(), {
+  return customFetch<BacktestResult>(getGetBacktestUrl(params), {
     ...options,
     method: "GET",
   });
 };
 
-export const getGetBacktestQueryKey = () => {
-  return [`/api/backtest`] as const;
+export const getGetBacktestQueryKey = (params?: GetBacktestParams) => {
+  return [`/api/backtest`, ...(params ? [params] : [])] as const;
 };
 
 export const getGetBacktestQueryOptions = <
   TData = Awaited<ReturnType<typeof getBacktest>>,
   TError = ErrorType<unknown>,
->(options?: {
-  query?: UseQueryOptions<
-    Awaited<ReturnType<typeof getBacktest>>,
-    TError,
-    TData
-  >;
-  request?: SecondParameter<typeof customFetch>;
-}) => {
+>(
+  params?: GetBacktestParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getBacktest>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
   const { query: queryOptions, request: requestOptions } = options ?? {};
 
-  const queryKey = queryOptions?.queryKey ?? getGetBacktestQueryKey();
+  const queryKey = queryOptions?.queryKey ?? getGetBacktestQueryKey(params);
 
   const queryFn: QueryFunction<Awaited<ReturnType<typeof getBacktest>>> = ({
     signal,
-  }) => getBacktest({ signal, ...requestOptions });
+  }) => getBacktest(params, { signal, ...requestOptions });
 
   return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
     Awaited<ReturnType<typeof getBacktest>>,
@@ -230,15 +277,18 @@ export type GetBacktestQueryError = ErrorType<unknown>;
 export function useGetBacktest<
   TData = Awaited<ReturnType<typeof getBacktest>>,
   TError = ErrorType<unknown>,
->(options?: {
-  query?: UseQueryOptions<
-    Awaited<ReturnType<typeof getBacktest>>,
-    TError,
-    TData
-  >;
-  request?: SecondParameter<typeof customFetch>;
-}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
-  const queryOptions = getGetBacktestQueryOptions(options);
+>(
+  params?: GetBacktestParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getBacktest>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetBacktestQueryOptions(params, options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

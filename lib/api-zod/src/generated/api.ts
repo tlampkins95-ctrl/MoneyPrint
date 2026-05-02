@@ -18,6 +18,15 @@ export const HealthCheckResponse = zod.object({
  * Returns pivot-point-derived support/resistance levels, buy/sell zones, and a single clear trade signal for XAGUSD
  * @summary Get key price levels and clear trade signal
  */
+export const getLevelsQueryTimeframeDefault = `1d`;
+
+export const GetLevelsQueryParams = zod.object({
+  timeframe: zod
+    .enum(["1m", "30m", "1h", "1d"])
+    .default(getLevelsQueryTimeframeDefault)
+    .describe("Bar timeframe used to compute pivots and zones"),
+});
+
 export const GetLevelsResponse = zod.object({
   symbol: zod.string(),
   currentPrice: zod.number(),
@@ -64,9 +73,18 @@ export const GetLevelsResponse = zod.object({
 });
 
 /**
- * Replays the buy/sell zone signal logic over the last ~2 years of daily candles and returns aggregate performance stats and individual trade outcomes.
+ * Replays the buy/sell zone signal logic over historical candles for the requested timeframe and returns aggregate performance stats and individual trade outcomes.
  * @summary Backtest the signal criteria over historical candles
  */
+export const getBacktestQueryTimeframeDefault = `1d`;
+
+export const GetBacktestQueryParams = zod.object({
+  timeframe: zod
+    .enum(["1m", "30m", "1h", "1d"])
+    .default(getBacktestQueryTimeframeDefault)
+    .describe("Bar timeframe used for the backtest"),
+});
+
 export const GetBacktestResponse = zod.object({
   symbol: zod.string(),
   startDate: zod.string(),

@@ -32,6 +32,14 @@ paths:
       tags: [signals]
       summary: Get key price levels and clear trade signal
       description: Returns pivot-point-derived support/resistance levels, buy/sell zones, and a single clear trade signal for XAGUSD
+      parameters:
+        - in: query
+          name: timeframe
+          schema:
+            type: string
+            enum: ["1m", "30m", "1h", "1d"]
+            default: "1d"
+          description: Bar timeframe used to compute pivots and zones
       responses:
         "200":
           description: Price levels and signal
@@ -45,7 +53,15 @@ paths:
       operationId: getBacktest
       tags: [signals]
       summary: Backtest the signal criteria over historical candles
-      description: Replays the buy/sell zone signal logic over the last ~2 years of daily candles and returns aggregate performance stats and individual trade outcomes.
+      description: Replays the buy/sell zone signal logic over historical candles for the requested timeframe and returns aggregate performance stats and individual trade outcomes.
+      parameters:
+        - in: query
+          name: timeframe
+          schema:
+            type: string
+            enum: ["1m", "30m", "1h", "1d"]
+            default: "1d"
+          description: Bar timeframe used for the backtest
       responses:
         "200":
           description: Backtest results

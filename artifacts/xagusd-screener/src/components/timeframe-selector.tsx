@@ -1,0 +1,41 @@
+import { cn } from "@/lib/utils";
+
+export type Timeframe = "1m" | "30m" | "1h" | "1d";
+
+const OPTIONS: { value: Timeframe; label: string }[] = [
+  { value: "1m", label: "1m" },
+  { value: "30m", label: "30m" },
+  { value: "1h", label: "1h" },
+  { value: "1d", label: "D" },
+];
+
+export function TimeframeSelector({
+  value,
+  onChange,
+}: {
+  value: Timeframe;
+  onChange: (tf: Timeframe) => void;
+}) {
+  return (
+    <div className="inline-flex items-center gap-1 bg-card border border-border/60 rounded-md p-0.5">
+      {OPTIONS.map((opt) => {
+        const active = opt.value === value;
+        return (
+          <button
+            key={opt.value}
+            type="button"
+            onClick={() => onChange(opt.value)}
+            className={cn(
+              "px-2.5 py-1 text-xs font-mono font-bold rounded transition-colors",
+              active
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted/40",
+            )}
+          >
+            {opt.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}

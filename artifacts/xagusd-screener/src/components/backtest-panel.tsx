@@ -1,5 +1,13 @@
 import { useGetBacktest } from "@workspace/api-client-react";
 import { TrendingUp, TrendingDown, Target, AlertTriangle } from "lucide-react";
+import type { Timeframe } from "@/components/timeframe-selector";
+
+const TIMEFRAME_LABEL: Record<Timeframe, string> = {
+  "1m": "1-minute",
+  "30m": "30-minute",
+  "1h": "1-hour",
+  "1d": "Daily",
+};
 
 function StatCard({
   label,
@@ -33,8 +41,8 @@ function StatCard({
   );
 }
 
-export function BacktestPanel() {
-  const { data, isLoading, error } = useGetBacktest();
+export function BacktestPanel({ timeframe }: { timeframe: Timeframe }) {
+  const { data, isLoading, error } = useGetBacktest({ timeframe });
 
   if (isLoading) {
     return (
@@ -65,9 +73,12 @@ export function BacktestPanel() {
           <h2 className="text-sm font-semibold tracking-widest font-mono">
             STRATEGY BACKTEST
           </h2>
+          <span className="ml-2 px-2 py-0.5 rounded bg-primary/15 text-primary text-[10px] font-bold tracking-widest">
+            {TIMEFRAME_LABEL[timeframe]}
+          </span>
         </div>
-        <span className="text-[10px] text-muted-foreground font-mono">
-          {data.startDate} → {data.endDate} · {data.totalBars} bars
+        <span className="text-[10px] text-muted-foreground font-mono truncate ml-2">
+          {data.totalBars} bars · {data.totalTrades} trades
         </span>
       </div>
 

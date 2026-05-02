@@ -1,13 +1,22 @@
 import { useEffect, useRef } from "react";
 import { useGetLevels } from "@workspace/api-client-react";
+import type { Timeframe } from "@/components/timeframe-selector";
 
-export function TradingViewChart() {
+const TV_INTERVAL: Record<Timeframe, string> = {
+  "1m": "1",
+  "30m": "30",
+  "1h": "60",
+  "1d": "D",
+};
+
+export function TradingViewChart({ timeframe }: { timeframe: Timeframe }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const widgetRef = useRef<HTMLDivElement>(null);
 
-  const { data: levels } = useGetLevels({
-    query: { refetchInterval: 60000 },
-  });
+  const { data: levels } = useGetLevels(
+    { timeframe },
+    { query: { refetchInterval: 60000 } },
+  );
 
   useEffect(() => {
     if (!widgetRef.current) return;
@@ -20,7 +29,7 @@ export function TradingViewChart() {
     script.innerHTML = JSON.stringify({
       autosize: true,
       symbol: "OANDA:XAGUSD",
-      interval: "D",
+      interval: TV_INTERVAL[timeframe],
       timezone: "Etc/UTC",
       theme: "dark",
       style: "1",
@@ -31,7 +40,7 @@ export function TradingViewChart() {
       support_host: "https://www.tradingview.com",
     });
     widgetRef.current.appendChild(script);
-  }, []);
+  }, [timeframe]);
 
   return (
     <div

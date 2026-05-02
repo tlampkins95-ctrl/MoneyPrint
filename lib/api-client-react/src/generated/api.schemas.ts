@@ -167,6 +167,40 @@ export interface BacktestResult {
   lastUpdated: string;
 }
 
+export type GetLevelsParams = {
+  /**
+   * Bar timeframe used to compute pivots and zones
+   */
+  timeframe?: GetLevelsTimeframe;
+};
+
+export type GetLevelsTimeframe =
+  (typeof GetLevelsTimeframe)[keyof typeof GetLevelsTimeframe];
+
+export const GetLevelsTimeframe = {
+  "1m": "1m",
+  "30m": "30m",
+  "1h": "1h",
+  "1d": "1d",
+} as const;
+
+export type GetBacktestParams = {
+  /**
+   * Bar timeframe used for the backtest
+   */
+  timeframe?: GetBacktestTimeframe;
+};
+
+export type GetBacktestTimeframe =
+  (typeof GetBacktestTimeframe)[keyof typeof GetBacktestTimeframe];
+
+export const GetBacktestTimeframe = {
+  "1m": "1m",
+  "30m": "30m",
+  "1h": "1h",
+  "1d": "1d",
+} as const;
+
 export type GetPriceHistoryParams = {
   /**
    * Number of bars to return

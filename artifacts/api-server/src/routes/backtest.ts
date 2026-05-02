@@ -1,70 +1,21 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { GetBacktestResponse } from "@workspace/api-zod";
+import { GetBacktestResponse, GetBacktestQueryParams } from "@workspace/api-zod";
+import {
+  fetchCandlesForTimeframe,
+  type Timeframe,
+  type CandleRaw,
+} from "../lib/yahoo-fetch";
 
 const router: IRouter = Router();
 
-interface CandleRaw {
-  date: string;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-  volume: number;
-}
-
-interface BacktestCache {
+interface BacktestCacheEntry {
   data: unknown;
   timestamp: number;
 }
+const cache = new Map<Timeframe, BacktestCacheEntry>();
+const CACHE_TTL_MS = 10 * 60 * 1000;
 
-let cache: BacktestCache | null = null;
-const CACHE_TTL_MS = 10 * 60 * 1000; // 10 min
-
-// ─── Data fetch ──────────────────────────────────────────────────────────────
-
-async function fetchCandles(): Promise<CandleRaw[]> {
-  const url =
-    "https://query1.finance.yahoo.com/v8/finance/chart/SI%3DF?interval=1d&range=2y";
-  const response = await fetch(url, {
-    headers: { "User-Agent": "Mozilla/5.0 (compatible; XAGUSD-Screener/1.0)" },
-  });
-  if (!response.ok) throw new Error(`Yahoo Finance fetch failed: ${response.status}`);
-  const json = (await response.json()) as {
-    chart: {
-      result: Array<{
-        timestamp: number[];
-        indicators: {
-          quote: Array<{
-            open: number[];
-            high: number[];
-            low: number[];
-            close: number[];
-            volume: number[];
-          }>;
-        };
-      }> | null;
-      error: { code: string; description: string } | null;
-    };
-  };
-  if (!json.chart.result?.length) {
-    throw new Error(`Yahoo Finance: ${json.chart.error?.description ?? "No data"}`);
-  }
-  const r = json.chart.result[0];
-  const q = r.indicators.quote[0];
-  const out: CandleRaw[] = [];
-  for (let i = 0; i < r.timestamp.length; i++) {
-    const o = q.open[i], h = q.high[i], l = q.low[i], c = q.close[i];
-    if (o == null || h == null || l == null || c == null) continue;
-    if (!isFinite(o) || !isFinite(h) || !isFinite(l) || !isFinite(c)) continue;
-    out.push({
-      date: new Date(r.timestamp[i] * 1000).toISOString().split("T")[0],
-      open: o, high: h, low: l, close: c, volume: q.volume[i] ?? 0,
-    });
-  }
-  return out;
-}
-
-// ─── Math helpers (mirror /levels logic) ─────────────────────────────────────
+// ─── Math ────────────────────────────────────────────────────────────────────
 
 function round2(n: number) { return Math.round(n * 100) / 100; }
 
@@ -91,7 +42,7 @@ function calcATR(candles: CandleRaw[], endIdx: number, period = 14): number {
   return trs.reduce((a, b) => a + b, 0) / trs.length;
 }
 
-// ─── Backtest engine ─────────────────────────────────────────────────────────
+// ─── Engine ──────────────────────────────────────────────────────────────────
 
 interface Trade {
   entryDate: string;
@@ -107,18 +58,23 @@ interface Trade {
   barsHeld: number;
 }
 
-const MAX_HOLD_BARS = 10;
+// Allow longer hold for shorter timeframes (more bars per "day")
+const MAX_HOLD_BARS: Record<Timeframe, number> = {
+  "1m": 60,
+  "30m": 16,
+  "1h": 12,
+  "1d": 10,
+};
 
-function runBacktest(candles: CandleRaw[]): Trade[] {
+function runBacktest(candles: CandleRaw[], timeframe: Timeframe): Trade[] {
   const trades: Trade[] = [];
-  // We need at least 1 prior bar to compute pivots, plus 14 for ATR
+  const maxHold = MAX_HOLD_BARS[timeframe];
   let i = 15;
 
   while (i < candles.length) {
     const prev = candles[i - 1];
     const today = candles[i];
 
-    // Pivots from prev day
     const { pivot, r1, s1 } = calcPivots(prev.high, prev.low, prev.close);
     const zoneGap = r1 - s1;
     if (zoneGap <= 0) { i++; continue; }
@@ -127,15 +83,11 @@ function runBacktest(candles: CandleRaw[]): Trade[] {
     const buyZoneHigh = round2(s1 + halfWidth);
     const sellZoneLow = round2(r1 - halfWidth);
     const sellZoneHigh = round2(r1 + halfWidth);
-
     const atr = calcATR(candles, i - 1, 14);
 
-    // Did today's range touch a zone?
     const touchesBuy = today.low <= buyZoneHigh && today.high >= buyZoneLow;
     const touchesSell = today.high >= sellZoneLow && today.low <= sellZoneHigh;
 
-    // If both zones touched same day, prefer first hit chronologically.
-    // Approximated: whichever zone is closer to the open price triggers first.
     let direction: "BUY" | "SELL" | null = null;
     if (touchesBuy && touchesSell) {
       direction = Math.abs(today.open - s1) < Math.abs(today.open - r1) ? "BUY" : "SELL";
@@ -146,10 +98,9 @@ function runBacktest(candles: CandleRaw[]): Trade[] {
     }
     if (!direction) { i++; continue; }
 
-    // Entry, SL, TPs (mirror /levels logic)
     let entry: number, stopLoss: number, tp1: number, tp2: number;
     if (direction === "BUY") {
-      entry = s1; // pivot-line entry (mid of buy zone)
+      entry = s1;
       stopLoss = round2(buyZoneLow - atr * 0.5);
       tp1 = pivot;
       tp2 = sellZoneLow;
@@ -157,34 +108,27 @@ function runBacktest(candles: CandleRaw[]): Trade[] {
       entry = r1;
       stopLoss = round2(sellZoneHigh + atr * 0.5);
       tp1 = pivot;
-      tp2 = sellZoneLow; // overridden below
       tp2 = buyZoneHigh;
     }
     const risk = Math.abs(entry - stopLoss);
     if (risk <= 0) { i++; continue; }
 
-    // Walk forward to find exit
     let exitDate = today.date;
     let exitPrice = entry;
     let outcome: Trade["outcome"] = "EXPIRED";
     let barsHeld = 0;
+    let exitIdx = i;
 
-    // Same-day execution: trade entered today; check if SL or TP hit today
-    // assuming worst-case path (SL checked before TP if both could hit on same bar)
-    for (let j = i; j < Math.min(candles.length, i + MAX_HOLD_BARS + 1); j++) {
+    for (let j = i; j < Math.min(candles.length, i + maxHold + 1); j++) {
       const bar = candles[j];
       barsHeld = j - i + 1;
-
+      exitIdx = j;
       if (direction === "BUY") {
         const slHit = bar.low <= stopLoss;
         const tp1Hit = bar.high >= tp1;
         const tp2Hit = bar.high >= tp2;
         if (slHit && (tp1Hit || tp2Hit)) {
-          // Both possible same day → conservative: SL hits first
-          outcome = "SL";
-          exitPrice = stopLoss;
-          exitDate = bar.date;
-          break;
+          outcome = "SL"; exitPrice = stopLoss; exitDate = bar.date; break;
         }
         if (slHit) { outcome = "SL"; exitPrice = stopLoss; exitDate = bar.date; break; }
         if (tp2Hit) { outcome = "TP2"; exitPrice = tp2; exitDate = bar.date; break; }
@@ -194,10 +138,7 @@ function runBacktest(candles: CandleRaw[]): Trade[] {
         const tp1Hit = bar.low <= tp1;
         const tp2Hit = bar.low <= tp2;
         if (slHit && (tp1Hit || tp2Hit)) {
-          outcome = "SL";
-          exitPrice = stopLoss;
-          exitDate = bar.date;
-          break;
+          outcome = "SL"; exitPrice = stopLoss; exitDate = bar.date; break;
         }
         if (slHit) { outcome = "SL"; exitPrice = stopLoss; exitDate = bar.date; break; }
         if (tp2Hit) { outcome = "TP2"; exitPrice = tp2; exitDate = bar.date; break; }
@@ -206,9 +147,10 @@ function runBacktest(candles: CandleRaw[]): Trade[] {
     }
 
     if (outcome === "EXPIRED") {
-      const lastBar = candles[Math.min(candles.length - 1, i + MAX_HOLD_BARS)];
+      const lastBar = candles[Math.min(candles.length - 1, i + maxHold)];
       exitPrice = lastBar.close;
       exitDate = lastBar.date;
+      exitIdx = Math.min(candles.length - 1, i + maxHold);
     }
 
     const pnl = direction === "BUY" ? exitPrice - entry : entry - exitPrice;
@@ -228,8 +170,7 @@ function runBacktest(candles: CandleRaw[]): Trade[] {
       barsHeld,
     });
 
-    // Cooldown: skip ahead past the trade's exit to avoid overlapping setups
-    i = Math.max(i + 1, candles.indexOf(candles.find((c) => c.date === exitDate)!) + 1);
+    i = exitIdx + 1;
   }
 
   return trades;
@@ -244,7 +185,6 @@ function aggregate(trades: Trade[], candles: CandleRaw[]) {
   const grossLoss = Math.abs(losses.reduce((s, t) => s + t.rMultiple, 0));
   const totalR = trades.reduce((s, t) => s + t.rMultiple, 0);
 
-  // Drawdown
   let peak = 0, equity = 0, maxDD = 0;
   for (const t of trades) {
     equity += t.rMultiple;
@@ -284,24 +224,29 @@ function aggregate(trades: Trade[], candles: CandleRaw[]) {
     tp2Hits: trades.filter((t) => t.outcome === "TP2").length,
     slHits: trades.filter((t) => t.outcome === "SL").length,
     expiredHits: trades.filter((t) => t.outcome === "EXPIRED").length,
-    trades: trades.slice(-50).reverse(), // most recent first, capped
+    trades: trades.slice(-50).reverse(),
     lastUpdated: new Date().toISOString(),
   };
 }
 
-// ─── Route ───────────────────────────────────────────────────────────────────
-
 router.get("/backtest", async (req: Request, res: Response) => {
   try {
+    const query = GetBacktestQueryParams.parse(req.query);
+    const timeframe = (query.timeframe ?? "1d") as Timeframe;
     const now = Date.now();
-    if (cache && now - cache.timestamp < CACHE_TTL_MS) {
-      res.json(cache.data);
+    const cached = cache.get(timeframe);
+    if (cached && now - cached.timestamp < CACHE_TTL_MS) {
+      res.json(cached.data);
       return;
     }
-    const candles = await fetchCandles();
-    const trades = runBacktest(candles);
+    const candles = await fetchCandlesForTimeframe(timeframe);
+    if (candles.length < 20) {
+      res.status(503).json({ error: "Insufficient data for backtest" });
+      return;
+    }
+    const trades = runBacktest(candles, timeframe);
     const result = GetBacktestResponse.parse(aggregate(trades, candles));
-    cache = { data: result, timestamp: now };
+    cache.set(timeframe, { data: result, timestamp: now });
     res.json(result);
   } catch (err) {
     req.log.error({ err }, "Backtest failed");
