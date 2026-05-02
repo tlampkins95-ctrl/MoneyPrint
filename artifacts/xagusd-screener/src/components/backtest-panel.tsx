@@ -1,5 +1,6 @@
+import { useState } from "react";
 import { useGetBacktest } from "@workspace/api-client-react";
-import { TrendingUp, TrendingDown, Target, AlertTriangle } from "lucide-react";
+import { TrendingUp, TrendingDown, Target, AlertTriangle, ChevronDown, ChevronRight } from "lucide-react";
 import type { Timeframe } from "@/components/timeframe-selector";
 
 const TIMEFRAME_LABEL: Record<Timeframe, string> = {
@@ -44,6 +45,7 @@ function StatCard({
 
 export function BacktestPanel({ timeframe }: { timeframe: Timeframe }) {
   const { data, isLoading, error } = useGetBacktest({ timeframe });
+  const [tradesOpen, setTradesOpen] = useState(false);
 
   if (isLoading) {
     return (
@@ -168,13 +170,28 @@ export function BacktestPanel({ timeframe }: { timeframe: Timeframe }) {
         />
       </div>
 
-      {/* Recent trades */}
+      {/* Recent trades — collapsible */}
       <div className="border-t border-border/50">
-        <div className="px-4 py-2 text-[10px] uppercase tracking-widest text-muted-foreground font-mono flex items-center justify-between">
-          <span>Recent Trades (last {Math.min(data.trades.length, 50)})</span>
-          <span>R-Multiple</span>
-        </div>
-        <div className="max-h-64 overflow-y-auto">
+        <button
+          type="button"
+          onClick={() => setTradesOpen((v) => !v)}
+          className="w-full px-4 py-2.5 text-[10px] uppercase tracking-widest text-muted-foreground font-mono flex items-center justify-between hover:bg-muted/20 transition-colors"
+          aria-expanded={tradesOpen}
+        >
+          <span className="flex items-center gap-2">
+            {tradesOpen ? (
+              <ChevronDown className="w-3.5 h-3.5" />
+            ) : (
+              <ChevronRight className="w-3.5 h-3.5" />
+            )}
+            Recent Trades (last {Math.min(data.trades.length, 50)})
+          </span>
+          <span className="text-muted-foreground/70">
+            {tradesOpen ? "Hide" : "Show"}
+          </span>
+        </button>
+        {tradesOpen && (
+        <div className="max-h-64 overflow-y-auto border-t border-border/50">
           <table className="w-full text-xs font-mono">
             <thead className="sticky top-0 bg-card border-b border-border/50">
               <tr className="text-[10px] uppercase tracking-wider text-muted-foreground">
@@ -241,6 +258,7 @@ export function BacktestPanel({ timeframe }: { timeframe: Timeframe }) {
             </tbody>
           </table>
         </div>
+        )}
       </div>
 
       {/* Disclaimer */}

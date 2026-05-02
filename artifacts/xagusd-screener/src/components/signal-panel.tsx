@@ -136,7 +136,33 @@ export function SignalPanel({ timeframe }: { timeframe: Timeframe }) {
             </div>
           </div>
 
-          {/* ── 4. Market Structure ─────────────────────────────────────── */}
+          {/* ── 4. Zone Watch (long & short opportunities) ──────────────── */}
+          <div>
+            <div className="text-[10px] text-zinc-500 tracking-widest font-sans font-semibold mb-2 flex items-center gap-2">
+              <span className="w-1.5 h-1.5 rounded-full bg-zinc-600 inline-block" />
+              ZONE WATCH
+            </div>
+            <div className="rounded-lg overflow-hidden border border-zinc-800 divide-y divide-zinc-800/60 bg-[#111]">
+              <ZoneRow
+                side="LONG"
+                zoneLabel={`${data.buyZone.low.toFixed(2)}–${data.buyZone.high.toFixed(2)}`}
+                price={data.currentPrice}
+                zoneLow={data.buyZone.low}
+                zoneHigh={data.buyZone.high}
+                isActive={data.signal === "BUY"}
+              />
+              <ZoneRow
+                side="SHORT"
+                zoneLabel={`${data.sellZone.low.toFixed(2)}–${data.sellZone.high.toFixed(2)}`}
+                price={data.currentPrice}
+                zoneLow={data.sellZone.low}
+                zoneHigh={data.sellZone.high}
+                isActive={data.signal === "SELL"}
+              />
+            </div>
+          </div>
+
+          {/* ── 5. Market Structure ─────────────────────────────────────── */}
           <div>
             <div className="text-[10px] text-zinc-500 tracking-widest font-sans font-semibold mb-2 flex items-center gap-2">
               <span className="w-1.5 h-1.5 rounded-full bg-zinc-600 inline-block" />
@@ -215,6 +241,88 @@ function Row({
     <div className={cn("flex justify-between items-center px-4 py-3", bg)}>
       <span className={cn("text-sm", labelClass)}>{label}</span>
       <span className={cn("font-bold text-base", valueClass)}>{value}</span>
+    </div>
+  );
+}
+
+function ZoneRow({
+  side,
+  zoneLabel,
+  price,
+  zoneLow,
+  zoneHigh,
+  isActive,
+}: {
+  side: "LONG" | "SHORT";
+  zoneLabel: string;
+  price: number;
+  zoneLow: number;
+  zoneHigh: number;
+  isActive: boolean;
+}) {
+  const isLong = side === "LONG";
+  const sideColor = isLong ? "text-[#00c950]" : "text-[#e53e3e]";
+  const sideBg = isLong ? "bg-emerald-950/20" : "bg-red-950/20";
+
+  // Compute distance + status
+  const inZone = price >= zoneLow && price <= zoneHigh;
+  let distance: number;
+  let status: string;
+  if (inZone) {
+    distance = 0;
+    status = "IN ZONE";
+  } else if (isLong) {
+    // Long: zone is below price ideal entry below current
+    distance = price - zoneHigh;
+    status = distance > 0 ? `${distance.toFixed(2)} above` : `${Math.abs(distance).toFixed(2)} below`;
+  } else {
+    // Short: zone is above price ideal entry above current
+    distance = zoneLow - price;
+    status = distance > 0 ? `${distance.toFixed(2)} below` : `${Math.abs(distance).toFixed(2)} above`;
+  }
+
+  return (
+    <div
+      className={cn(
+        "px-4 py-2.5 flex items-center justify-between gap-3",
+        isActive ? sideBg : "",
+      )}
+    >
+      <div className="flex items-center gap-2 min-w-0">
+        {isLong ? (
+          <TrendingUp className={cn("w-3.5 h-3.5 shrink-0", sideColor)} />
+        ) : (
+          <TrendingDown className={cn("w-3.5 h-3.5 shrink-0", sideColor)} />
+        )}
+        <span className={cn("text-xs font-bold tracking-wider", sideColor)}>
+          {side}
+        </span>
+        {isActive && (
+          <span
+            className={cn(
+              "text-[9px] font-bold tracking-widest px-1.5 py-0.5 rounded",
+              isLong
+                ? "bg-emerald-500/30 text-emerald-300"
+                : "bg-red-500/30 text-red-300",
+            )}
+          >
+            ACTIVE
+          </span>
+        )}
+      </div>
+      <div className="flex flex-col items-end min-w-0">
+        <span className="text-xs font-bold text-zinc-100 tabular-nums">
+          ${zoneLabel}
+        </span>
+        <span
+          className={cn(
+            "text-[10px] tabular-nums",
+            inZone ? sideColor : "text-zinc-500",
+          )}
+        >
+          {inZone ? "● IN ZONE" : status}
+        </span>
+      </div>
     </div>
   );
 }
