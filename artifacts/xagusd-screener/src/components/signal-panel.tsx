@@ -336,6 +336,23 @@ export function SignalPanel({
                         aria-label="MT5 lot size"
                         data-testid="mt5-lots-input"
                       />
+                      {data.positionSizing?.mt5 &&
+                        data.positionSizing.mt5.recommendedLots !== mt5Lots && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const v = data.positionSizing!.mt5!.recommendedLots;
+                              setMt5Lots(v);
+                              setMt5LotsText(String(v));
+                            }}
+                            className="ml-1 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide bg-amber-500/15 text-amber-300 border border-amber-500/40 rounded hover:bg-amber-500/25 transition-colors"
+                            title={`Auto-size to risk ${data.positionSizing.mt5.recommendedTargetRiskPct}% of $${data.positionSizing.accountSize} = ${data.positionSizing.mt5.recommendedLots} lots`}
+                            data-testid="mt5-lots-apply-recommended"
+                          >
+                            ≈ {data.positionSizing.mt5.recommendedLots} for{" "}
+                            {data.positionSizing.mt5.recommendedTargetRiskPct}%
+                          </button>
+                        )}
                     </>
                   ) : (
                     <>

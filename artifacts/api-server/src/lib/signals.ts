@@ -223,6 +223,23 @@ interface MT5Sizing {
   pnlAtTP1: number;
   pnlAtTP2: number;
   riskPctOfAccount: number;
+  recommendedLots: number;
+  recommendedTargetRiskPct: number;
+}
+
+// Lots that risk approximately `targetRiskPct` of `accountSize` on SL hit.
+// Floored to a 0.01 increment so the user can place exactly that size on
+// MT5 (which rounds at micro-lot granularity), and clamped to [0.01, 100].
+function computeRecommendedLots(
+  lossUsdPerLot: number,
+  accountSize: number,
+  targetRiskPct: number,
+): number {
+  if (lossUsdPerLot <= 0 || accountSize <= 0 || targetRiskPct <= 0) return 0.01;
+  const targetRiskUsd = (targetRiskPct / 100) * accountSize;
+  const ideal = targetRiskUsd / lossUsdPerLot;
+  const floored = Math.floor(ideal * 100) / 100;
+  return Math.min(100, Math.max(0.01, floored));
 }
 
 function computeMT5Sizing(
@@ -233,6 +250,7 @@ function computeMT5Sizing(
   takeProfit1: number,
   takeProfit2: number,
   accountSize: number,
+  riskPct: number,
 ): MT5Sizing {
   const { size, unit } = mt5ContractSize(symbol);
   const usdPerUnit = mt5UsdPerPriceUnitPerLot(symbol, entry);
@@ -244,7 +262,14 @@ function computeMT5Sizing(
   // class above (X/USD, USD/X, JPY-cross, metals) because usdPerUnit already
   // bakes in the quote-currency conversion.
   const notional = usdPerUnit * entry * lots;
-  const lossUsd = slDist * usdPerUnit * lots;
+  const lossUsdPerLot = slDist * usdPerUnit;
+  const lossUsd = lossUsdPerLot * lots;
+  const targetRiskPct = riskPct * 100; // riskPct comes in as 0.01 = 1%
+  const recommendedLots = computeRecommendedLots(
+    lossUsdPerLot,
+    accountSize,
+    targetRiskPct,
+  );
   const r = (n: number, d = 2) => Math.round(n * 10 ** d) / 10 ** d;
   return {
     lots: r(lots, 2),
@@ -256,6 +281,8 @@ function computeMT5Sizing(
     pnlAtTP1: r(tp1Dist * usdPerUnit * lots),
     pnlAtTP2: r(tp2Dist * usdPerUnit * lots),
     riskPctOfAccount: r((lossUsd / accountSize) * 100, 2),
+    recommendedLots: r(recommendedLots, 2),
+    recommendedTargetRiskPct: r(targetRiskPct, 2),
   };
 }
 
@@ -449,7 +476,7 @@ function computePositionSizing(
         mini: r(std * 10, 3),
         micro: r(std * 100, 2),
       },
-      mt5: computeMT5Sizing(symbol, mt5Lots, entry, stopLoss, takeProfit1, takeProfit2, accountSize),
+      mt5: computeMT5Sizing(symbol, mt5Lots, entry, stopLoss, takeProfit1, takeProfit2, accountSize, riskPct),
     };
   }
 
@@ -492,7 +519,7 @@ function computePositionSizing(
       mini: r(std * 10, 3),
       micro: r(std * 100, 2),
     },
-    mt5: computeMT5Sizing(symbol, mt5Lots, entry, stopLoss, takeProfit1, takeProfit2, accountSize),
+    mt5: computeMT5Sizing(symbol, mt5Lots, entry, stopLoss, takeProfit1, takeProfit2, accountSize, riskPct),
   };
 }
 

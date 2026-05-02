@@ -149,6 +149,10 @@ export interface MT5Sizing {
   pnlAtTP2: number;
   /** Absolute pnlAtSL as a percent of the account size — useful for sanity-checking that 0.01 lots isn't over-leveraging the account on a high-pip-value pair like XAGUSD */
   riskPctOfAccount: number;
+  /** Lot size that would risk approximately the configured riskPct of the account on SL hit. Rounded down to 0.01 increments and clamped to a sane min/max. Use this to size a trade that's actually worth taking on small accounts where 0.01 lots yields cents. */
+  recommendedLots: number;
+  /** The riskPct used to derive recommendedLots (mirrors the request's riskPct query param). */
+  recommendedTargetRiskPct: number;
 }
 
 /**
