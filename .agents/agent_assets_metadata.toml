@@ -1,0 +1,13 @@
+uploads = []
+
+[[generated]]
+id = "ePywpuYPYL1n6zZ2rlMt8"
+uri = "file://attached_assets/generated_images/forex_terminal_background.png"
+type = "image"
+title = "forex terminal dark background"
+
+[[outputs]]
+id = "653l0inOrtU11OGyy3uH9"
+uri = "file://attached_assets/generated_images/forex_terminal_background.png"
+type = "image"
+title = "Forex Terminal — Dark Background"
