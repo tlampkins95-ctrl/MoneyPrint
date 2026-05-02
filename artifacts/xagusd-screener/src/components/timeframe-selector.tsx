@@ -18,25 +18,30 @@ export function TimeframeSelector({
   onChange: (tf: Timeframe) => void;
 }) {
   return (
-    <div className="inline-flex items-center gap-1 bg-card border border-border/60 rounded-md p-0.5">
-      {OPTIONS.map((opt) => {
-        const active = opt.value === value;
-        return (
-          <button
-            key={opt.value}
-            type="button"
-            onClick={() => onChange(opt.value)}
-            className={cn(
-              "px-2.5 py-1 text-xs font-mono font-bold rounded transition-colors",
-              active
-                ? "bg-primary text-primary-foreground"
-                : "text-muted-foreground hover:text-foreground hover:bg-muted/40",
-            )}
-          >
-            {opt.label}
-          </button>
-        );
-      })}
+    <div className="inline-flex items-center gap-2">
+      <span className="text-[10px] tracking-widest text-muted-foreground font-bold hidden sm:inline">
+        TIMEFRAME
+      </span>
+      <div className="inline-flex items-center gap-1 bg-card border border-primary/40 rounded-md p-0.5 shadow-[0_0_0_1px_rgba(255,255,255,0.04)]">
+        {OPTIONS.map((opt) => {
+          const active = opt.value === value;
+          return (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => onChange(opt.value)}
+              className={cn(
+                "px-2.5 py-1 text-xs font-mono font-bold rounded transition-colors",
+                active
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted/40",
+              )}
+            >
+              {opt.label}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }

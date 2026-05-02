@@ -37,7 +37,11 @@ export function TradingViewChart({ timeframe }: { timeframe: Timeframe }) {
       locale: "en",
       allow_symbol_change: false,
       calendar: false,
-      hide_side_toolbar: false,
+      hide_side_toolbar: true,
+      hide_top_toolbar: true,
+      hide_legend: false,
+      withdateranges: false,
+      save_image: false,
       support_host: "https://www.tradingview.com",
     });
     widgetRef.current.appendChild(script);
