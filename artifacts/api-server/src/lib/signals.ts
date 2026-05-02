@@ -729,6 +729,69 @@ function isInvalidated(trade: ActiveTrade, currentPrice: number): boolean {
   return currentPrice >= trade.stopLoss || currentPrice <= trade.takeProfit2;
 }
 
+// Build a context-aware description of an active (frozen) trade based on
+// where the live price sits relative to the frozen entry / SL / TPs. The
+// snapshot's original signalReason text goes stale fast — once price walks
+// away from the zone, "Price is within $0.02 of the buy zone" becomes a lie.
+// This recomputes the human-readable explanation every tick so the dashboard
+// honestly reflects the trade's current state.
+function describeFrozenTrade(
+  trade: ActiveTrade,
+  currentPrice: number,
+  timeframe: Timeframe,
+  symbol: Symbol,
+): string {
+  const meta = SYMBOLS[symbol];
+  const round = makeRounder(meta.decimals);
+  const fmt = (n: number) => `${meta.prefix}${round(n).toFixed(meta.decimals)}`;
+  const tfLabel = TIMEFRAME_LABELS[timeframe];
+  const isBuy = trade.signal === "BUY";
+  const dirWord = isBuy ? "BUY" : "SELL";
+
+  const risk = Math.abs(trade.entryPrice - trade.stopLoss);
+  const rawPnl = isBuy ? currentPrice - trade.entryPrice : trade.entryPrice - currentPrice;
+  const rMult = risk > 0 ? rawPnl / risk : 0;
+  const rStr = `${rMult >= 0 ? "+" : ""}${rMult.toFixed(2)}R`;
+
+  const distToTp1 = Math.abs(trade.takeProfit1 - currentPrice);
+  const distToTp2 = Math.abs(trade.takeProfit2 - currentPrice);
+  const distToSl = Math.abs(currentPrice - trade.stopLoss);
+  const distToEntry = Math.abs(currentPrice - trade.entryPrice);
+
+  // States, in priority order:
+  //   1. Past TP2 → about to invalidate
+  //   2. Past TP1 → trail / take partials
+  //   3. Past entry in trade direction → in-profit if filled
+  //   4. Past SL → about to invalidate
+  //   5. Between entry and SL (counter-trade-direction side of entry) →
+  //      pending limit order (or drawdown if filled)
+
+  const beyondTp2 = isBuy ? currentPrice >= trade.takeProfit2 : currentPrice <= trade.takeProfit2;
+  if (beyondTp2) {
+    return `[${tfLabel}] ${dirWord} from ${fmt(trade.entryPrice)} reached TP2 ${fmt(trade.takeProfit2)} (${rStr}). Full target hit — trade closing.`;
+  }
+
+  const beyondTp1 = isBuy ? currentPrice >= trade.takeProfit1 : currentPrice <= trade.takeProfit1;
+  if (beyondTp1) {
+    return `[${tfLabel}] ${dirWord} from ${fmt(trade.entryPrice)}: TP1 ${fmt(trade.takeProfit1)} reached (${rStr}). ${fmt(distToTp2)} from TP2 ${fmt(trade.takeProfit2)} — trail stop or take partials.`;
+  }
+
+  const inProfit = isBuy ? currentPrice > trade.entryPrice : currentPrice < trade.entryPrice;
+  if (inProfit) {
+    return `[${tfLabel}] ${dirWord} setup from ${fmt(trade.entryPrice)}: price ${fmt(currentPrice)} (${rStr}, ${fmt(distToTp1)} from TP1 ${fmt(trade.takeProfit1)}). If your limit order filled, you're in profit; if it never tagged ${fmt(trade.entryPrice)}, the setup may have expired.`;
+  }
+
+  const beyondSl = isBuy ? currentPrice <= trade.stopLoss : currentPrice >= trade.stopLoss;
+  if (beyondSl) {
+    return `[${tfLabel}] ${dirWord} from ${fmt(trade.entryPrice)} hit stop loss ${fmt(trade.stopLoss)} (${rStr}). Trade invalidated.`;
+  }
+
+  // Price is on the entry-vs-SL side: limit order pending fill (or drawdown
+  // if the trader manually entered before the limit price was reached).
+  const sideWord = isBuy ? "below" : "above";
+  return `[${tfLabel}] ${dirWord} pending: limit at ${fmt(trade.entryPrice)}, price ${fmt(currentPrice)} (${fmt(distToEntry)} ${sideWord} entry, ${fmt(distToSl)} from SL ${fmt(trade.stopLoss)}). ${rStr} if filled.`;
+}
+
 export function computeLevelsStable(
   candles: CandleRaw[],
   spotPrice: number | null,
@@ -781,7 +844,9 @@ export function computeLevelsStable(
     return {
       ...fresh,
       signal: stillActive.signal,
-      signalReason: stillActive.signalReason,
+      // Recompute the explanation against current price — the frozen text is
+      // a lie the moment price walks away from the original zone.
+      signalReason: describeFrozenTrade(stillActive, fresh.currentPrice, timeframe, symbol),
       entryPrice: stillActive.entryPrice,
       stopLoss: stillActive.stopLoss,
       takeProfit1: stillActive.takeProfit1,
