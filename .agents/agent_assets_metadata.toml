@@ -36,6 +36,30 @@ uri = "file://attached_assets/logo_options/v4_engraved_rosette.png"
 type = "image"
 title = "engraved rosette dollar"
 
+[[generated]]
+id = "I-4tXtPeON3gdbPoOhib1"
+uri = "file://attached_assets/logo_options/v5_crt_phosphor.png"
+type = "image"
+title = "crt phosphor ascii dollar"
+
+[[generated]]
+id = "dM3s0XC9v2mL4GmclfAcP"
+uri = "file://attached_assets/logo_options/v6_holo_foil.png"
+type = "image"
+title = "holographic foil dollar"
+
+[[generated]]
+id = "Zp6IHCw7sNRAM9Vdxz23w"
+uri = "file://attached_assets/logo_options/v7_cash_ziggurat.png"
+type = "image"
+title = "cash ziggurat skyscraper"
+
+[[generated]]
+id = "hD5ZrOf8ECWTTbLCWXYuB"
+uri = "file://attached_assets/logo_options/v8_bull_candles.png"
+type = "image"
+title = "bull made of candles"
+
 [[outputs]]
 id = "653l0inOrtU11OGyy3uH9"
 uri = "file://attached_assets/generated_images/forex_terminal_background.png"
@@ -71,3 +95,27 @@ id = "XznoleratJ5i21fGXKt36"
 uri = "file://attached_assets/logo_options/v4_engraved_rosette.png"
 type = "image"
 title = "V4 — Banknote engraving rosette"
+
+[[outputs]]
+id = "U5zm7CsYCQPLFvXj75eht"
+uri = "file://attached_assets/logo_options/v5_crt_phosphor.png"
+type = "image"
+title = "V5 — CRT terminal: $ built from phosphor ASCII"
+
+[[outputs]]
+id = "SbDk9m0Mxs5DR26BCCclv"
+uri = "file://attached_assets/logo_options/v6_holo_foil.png"
+type = "image"
+title = "V6 — Holographic foil $ (Apple Card / Amex feel)"
+
+[[outputs]]
+id = "8HYw06upIcmOCK3eYYMFB"
+uri = "file://attached_assets/logo_options/v7_cash_ziggurat.png"
+type = "image"
+title = "V7 — Cash ziggurat (monument to capital)"
+
+[[outputs]]
+id = "F1UIIVEh3Pmcy_VNLFnN1"
+uri = "file://attached_assets/logo_options/v8_bull_candles.png"
+type = "image"
+title = "V8 — Bull built from green candles, $ horns"
