@@ -1,0 +1,196 @@
+import { logger } from "./logger";
+import { SYMBOLS, type Symbol, ALL_SYMBOLS } from "./symbols";
+import {
+  fetchCandlesForTimeframe,
+  type Timeframe,
+} from "./yahoo-fetch";
+import { computeLevelsStable, fetchSpotPrice } from "./signals";
+import {
+  buildAlertContext,
+  sendTelegramAlert,
+  isTelegramEnabled,
+} from "./telegram-notifier";
+import { broadcastWebPush } from "./web-push-notifier";
+
+type SignalKind = "BUY" | "SELL" | "WAIT";
+
+interface TrackedState {
+  signal: SignalKind;
+  lastAlertAt: number;
+}
+
+// 15m dropped — too noisy at intraday cadence. 30m / 1h / 1d give meaningful,
+// actionable alerts.
+const TRACKED_TIMEFRAMES: Timeframe[] = ["30m", "1h", "1d"];
+const POLL_INTERVAL_MS = 60_000;
+
+const COOLDOWN_BY_TIMEFRAME: Record<Timeframe, number> = {
+  "15m": 30 * 60_000,
+  "30m": 60 * 60_000,
+  "1h": 3 * 60 * 60_000,
+  "1d": 24 * 60 * 60_000,
+};
+
+const TIMEFRAME_LABEL: Record<Timeframe, string> = {
+  "15m": "15-min",
+  "30m": "30-min",
+  "1h": "1-hour",
+  "1d": "Daily",
+};
+
+const stateMap = new Map<string, TrackedState>();
+
+function key(symbol: Symbol, timeframe: Timeframe): string {
+  return `${symbol}::${timeframe}`;
+}
+
+function buildAppLink(symbol: Symbol, timeframe: Timeframe): string | null {
+  const prodDomains = process.env["REPLIT_DOMAINS"];
+  const devDomain = process.env["REPLIT_DEV_DOMAIN"];
+  const host = prodDomains?.split(",")[0]?.trim() || devDomain?.trim();
+  if (!host) return null;
+  return `https://${host}/?symbol=${symbol}&timeframe=${timeframe}`;
+}
+
+function isWebPushEnabled(): boolean {
+  const flag = process.env["ENABLE_WEB_PUSH"];
+  if (flag === "false" || flag === "0") return false;
+  return Boolean(
+    process.env["VAPID_PUBLIC_KEY"] && process.env["VAPID_PRIVATE_KEY"],
+  );
+}
+
+async function checkSymbol(
+  symbol: Symbol,
+  timeframe: Timeframe,
+): Promise<void> {
+  try {
+    const [candles, spot] = await Promise.all([
+      fetchCandlesForTimeframe(symbol, timeframe),
+      fetchSpotPrice(symbol),
+    ]);
+    if (candles.length < 2) return;
+
+    const levels = computeLevelsStable(candles, spot, timeframe, symbol);
+    const k = key(symbol, timeframe);
+    const prev = stateMap.get(k);
+    const now = Date.now();
+
+    // Seed state on first observation — never alert on first run.
+    if (!prev) {
+      stateMap.set(k, { signal: levels.signal, lastAlertAt: 0 });
+      return;
+    }
+
+    // Only fire when the signal *transitions into* BUY or SELL.
+    const transitioned =
+      prev.signal !== levels.signal &&
+      (levels.signal === "BUY" || levels.signal === "SELL");
+
+    const cooldownMs = COOLDOWN_BY_TIMEFRAME[timeframe];
+    const cooldownActive = now - prev.lastAlertAt < cooldownMs;
+
+    if (transitioned && !cooldownActive) {
+      const tfLabel = TIMEFRAME_LABEL[timeframe];
+      const link = buildAppLink(symbol, timeframe);
+      const ctx = buildAlertContext(symbol, timeframe, tfLabel, levels, link);
+
+      // Fan out to every channel that's enabled. Failures in one channel
+      // never block the others — Promise.allSettled isolates them.
+      const tasks: Promise<void>[] = [];
+      if (isTelegramEnabled()) {
+        tasks.push(sendTelegramAlert(ctx));
+      }
+      if (isWebPushEnabled()) {
+        const sideEmoji = levels.signal === "BUY" ? "🟢" : "🔴";
+        const sideWord = levels.signal === "BUY" ? "BUY" : "SELL";
+        const m = SYMBOLS[symbol];
+        const fmtN = (n: number) => `${m.prefix}${n.toFixed(m.decimals)}`;
+        // Body keeps the most decision-relevant numbers within the
+        // ~3-line lock-screen budget.
+        const lines: string[] = [
+          `${tfLabel} · ${fmtN(levels.currentPrice)}`,
+          `Entry ${fmtN(levels.entryPrice)} · SL ${fmtN(levels.stopLoss)}`,
+          `TP1 ${fmtN(levels.takeProfit1)} · TP2 ${fmtN(levels.takeProfit2)}`,
+        ];
+        tasks.push(
+          broadcastWebPush({
+            title: `${sideEmoji} ${sideWord} ${m.label}`,
+            body: lines.join("\n"),
+            url: link ?? "/",
+            tag: `${symbol}-${timeframe}`,
+            requireInteraction: timeframe === "1d",
+          }),
+        );
+      }
+
+      if (tasks.length > 0) {
+        await Promise.allSettled(tasks);
+        logger.info(
+          { symbol, timeframe, from: prev.signal, to: levels.signal, channels: tasks.length },
+          "Signal alert dispatched",
+        );
+      }
+      stateMap.set(k, { signal: levels.signal, lastAlertAt: now });
+      return;
+    }
+
+    if (transitioned && cooldownActive) {
+      logger.debug(
+        {
+          symbol,
+          timeframe,
+          from: prev.signal,
+          to: levels.signal,
+          remainingMs: cooldownMs - (now - prev.lastAlertAt),
+        },
+        "Signal alert suppressed (cooldown)",
+      );
+    }
+
+    // Track new signal but preserve lastAlertAt so cooldown still ticks.
+    stateMap.set(k, { signal: levels.signal, lastAlertAt: prev.lastAlertAt });
+  } catch (err) {
+    logger.warn({ err, symbol, timeframe }, "Notifier check failed");
+  }
+}
+
+async function tick(): Promise<void> {
+  const tasks: Promise<void>[] = [];
+  for (const symbol of ALL_SYMBOLS) {
+    for (const tf of TRACKED_TIMEFRAMES) {
+      tasks.push(checkSymbol(symbol, tf));
+    }
+  }
+  await Promise.allSettled(tasks);
+}
+
+let started = false;
+
+export function startSignalNotifier(): void {
+  if (started) return;
+  const telegramOn = isTelegramEnabled();
+  const webPushOn = isWebPushEnabled();
+  if (!telegramOn && !webPushOn) {
+    logger.info(
+      { telegramOn, webPushOn },
+      "Signal notifier disabled (no channels enabled)",
+    );
+    return;
+  }
+  started = true;
+  logger.info(
+    {
+      symbols: ALL_SYMBOLS.length,
+      timeframes: TRACKED_TIMEFRAMES,
+      intervalMs: POLL_INTERVAL_MS,
+      telegramOn,
+      webPushOn,
+    },
+    "Signal notifier started",
+  );
+  void tick();
+  setInterval(() => {
+    void tick();
+  }, POLL_INTERVAL_MS);
+}

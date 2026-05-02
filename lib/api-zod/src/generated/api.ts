@@ -700,6 +700,54 @@ export const GetActiveSignalsResponse = zod.object({
 });
 
 /**
+ * Returns the public half of the VAPID keypair used to sign Web Push payloads. The browser passes this to PushManager.subscribe() before posting the resulting subscription back via /push/subscribe.
+ * @summary Get the server's VAPID public key for browser subscription
+ */
+export const GetVapidPublicKeyResponse = zod.object({
+  publicKey: zod
+    .string()
+    .describe(
+      "Base64URL-encoded VAPID public key suitable for PushManager.subscribe applicationServerKey",
+    ),
+});
+
+/**
+ * Stores a Web Push subscription so the server can fan out signal alerts to it. Idempotent — re-posting the same endpoint upserts the existing record.
+ * @summary Register a browser Web Push subscription
+ */
+export const SubscribePushBody = zod.object({
+  endpoint: zod
+    .string()
+    .describe("Push service endpoint URL (FCM \/ APNs gateway)"),
+  keys: zod.object({
+    p256dh: zod
+      .string()
+      .describe("Browser-supplied P-256 ECDH public key (base64url)"),
+    auth: zod.string().describe("Browser-supplied auth secret (base64url)"),
+  }),
+  userAgent: zod
+    .string()
+    .optional()
+    .describe("Optional User-Agent string for diagnostics"),
+});
+
+export const SubscribePushResponse = zod.object({
+  ok: zod.boolean(),
+});
+
+/**
+ * Deletes the subscription matching the supplied endpoint. Safe to call when no matching row exists.
+ * @summary Remove a browser Web Push subscription
+ */
+export const UnsubscribePushBody = zod.object({
+  endpoint: zod.string(),
+});
+
+export const UnsubscribePushResponse = zod.object({
+  ok: zod.boolean(),
+});
+
+/**
  * @summary Get price history aligned to live OANDA spot
  */
 export const getPriceHistoryQuerySymbolDefault = `XAGUSD`;

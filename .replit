@@ -42,3 +42,10 @@ externalPort = 3002
 [[ports]]
 localPort = 21678
 externalPort = 3000
+
+[userenv]
+
+[userenv.shared]
+VAPID_PUBLIC_KEY = "BCs2S7KkiFN_P0Ve0T7R03skhCxHZL0zvXIllBXplmWhVz3ONMx1DE0PbOfXsVX8sqDtAVQbPouSEs67QWEp2pc"
+VAPID_PRIVATE_KEY = "L42qT9UA9lmI1S1747INlCFVlQ-JxLsljX7APiud7LM"
+VAPID_SUBJECT = "mailto:alerts@money.print"

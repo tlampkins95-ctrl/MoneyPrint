@@ -32,6 +32,9 @@ NODE_ENV = "production"
 # notifier loop. Flip to "true" once the deploy target switches to a
 # Reserved VM that should own 24/7 alerts.
 ENABLE_TELEGRAM_NOTIFIER = "false"
+# Same rationale as Telegram: autoscale prod scales-to-zero and the in-process
+# notifier loop dies. Flip to "true" once a Reserved VM owns 24/7 alerts.
+ENABLE_WEB_PUSH = "false"
 
 [services.production.health.startup]
 path = "/api/healthz"

@@ -1,43 +1,24 @@
 import { logger } from "./logger";
-import { SYMBOLS, type Symbol, ALL_SYMBOLS } from "./symbols";
-import {
-  fetchCandlesForTimeframe,
-  type Timeframe,
-} from "./yahoo-fetch";
-import { computeLevelsStable, fetchSpotPrice } from "./signals";
+import { SYMBOLS, type Symbol } from "./symbols";
+import type { Timeframe } from "./yahoo-fetch";
+import type { computeLevelsStable } from "./signals";
 
-type SignalKind = "BUY" | "SELL" | "WAIT";
+type Levels = ReturnType<typeof computeLevelsStable>;
 
-interface TrackedState {
-  signal: SignalKind;
-  lastAlertAt: number; // epoch ms of most recent alert for this symbol/tf
+export interface AlertContext {
+  symbol: Symbol;
+  timeframe: Timeframe;
+  tfLabel: string;
+  levels: Levels;
+  link: string | null;
 }
 
-// 15m dropped — too noisy at intraday cadence (zones get re-tagged every few
-// minutes near the pivot). 30m / 1h / 1d give meaningful, actionable alerts.
-const TRACKED_TIMEFRAMES: Timeframe[] = ["30m", "1h", "1d"];
-const POLL_INTERVAL_MS = 60_000;
-
-// Minimum gap between alerts for the same symbol/timeframe. Prevents
-// flip-flop spam when price hovers around a zone edge.
-const COOLDOWN_BY_TIMEFRAME: Record<Timeframe, number> = {
-  "15m": 30 * 60_000,
-  "30m": 60 * 60_000,
-  "1h": 3 * 60 * 60_000,
-  "1d": 24 * 60 * 60_000,
-};
-
-const TIMEFRAME_LABEL: Record<Timeframe, string> = {
-  "15m": "15-min",
-  "30m": "30-min",
-  "1h": "1-hour",
-  "1d": "Daily",
-};
-
-const stateMap = new Map<string, TrackedState>();
-
-function key(symbol: Symbol, timeframe: Timeframe): string {
-  return `${symbol}::${timeframe}`;
+export function isTelegramEnabled(): boolean {
+  const flag = process.env["ENABLE_TELEGRAM_NOTIFIER"];
+  if (flag === "false" || flag === "0") return false;
+  return Boolean(
+    process.env["TELEGRAM_BOT_TOKEN"] && process.env["TELEGRAM_CHAT_ID"],
+  );
 }
 
 function fmt(symbol: Symbol, n: number): string {
@@ -52,16 +33,16 @@ function escapeHtml(s: string): string {
     .replace(/>/g, "&gt;");
 }
 
-// Build a deep link back to the screener for a given symbol/timeframe.
-// Prefers REPLIT_DOMAINS (set in production, comma-separated), falling back to
-// REPLIT_DEV_DOMAIN in development. Returns null if neither is set so we can
-// safely omit the link.
-function buildAppLink(symbol: Symbol, timeframe: Timeframe): string | null {
-  const prodDomains = process.env["REPLIT_DOMAINS"];
-  const devDomain = process.env["REPLIT_DEV_DOMAIN"];
-  const host = prodDomains?.split(",")[0]?.trim() || devDomain?.trim();
-  if (!host) return null;
-  return `https://${host}/?symbol=${symbol}&timeframe=${timeframe}`;
+// Pure data context — both Telegram and (potentially) other channels can
+// build their own formatted output from this without re-fetching anything.
+export function buildAlertContext(
+  symbol: Symbol,
+  timeframe: Timeframe,
+  tfLabel: string,
+  levels: Levels,
+  link: string | null,
+): AlertContext {
+  return { symbol, timeframe, tfLabel, levels, link };
 }
 
 async function sendTelegramMessage(text: string): Promise<void> {
@@ -86,193 +67,87 @@ async function sendTelegramMessage(text: string): Promise<void> {
     );
     if (!res.ok) {
       const body = await res.text().catch(() => "");
-      logger.warn(
-        { status: res.status, body },
-        "Telegram sendMessage failed",
-      );
+      logger.warn({ status: res.status, body }, "Telegram sendMessage failed");
     }
   } catch (err) {
     logger.warn({ err }, "Telegram sendMessage error");
   }
 }
 
-async function checkSymbol(
-  symbol: Symbol,
-  timeframe: Timeframe,
-): Promise<void> {
-  try {
-    const [candles, spot] = await Promise.all([
-      fetchCandlesForTimeframe(symbol, timeframe),
-      fetchSpotPrice(symbol),
-    ]);
-    if (candles.length < 2) return;
+export async function sendTelegramAlert(ctx: AlertContext): Promise<void> {
+  const { symbol, tfLabel, levels, link } = ctx;
+  const sideEmoji = levels.signal === "BUY" ? "🟢" : "🔴";
+  const sideWord = levels.signal === "BUY" ? "BUY" : "SELL";
 
-    const levels = computeLevelsStable(candles, spot, timeframe, symbol);
-    const k = key(symbol, timeframe);
-    const prev = stateMap.get(k);
-    const now = Date.now();
+  const risk = Math.abs(levels.entryPrice - levels.stopLoss);
+  const tp1R =
+    risk > 0 ? Math.abs(levels.takeProfit1 - levels.entryPrice) / risk : 0;
+  const tp2R =
+    risk > 0 ? Math.abs(levels.takeProfit2 - levels.entryPrice) / risk : 0;
 
-    // Seed state on first observation — never alert on first run.
-    if (!prev) {
-      stateMap.set(k, { signal: levels.signal, lastAlertAt: 0 });
-      return;
-    }
+  const ps = levels.positionSizing;
+  const ach = ps?.achievable;
+  const slDollar = ach
+    ? `−$${Math.abs(ach.pnlAtSL).toFixed(2)}`
+    : ps
+      ? `−$${ps.riskAmount.toFixed(2)}`
+      : "—";
+  const tp1Dollar = ach
+    ? `+$${ach.pnlAtTP1.toFixed(2)}`
+    : ps
+      ? `+$${(ps.riskAmount * tp1R).toFixed(2)}`
+      : "—";
+  const tp2Dollar = ach
+    ? `+$${ach.pnlAtTP2.toFixed(2)}`
+    : ps
+      ? `+$${(ps.riskAmount * tp2R).toFixed(2)}`
+      : "—";
 
-    // We only alert when the signal *transitions into* BUY or SELL. Bare
-    // zone re-entries are dropped because the signal logic already requires
-    // zone + trend confirmation before flipping to BUY/SELL.
-    const transitioned =
-      prev.signal !== levels.signal &&
-      (levels.signal === "BUY" || levels.signal === "SELL");
+  const lines = [
+    `${sideEmoji} <b>${sideWord} ${escapeHtml(SYMBOLS[symbol].label)}</b>`,
+    `<i>${tfLabel} · now ${fmt(symbol, levels.currentPrice)}</i>`,
+    "",
+    `🎯 Entry  <b>${fmt(symbol, levels.entryPrice)}</b>`,
+    `🛑 Stop   <b>${fmt(symbol, levels.stopLoss)}</b>  <i>${slDollar}</i>`,
+    `✅ TP1    <b>${fmt(symbol, levels.takeProfit1)}</b>  <i>${tp1Dollar} (+${tp1R.toFixed(1)}R)</i>`,
+    `🏆 TP2    <b>${fmt(symbol, levels.takeProfit2)}</b>  <i>${tp2Dollar} (+${tp2R.toFixed(1)}R)</i>`,
+    "",
+    `Trend: <b>${levels.trend}</b> (${levels.trendStrength})`,
+  ];
 
-    const cooldownMs = COOLDOWN_BY_TIMEFRAME[timeframe];
-    const cooldownActive = now - prev.lastAlertAt < cooldownMs;
-
-    if (transitioned && !cooldownActive) {
-      const sideEmoji = levels.signal === "BUY" ? "🟢" : "🔴";
-      const sideWord = levels.signal === "BUY" ? "BUY" : "SELL";
-      const tfLabel = TIMEFRAME_LABEL[timeframe];
-
-      const risk = Math.abs(levels.entryPrice - levels.stopLoss);
-      const tp1R = risk > 0 ? Math.abs(levels.takeProfit1 - levels.entryPrice) / risk : 0;
-      const tp2R = risk > 0 ? Math.abs(levels.takeProfit2 - levels.entryPrice) / risk : 0;
-
-      // Use the ACHIEVABLE numbers so the alert reflects what the trader can
-      // actually execute on their exchange (Jupiter $10 min). Fall back to
-      // ideal-from-risk if achievable wasn't computed for any reason.
-      const ps = levels.positionSizing;
-      const ach = ps?.achievable;
-      const slDollar = ach
-        ? `−$${Math.abs(ach.pnlAtSL).toFixed(2)}`
-        : ps
-          ? `−$${ps.riskAmount.toFixed(2)}`
-          : "—";
-      const tp1Dollar = ach
-        ? `+$${ach.pnlAtTP1.toFixed(2)}`
-        : ps
-          ? `+$${(ps.riskAmount * tp1R).toFixed(2)}`
-          : "—";
-      const tp2Dollar = ach
-        ? `+$${ach.pnlAtTP2.toFixed(2)}`
-        : ps
-          ? `+$${(ps.riskAmount * tp2R).toFixed(2)}`
-          : "—";
-
-      const lines = [
-        `${sideEmoji} <b>${sideWord} ${escapeHtml(SYMBOLS[symbol].label)}</b>`,
-        `<i>${tfLabel} · now ${fmt(symbol, levels.currentPrice)}</i>`,
-        "",
-        `🎯 Entry  <b>${fmt(symbol, levels.entryPrice)}</b>`,
-        `🛑 Stop   <b>${fmt(symbol, levels.stopLoss)}</b>  <i>${slDollar}</i>`,
-        `✅ TP1    <b>${fmt(symbol, levels.takeProfit1)}</b>  <i>${tp1Dollar} (+${tp1R.toFixed(1)}R)</i>`,
-        `🏆 TP2    <b>${fmt(symbol, levels.takeProfit2)}</b>  <i>${tp2Dollar} (+${tp2R.toFixed(1)}R)</i>`,
-        "",
-        `Trend: <b>${levels.trend}</b> (${levels.trendStrength})`,
-      ];
-
-      if (ach && ps) {
-        // Tell the trader EXACTLY what to enter on Jupiter (or their exchange).
-        lines.push(
-          `<b>Jupiter setup:</b> $${ach.collateral.toFixed(2)} col × <b>${ach.leverage.toFixed(1)}x</b> lev → ${ach.positionSize} ${ps.positionSizeUnit} ($${ach.notional.toFixed(0)} notional)`,
-        );
-        lines.push(`Account: $${ps.accountSize} · Intended risk: ${ps.riskPct.toFixed(1)}% ($${ps.riskAmount.toFixed(2)})`);
-        if (ach.belowMinimum) {
-          lines.push(`⚠️ Min collateral forces ${ach.actualRiskPct.toFixed(2)}% actual risk`);
-        }
-        if (ach.warning) {
-          lines.push(`⚠️ ${escapeHtml(ach.warning)}`);
-        }
-      } else if (ps) {
-        const sizeLine =
-          ps.leverage !== undefined
-            ? `Size: <b>${ps.positionSize} ${ps.positionSizeUnit}</b> · <b>${ps.leverage}x</b> lev · $${ps.notional.toFixed(0)} notional`
-            : ps.lots
-              ? `Size: <b>${ps.lots.mini.toFixed(2)} mini lots</b> (${ps.lots.micro.toFixed(1)} micro) · $${ps.notional.toFixed(0)} notional`
-              : `Size: <b>${ps.positionSize} ${ps.positionSizeUnit}</b> · $${ps.notional.toFixed(0)} notional`;
-        lines.push(`Risk: <b>$${ps.riskAmount.toFixed(2)}</b> on $${ps.accountSize} acct (${ps.riskPct.toFixed(1)}%)`);
-        lines.push(sizeLine);
-      }
-
-      lines.push("", escapeHtml(levels.signalReason));
-
-      const link = buildAppLink(symbol, timeframe);
-      if (link) {
-        lines.push("", `<a href="${link}">📈 Open chart →</a>`);
-      }
-
-      await sendTelegramMessage(lines.join("\n"));
-      logger.info(
-        { symbol, timeframe, from: prev.signal, to: levels.signal },
-        "Telegram alert sent",
-      );
-      stateMap.set(k, { signal: levels.signal, lastAlertAt: now });
-      return;
-    }
-
-    if (transitioned && cooldownActive) {
-      logger.debug(
-        {
-          symbol,
-          timeframe,
-          from: prev.signal,
-          to: levels.signal,
-          remainingMs: cooldownMs - (now - prev.lastAlertAt),
-        },
-        "Telegram alert suppressed (cooldown)",
+  if (ach && ps) {
+    lines.push(
+      `<b>Jupiter setup:</b> $${ach.collateral.toFixed(2)} col × <b>${ach.leverage.toFixed(1)}x</b> lev → ${ach.positionSize} ${ps.positionSizeUnit} ($${ach.notional.toFixed(0)} notional)`,
+    );
+    lines.push(
+      `Account: $${ps.accountSize} · Intended risk: ${ps.riskPct.toFixed(1)}% ($${ps.riskAmount.toFixed(2)})`,
+    );
+    if (ach.belowMinimum) {
+      lines.push(
+        `⚠️ Min collateral forces ${ach.actualRiskPct.toFixed(2)}% actual risk`,
       );
     }
-
-    // Always update the tracked signal so next transition fires correctly,
-    // but preserve the previous lastAlertAt so the cooldown still ticks.
-    stateMap.set(k, { signal: levels.signal, lastAlertAt: prev.lastAlertAt });
-  } catch (err) {
-    logger.warn({ err, symbol, timeframe }, "Notifier check failed");
-  }
-}
-
-async function tick(): Promise<void> {
-  const tasks: Promise<void>[] = [];
-  for (const symbol of ALL_SYMBOLS) {
-    for (const tf of TRACKED_TIMEFRAMES) {
-      tasks.push(checkSymbol(symbol, tf));
+    if (ach.warning) {
+      lines.push(`⚠️ ${escapeHtml(ach.warning)}`);
     }
-  }
-  await Promise.allSettled(tasks);
-}
-
-let started = false;
-
-export function startTelegramNotifier(): void {
-  if (started) return;
-  // Explicit kill-switch. Default is enabled (preserves existing dev
-  // behaviour). Production deploys set ENABLE_TELEGRAM_NOTIFIER="false" in
-  // artifact.toml so the autoscale instance doesn't double-fire alerts that
-  // dev is already sending. Flip this back to "true" (or unset) when the
-  // deploy moves to a Reserved VM and should own 24/7 notifications.
-  const enableFlag = process.env["ENABLE_TELEGRAM_NOTIFIER"];
-  if (enableFlag === "false" || enableFlag === "0") {
-    logger.info(
-      { enableFlag },
-      "Telegram notifier explicitly disabled (ENABLE_TELEGRAM_NOTIFIER=false)",
+  } else if (ps) {
+    const sizeLine =
+      ps.leverage !== undefined
+        ? `Size: <b>${ps.positionSize} ${ps.positionSizeUnit}</b> · <b>${ps.leverage}x</b> lev · $${ps.notional.toFixed(0)} notional`
+        : ps.lots
+          ? `Size: <b>${ps.lots.mini.toFixed(2)} mini lots</b> (${ps.lots.micro.toFixed(1)} micro) · $${ps.notional.toFixed(0)} notional`
+          : `Size: <b>${ps.positionSize} ${ps.positionSizeUnit}</b> · $${ps.notional.toFixed(0)} notional`;
+    lines.push(
+      `Risk: <b>$${ps.riskAmount.toFixed(2)}</b> on $${ps.accountSize} acct (${ps.riskPct.toFixed(1)}%)`,
     );
-    return;
+    lines.push(sizeLine);
   }
-  const token = process.env["TELEGRAM_BOT_TOKEN"];
-  const chatId = process.env["TELEGRAM_CHAT_ID"];
-  if (!token || !chatId) {
-    logger.info(
-      "Telegram notifier disabled (TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID not set)",
-    );
-    return;
+
+  lines.push("", escapeHtml(levels.signalReason));
+
+  if (link) {
+    lines.push("", `<a href="${link}">📈 Open chart →</a>`);
   }
-  started = true;
-  logger.info(
-    { symbols: ALL_SYMBOLS.length, timeframes: TRACKED_TIMEFRAMES, intervalMs: POLL_INTERVAL_MS },
-    "Telegram notifier started",
-  );
-  // Kick off immediately to seed state, then on a regular interval.
-  void tick();
-  setInterval(() => {
-    void tick();
-  }, POLL_INTERVAL_MS);
+
+  await sendTelegramMessage(lines.join("\n"));
 }

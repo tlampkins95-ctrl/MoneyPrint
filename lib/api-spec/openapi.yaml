@@ -12,6 +12,8 @@ tags:
     description: Health operations
   - name: signals
     description: XAGUSD signal operations
+  - name: push
+    description: Web Push subscription management for browser notifications
 paths:
   /healthz:
     get:
@@ -175,6 +177,62 @@ paths:
               schema:
                 $ref: "#/components/schemas/ActiveSignalsResponse"
 
+  /push/vapid-public-key:
+    get:
+      operationId: getVapidPublicKey
+      tags: [push]
+      summary: Get the server's VAPID public key for browser subscription
+      description: Returns the public half of the VAPID keypair used to sign Web Push payloads. The browser passes this to PushManager.subscribe() before posting the resulting subscription back via /push/subscribe.
+      responses:
+        "200":
+          description: VAPID public key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VapidPublicKey"
+        "503":
+          description: VAPID keys not configured on the server
+
+  /push/subscribe:
+    post:
+      operationId: subscribePush
+      tags: [push]
+      summary: Register a browser Web Push subscription
+      description: Stores a Web Push subscription so the server can fan out signal alerts to it. Idempotent — re-posting the same endpoint upserts the existing record.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PushSubscriptionPayload"
+      responses:
+        "200":
+          description: Subscription stored
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PushSubscribeResponse"
+
+  /push/unsubscribe:
+    post:
+      operationId: unsubscribePush
+      tags: [push]
+      summary: Remove a browser Web Push subscription
+      description: Deletes the subscription matching the supplied endpoint. Safe to call when no matching row exists.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PushUnsubscribeRequest"
+      responses:
+        "200":
+          description: Subscription removed (or already absent)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PushSubscribeResponse"
+
   /price-history:
     get:
       operationId: getPriceHistory
@@ -211,6 +269,59 @@ paths:
 
 components:
   schemas:
+    VapidPublicKey:
+      type: object
+      properties:
+        publicKey:
+          type: string
+          description: Base64URL-encoded VAPID public key suitable for PushManager.subscribe applicationServerKey
+      required:
+        - publicKey
+
+    PushSubscriptionKeys:
+      type: object
+      properties:
+        p256dh:
+          type: string
+          description: Browser-supplied P-256 ECDH public key (base64url)
+        auth:
+          type: string
+          description: Browser-supplied auth secret (base64url)
+      required:
+        - p256dh
+        - auth
+
+    PushSubscriptionPayload:
+      type: object
+      properties:
+        endpoint:
+          type: string
+          description: Push service endpoint URL (FCM / APNs gateway)
+        keys:
+          $ref: "#/components/schemas/PushSubscriptionKeys"
+        userAgent:
+          type: string
+          description: Optional User-Agent string for diagnostics
+      required:
+        - endpoint
+        - keys
+
+    PushUnsubscribeRequest:
+      type: object
+      properties:
+        endpoint:
+          type: string
+      required:
+        - endpoint
+
+    PushSubscribeResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+      required:
+        - ok
+
     HealthStatus:
       type: object
       properties:

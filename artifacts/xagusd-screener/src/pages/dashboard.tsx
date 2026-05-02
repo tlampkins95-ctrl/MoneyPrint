@@ -9,6 +9,7 @@ import {
   type Timeframe,
 } from "@/components/timeframe-selector";
 import { SymbolSelector } from "@/components/symbol-selector";
+import { PushNotificationsToggle } from "@/components/push-notifications-toggle";
 import { SYMBOLS, type Symbol } from "@/lib/symbols";
 
 const VALID_TIMEFRAMES: readonly Timeframe[] = ["15m", "30m", "1h", "1d"];
@@ -73,6 +74,7 @@ export default function Dashboard() {
         <div className="flex items-center gap-3 text-xs font-mono">
           <SymbolSelector value={symbol} onChange={setSymbol} />
           <TimeframeSelector value={timeframe} onChange={setTimeframe} />
+          <PushNotificationsToggle />
           <div className="hidden sm:flex items-center gap-1.5 border-l pl-3 border-border/50">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
             <span className="text-muted-foreground">LIVE</span>

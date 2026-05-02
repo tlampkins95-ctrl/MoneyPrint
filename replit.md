@@ -53,7 +53,12 @@ See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and pa
 - **API endpoints** (OpenAPI v0.2.0):
   - `GET /api/levels` — key price levels + single BUY/SELL/WAIT signal + full trade setup
   - `GET /api/price-history?bars=60` — OHLCV candle data
+  - `GET /api/active-signals` — every live BUY/SELL across symbols × timeframes
   - `GET /api/healthz` — health check
+  - `GET /api/push/vapid-public-key` — VAPID public key for browser subscription
+  - `POST /api/push/subscribe` — register a Web Push subscription (idempotent upsert by endpoint)
+  - `POST /api/push/unsubscribe` — remove a subscription
+- **Web Push notifications**: lock-screen browser alerts as a branded alternative/companion to Telegram. The unified signal notifier (`src/lib/notifier.ts`) polls every 60s and fans transitions to ALL enabled channels — Telegram (`telegram-notifier.ts`) and Web Push (`web-push-notifier.ts`) — each independently kill-switched. Subscriptions persist in Postgres (`push_subscriptions` table via `@workspace/db`). Dead subscriptions (404/410 from FCM/APNs) are auto-deleted. Frontend toggle (`PushNotificationsToggle`) registers `/sw.js`, calls `PushManager.subscribe` with the server's VAPID public key, and POSTs the subscription. Kill switches: `ENABLE_TELEGRAM_NOTIFIER` and `ENABLE_WEB_PUSH` (both default ON when their creds exist; both forced OFF in production artifact.toml until deploy moves to Reserved VM — autoscale scales to zero and kills the in-process notifier loop). VAPID env vars: `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` (shared environment).
 - **Auto-refresh**: every 60 seconds
 - **CSS rule**: Google Fonts `@import url(...)` MUST be the absolute first line of `index.css`
 

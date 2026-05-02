@@ -5,6 +5,34 @@
  * XAGUSD Screener API
  * OpenAPI spec version: 0.2.0
  */
+export interface VapidPublicKey {
+  /** Base64URL-encoded VAPID public key suitable for PushManager.subscribe applicationServerKey */
+  publicKey: string;
+}
+
+export interface PushSubscriptionKeys {
+  /** Browser-supplied P-256 ECDH public key (base64url) */
+  p256dh: string;
+  /** Browser-supplied auth secret (base64url) */
+  auth: string;
+}
+
+export interface PushSubscriptionPayload {
+  /** Push service endpoint URL (FCM / APNs gateway) */
+  endpoint: string;
+  keys: PushSubscriptionKeys;
+  /** Optional User-Agent string for diagnostics */
+  userAgent?: string;
+}
+
+export interface PushUnsubscribeRequest {
+  endpoint: string;
+}
+
+export interface PushSubscribeResponse {
+  ok: boolean;
+}
+
 export interface HealthStatus {
   status: string;
 }
