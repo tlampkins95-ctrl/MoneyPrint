@@ -62,6 +62,21 @@ paths:
             maximum: 100
             default: 1
           description: Percent of account risked per trade (1 = 1%)
+        - in: query
+          name: minCollateral
+          schema:
+            type: number
+            minimum: 0.01
+            default: 10
+          description: Minimum collateral the exchange will accept per position (USD). Defaults to Jupiter perps minimum of $10.
+        - in: query
+          name: maxLeverage
+          schema:
+            type: number
+            minimum: 1
+            maximum: 200
+            default: 50
+          description: Maximum leverage the trader is willing to use. Defaults to 50x for Jupiter perps.
       responses:
         "200":
           description: Price levels and signal
@@ -314,6 +329,8 @@ components:
             micro:
               type: number
           required: [standard, mini, micro]
+        achievable:
+          $ref: "#/components/schemas/AchievablePosition"
       required:
         - accountSize
         - riskAmount
@@ -321,6 +338,55 @@ components:
         - positionSize
         - positionSizeUnit
         - notional
+
+    AchievablePosition:
+      type: object
+      description: Position scaled to honour exchange minimums (e.g. Jupiter $10 minimum collateral). Shows what the trader can ACTUALLY take and the real dollar P&L at each level.
+      properties:
+        positionSize:
+          type: number
+          description: Actual position size in base units after applying exchange constraints
+        notional:
+          type: number
+          description: Actual notional value in USD
+        collateral:
+          type: number
+          description: Recommended collateral to deposit (USD). At least minCollateral.
+        leverage:
+          type: number
+          description: Leverage to set on the exchange so notional = collateral × leverage
+        actualRiskAmount:
+          type: number
+          description: Actual dollar loss if SL is hit (may differ from intended riskAmount when minimum forces over-sizing)
+        actualRiskPct:
+          type: number
+          description: actualRiskAmount as a percent of account
+        pnlAtSL:
+          type: number
+          description: Signed dollar P&L if stop loss hits (always negative)
+        pnlAtTP1:
+          type: number
+          description: Signed dollar P&L if TP1 hits (positive)
+        pnlAtTP2:
+          type: number
+          description: Signed dollar P&L if TP2 hits (positive)
+        belowMinimum:
+          type: boolean
+          description: True when ideal notional was below the exchange minimum and position was forced over-sized
+        warning:
+          type: string
+          description: Human-readable warning when constraints affected the trade
+      required:
+        - positionSize
+        - notional
+        - collateral
+        - leverage
+        - actualRiskAmount
+        - actualRiskPct
+        - pnlAtSL
+        - pnlAtTP1
+        - pnlAtTP2
+        - belowMinimum
 
     BacktestTrade:
       type: object

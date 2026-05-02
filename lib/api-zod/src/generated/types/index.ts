@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.2.0
  */
 
+export * from "./achievablePosition";
 export * from "./backtestResult";
 export * from "./backtestTrade";
 export * from "./backtestTradeDirection";

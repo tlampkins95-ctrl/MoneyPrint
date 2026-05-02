@@ -5,6 +5,7 @@
  * XAGUSD Screener API
  * OpenAPI spec version: 0.2.0
  */
+import type { AchievablePosition } from "./achievablePosition";
 import type { PositionSizingLots } from "./positionSizingLots";
 
 /**
@@ -29,4 +30,5 @@ export interface PositionSizing {
   leverageNote?: string;
   /** Lot breakdown for forex / metals */
   lots?: PositionSizingLots;
+  achievable?: AchievablePosition;
 }

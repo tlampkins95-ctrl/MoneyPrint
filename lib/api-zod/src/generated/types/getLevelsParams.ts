@@ -28,4 +28,15 @@ export type GetLevelsParams = {
    * @maximum 100
    */
   riskPct?: number;
+  /**
+   * Minimum collateral the exchange will accept per position (USD). Defaults to Jupiter perps minimum of $10.
+   * @minimum 0.01
+   */
+  minCollateral?: number;
+  /**
+   * Maximum leverage the trader is willing to use. Defaults to 50x for Jupiter perps.
+   * @minimum 1
+   * @maximum 200
+   */
+  maxLeverage?: number;
 };

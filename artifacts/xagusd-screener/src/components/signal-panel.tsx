@@ -8,6 +8,8 @@ import { SYMBOLS, fmtPrice, fmtPriceCompact, type Symbol } from "@/lib/symbols";
 
 const ACCOUNT_KEY = "screener.accountSize";
 const RISK_KEY = "screener.riskPct";
+const MIN_COL_KEY = "screener.minCollateral";
+const MAX_LEV_KEY = "screener.maxLeverage";
 
 function readNumber(key: string, fallback: number): number {
   if (typeof window === "undefined") return fallback;
@@ -35,6 +37,8 @@ export function SignalPanel({
   const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
   const [accountSize, setAccountSize] = useState<number>(() => readNumber(ACCOUNT_KEY, 500));
   const [riskPct, setRiskPct] = useState<number>(() => readNumber(RISK_KEY, 1));
+  const [minCollateral, setMinCollateral] = useState<number>(() => readNumber(MIN_COL_KEY, 10));
+  const [maxLeverage, setMaxLeverage] = useState<number>(() => readNumber(MAX_LEV_KEY, 50));
 
   useEffect(() => {
     window.localStorage.setItem(ACCOUNT_KEY, String(accountSize));
@@ -42,8 +46,14 @@ export function SignalPanel({
   useEffect(() => {
     window.localStorage.setItem(RISK_KEY, String(riskPct));
   }, [riskPct]);
+  useEffect(() => {
+    window.localStorage.setItem(MIN_COL_KEY, String(minCollateral));
+  }, [minCollateral]);
+  useEffect(() => {
+    window.localStorage.setItem(MAX_LEV_KEY, String(maxLeverage));
+  }, [maxLeverage]);
 
-  const params = { symbol, timeframe, accountSize, riskPct };
+  const params = { symbol, timeframe, accountSize, riskPct, minCollateral, maxLeverage };
   const { data, isLoading, isError, error, refetch, isFetching } = useGetLevels(
     params,
     {
@@ -185,7 +195,7 @@ export function SignalPanel({
                 <TradeRow
                   label="Stop Loss"
                   value={fmtPrice(symbol, data.stopLoss)}
-                  pnl={data.positionSizing ? -data.positionSizing.riskAmount : null}
+                  pnl={data.positionSizing?.achievable?.pnlAtSL ?? null}
                   rMultiple={-1}
                   valueClass="text-[#e53e3e]"
                   labelClass="text-[#e53e3e]"
@@ -194,7 +204,7 @@ export function SignalPanel({
                 <TradeRow
                   label="Take Profit 1"
                   value={fmtPrice(symbol, data.takeProfit1)}
-                  pnl={data.positionSizing ? data.positionSizing.riskAmount * computeR(data.entryPrice, data.stopLoss, data.takeProfit1) : null}
+                  pnl={data.positionSizing?.achievable?.pnlAtTP1 ?? null}
                   rMultiple={computeR(data.entryPrice, data.stopLoss, data.takeProfit1)}
                   valueClass="text-[#4ade80]"
                   labelClass="text-[#4ade80]"
@@ -203,7 +213,7 @@ export function SignalPanel({
                 <TradeRow
                   label="Take Profit 2"
                   value={fmtPrice(symbol, data.takeProfit2)}
-                  pnl={data.positionSizing ? data.positionSizing.riskAmount * computeR(data.entryPrice, data.stopLoss, data.takeProfit2) : null}
+                  pnl={data.positionSizing?.achievable?.pnlAtTP2 ?? null}
                   rMultiple={computeR(data.entryPrice, data.stopLoss, data.takeProfit2)}
                   valueClass="text-[#86efac]"
                   labelClass="text-[#86efac]"
@@ -252,10 +262,10 @@ export function SignalPanel({
           {/* ── 4.5. Position Size ──────────────────────────────────────── */}
           {data.positionSizing && (
             <div>
-              <div className="text-[10px] text-zinc-500 tracking-widest font-sans font-semibold mb-2 flex items-center gap-2">
+              <div className="text-[10px] text-zinc-500 tracking-widest font-sans font-semibold mb-2 flex items-center gap-2 flex-wrap">
                 <span className="w-1.5 h-1.5 rounded-full bg-zinc-600 inline-block" />
                 POSITION SIZE
-                <div className="ml-auto flex items-center gap-1.5 text-[10px] text-zinc-400 font-sans font-normal tracking-normal">
+                <div className="ml-auto flex items-center gap-1.5 text-[10px] text-zinc-400 font-sans font-normal tracking-normal flex-wrap justify-end">
                   <Settings className="w-3 h-3 text-zinc-600" />
                   <span>$</span>
                   <input
@@ -287,6 +297,38 @@ export function SignalPanel({
                     aria-label="Risk percent of account"
                   />
                   <span>% risk</span>
+                  <span className="text-zinc-700 ml-1">|</span>
+                  <span title="Exchange minimum collateral (Jupiter = $10)">min&nbsp;$</span>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    min={0.01}
+                    step={1}
+                    value={minCollateral}
+                    onChange={(e) => {
+                      const v = Number(e.target.value);
+                      if (Number.isFinite(v) && v > 0) setMinCollateral(v);
+                    }}
+                    className="w-12 bg-zinc-900 border border-zinc-700 rounded px-1.5 py-0.5 text-right tabular-nums text-zinc-100 focus:outline-none focus:border-amber-500/60"
+                    aria-label="Minimum collateral in USD"
+                  />
+                  <span className="text-zinc-600">·</span>
+                  <span title="Max leverage you'll use">max</span>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    min={1}
+                    max={200}
+                    step={5}
+                    value={maxLeverage}
+                    onChange={(e) => {
+                      const v = Number(e.target.value);
+                      if (Number.isFinite(v) && v >= 1) setMaxLeverage(v);
+                    }}
+                    className="w-12 bg-zinc-900 border border-zinc-700 rounded px-1.5 py-0.5 text-right tabular-nums text-zinc-100 focus:outline-none focus:border-amber-500/60"
+                    aria-label="Max leverage"
+                  />
+                  <span>x lev</span>
                 </div>
               </div>
               <div className="rounded-lg overflow-hidden border border-zinc-800 divide-y divide-zinc-800/60 bg-[#111]">
@@ -346,6 +388,90 @@ export function SignalPanel({
                   </div>
                 )}
               </div>
+
+              {/* ── EXACT EXCHANGE SETUP ─────────────────────────────────── */}
+              {data.positionSizing.achievable && (
+                <div className="mt-3 rounded-lg overflow-hidden border-2 border-amber-500/40 bg-gradient-to-br from-amber-950/20 to-zinc-900">
+                  <div className="px-3 py-1.5 bg-amber-500/10 border-b border-amber-500/30 flex items-center gap-2">
+                    <span className="text-[10px] text-amber-300 font-sans font-bold tracking-widest">
+                      EXACT TRADE TO PLACE
+                    </span>
+                    {data.positionSizing.achievable.belowMinimum && (
+                      <span className="ml-auto text-[9px] text-amber-400 font-bold tracking-wider px-1.5 py-0.5 rounded bg-amber-500/20 border border-amber-500/40">
+                        OVER-SIZED
+                      </span>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-3 gap-px bg-zinc-800 text-center">
+                    <div className="bg-[#0a0a0a] px-2 py-2">
+                      <div className="text-[8px] text-zinc-500 font-sans font-semibold tracking-widest">
+                        COLLATERAL
+                      </div>
+                      <div className="text-base font-bold text-amber-200 tabular-nums mt-0.5">
+                        ${data.positionSizing.achievable.collateral.toFixed(2)}
+                      </div>
+                    </div>
+                    <div className="bg-[#0a0a0a] px-2 py-2">
+                      <div className="text-[8px] text-zinc-500 font-sans font-semibold tracking-widest">
+                        LEVERAGE
+                      </div>
+                      <div className="text-base font-bold text-amber-200 tabular-nums mt-0.5">
+                        {data.positionSizing.achievable.leverage.toFixed(1)}x
+                      </div>
+                    </div>
+                    <div className="bg-[#0a0a0a] px-2 py-2">
+                      <div className="text-[8px] text-zinc-500 font-sans font-semibold tracking-widest">
+                        POSITION
+                      </div>
+                      <div className="text-base font-bold text-amber-200 tabular-nums mt-0.5 truncate">
+                        {formatPositionSize(data.positionSizing.achievable.positionSize, data.positionSizing.positionSizeUnit)}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-px bg-zinc-800 text-center border-t border-zinc-800">
+                    <div className="bg-red-950/20 px-2 py-2">
+                      <div className="text-[8px] text-red-400/70 font-sans font-semibold tracking-widest">
+                        IF SL HIT
+                      </div>
+                      <div className="text-sm font-bold text-red-300 tabular-nums mt-0.5">
+                        −${Math.abs(data.positionSizing.achievable.pnlAtSL).toFixed(2)}
+                      </div>
+                      <div className="text-[8px] text-red-400/60 mt-0.5">
+                        −{data.positionSizing.achievable.actualRiskPct.toFixed(2)}% acct
+                      </div>
+                    </div>
+                    <div className="bg-emerald-950/20 px-2 py-2">
+                      <div className="text-[8px] text-emerald-400/70 font-sans font-semibold tracking-widest">
+                        IF TP1 HIT
+                      </div>
+                      <div className="text-sm font-bold text-emerald-300 tabular-nums mt-0.5">
+                        +${data.positionSizing.achievable.pnlAtTP1.toFixed(2)}
+                      </div>
+                      <div className="text-[8px] text-emerald-400/60 mt-0.5">
+                        +{((data.positionSizing.achievable.pnlAtTP1 / data.positionSizing.accountSize) * 100).toFixed(2)}% acct
+                      </div>
+                    </div>
+                    <div className="bg-emerald-900/30 px-2 py-2">
+                      <div className="text-[8px] text-emerald-300/80 font-sans font-semibold tracking-widest">
+                        IF TP2 HIT
+                      </div>
+                      <div className="text-sm font-bold text-emerald-200 tabular-nums mt-0.5">
+                        +${data.positionSizing.achievable.pnlAtTP2.toFixed(2)}
+                      </div>
+                      <div className="text-[8px] text-emerald-300/70 mt-0.5">
+                        +{((data.positionSizing.achievable.pnlAtTP2 / data.positionSizing.accountSize) * 100).toFixed(2)}% acct
+                      </div>
+                    </div>
+                  </div>
+                  {data.positionSizing.achievable.warning && (
+                    <div className="px-3 py-2 bg-amber-950/30 border-t border-amber-500/20">
+                      <p className="text-[10px] text-amber-300/90 leading-snug">
+                        ⚠ {data.positionSizing.achievable.warning}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 

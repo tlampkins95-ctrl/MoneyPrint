@@ -73,6 +73,34 @@ export const LevelsDataTrend = {
 } as const;
 
 /**
+ * Position scaled to honour exchange minimums (e.g. Jupiter $10 minimum collateral). Shows what the trader can ACTUALLY take and the real dollar P&L at each level.
+ */
+export interface AchievablePosition {
+  /** Actual position size in base units after applying exchange constraints */
+  positionSize: number;
+  /** Actual notional value in USD */
+  notional: number;
+  /** Recommended collateral to deposit (USD). At least minCollateral. */
+  collateral: number;
+  /** Leverage to set on the exchange so notional = collateral × leverage */
+  leverage: number;
+  /** Actual dollar loss if SL is hit (may differ from intended riskAmount when minimum forces over-sizing) */
+  actualRiskAmount: number;
+  /** actualRiskAmount as a percent of account */
+  actualRiskPct: number;
+  /** Signed dollar P&L if stop loss hits (always negative) */
+  pnlAtSL: number;
+  /** Signed dollar P&L if TP1 hits (positive) */
+  pnlAtTP1: number;
+  /** Signed dollar P&L if TP2 hits (positive) */
+  pnlAtTP2: number;
+  /** True when ideal notional was below the exchange minimum and position was forced over-sized */
+  belowMinimum: boolean;
+  /** Human-readable warning when constraints affected the trade */
+  warning?: string;
+}
+
+/**
  * Lot breakdown for forex / metals
  */
 export type PositionSizingLots = {
@@ -103,6 +131,7 @@ export interface PositionSizing {
   leverageNote?: string;
   /** Lot breakdown for forex / metals */
   lots?: PositionSizingLots;
+  achievable?: AchievablePosition;
 }
 
 export interface LevelsData {
@@ -223,6 +252,17 @@ export type GetLevelsParams = {
    * @maximum 100
    */
   riskPct?: number;
+  /**
+   * Minimum collateral the exchange will accept per position (USD). Defaults to Jupiter perps minimum of $10.
+   * @minimum 0.01
+   */
+  minCollateral?: number;
+  /**
+   * Maximum leverage the trader is willing to use. Defaults to 50x for Jupiter perps.
+   * @minimum 1
+   * @maximum 200
+   */
+  maxLeverage?: number;
 };
 
 export type GetLevelsSymbol =

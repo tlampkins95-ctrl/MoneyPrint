@@ -24,6 +24,8 @@ router.get("/levels", async (req: Request, res: Response) => {
     // produce nonsense leverage values.
     const accountSize = Math.max(1, Math.min(10_000_000, query.accountSize ?? 500));
     const riskPctFrac = Math.max(0.0001, Math.min(1, (query.riskPct ?? 1) / 100));
+    const minCollateral = Math.max(0.01, Math.min(1_000_000, query.minCollateral ?? 10));
+    const maxLeverage = Math.max(1, Math.min(200, query.maxLeverage ?? 50));
     const [candles, spotPrice] = await Promise.all([
       fetchCandlesForTimeframe(symbol, timeframe),
       fetchSpotPrice(symbol),
@@ -33,7 +35,16 @@ router.get("/levels", async (req: Request, res: Response) => {
       return;
     }
     const data = GetLevelsResponse.parse(
-      computeLevelsStable(candles, spotPrice, timeframe, symbol, accountSize, riskPctFrac),
+      computeLevelsStable(
+        candles,
+        spotPrice,
+        timeframe,
+        symbol,
+        accountSize,
+        riskPctFrac,
+        minCollateral,
+        maxLeverage,
+      ),
     );
     res.json(data);
   } catch (err) {

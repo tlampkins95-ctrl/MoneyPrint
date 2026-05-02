@@ -139,12 +139,26 @@ async function checkSymbol(
       const tp1R = risk > 0 ? Math.abs(levels.takeProfit1 - levels.entryPrice) / risk : 0;
       const tp2R = risk > 0 ? Math.abs(levels.takeProfit2 - levels.entryPrice) / risk : 0;
 
-      // Dollar P&L per leg, scaled to the configured risk amount. Falls back
-      // to "—" when sizing isn't available (shouldn't happen for valid setups).
+      // Use the ACHIEVABLE numbers so the alert reflects what the trader can
+      // actually execute on their exchange (Jupiter $10 min). Fall back to
+      // ideal-from-risk if achievable wasn't computed for any reason.
       const ps = levels.positionSizing;
-      const slDollar = ps ? `−$${ps.riskAmount.toFixed(2)}` : "—";
-      const tp1Dollar = ps ? `+$${(ps.riskAmount * tp1R).toFixed(2)}` : "—";
-      const tp2Dollar = ps ? `+$${(ps.riskAmount * tp2R).toFixed(2)}` : "—";
+      const ach = ps?.achievable;
+      const slDollar = ach
+        ? `−$${Math.abs(ach.pnlAtSL).toFixed(2)}`
+        : ps
+          ? `−$${ps.riskAmount.toFixed(2)}`
+          : "—";
+      const tp1Dollar = ach
+        ? `+$${ach.pnlAtTP1.toFixed(2)}`
+        : ps
+          ? `+$${(ps.riskAmount * tp1R).toFixed(2)}`
+          : "—";
+      const tp2Dollar = ach
+        ? `+$${ach.pnlAtTP2.toFixed(2)}`
+        : ps
+          ? `+$${(ps.riskAmount * tp2R).toFixed(2)}`
+          : "—";
 
       const lines = [
         `${sideEmoji} <b>${sideWord} ${escapeHtml(SYMBOLS[symbol].label)}</b>`,
@@ -158,7 +172,19 @@ async function checkSymbol(
         `Trend: <b>${levels.trend}</b> (${levels.trendStrength})`,
       ];
 
-      if (ps) {
+      if (ach && ps) {
+        // Tell the trader EXACTLY what to enter on Jupiter (or their exchange).
+        lines.push(
+          `<b>Jupiter setup:</b> $${ach.collateral.toFixed(2)} col × <b>${ach.leverage.toFixed(1)}x</b> lev → ${ach.positionSize} ${ps.positionSizeUnit} ($${ach.notional.toFixed(0)} notional)`,
+        );
+        lines.push(`Account: $${ps.accountSize} · Intended risk: ${ps.riskPct.toFixed(1)}% ($${ps.riskAmount.toFixed(2)})`);
+        if (ach.belowMinimum) {
+          lines.push(`⚠️ Min collateral forces ${ach.actualRiskPct.toFixed(2)}% actual risk`);
+        }
+        if (ach.warning) {
+          lines.push(`⚠️ ${escapeHtml(ach.warning)}`);
+        }
+      } else if (ps) {
         const sizeLine =
           ps.leverage !== undefined
             ? `Size: <b>${ps.positionSize} ${ps.positionSizeUnit}</b> · <b>${ps.leverage}x</b> lev · $${ps.notional.toFixed(0)} notional`

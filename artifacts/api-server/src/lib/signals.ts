@@ -170,9 +170,26 @@ export const MIN_RR_TP1 = 1.5;
 export const MIN_RR_TP2 = 2.5;
 
 // ─── Position sizing ─────────────────────────────────────────────────────────
-// Defaults assume a $500 starting account, 1% risk per trade.
+// Defaults assume a $500 starting account, 1% risk per trade, Jupiter perps
+// minimums ($10 min collateral, 50x leverage cap).
 export const DEFAULT_ACCOUNT_SIZE = 500;
 export const DEFAULT_RISK_PCT = 0.01;
+export const DEFAULT_MIN_COLLATERAL = 10;
+export const DEFAULT_MAX_LEVERAGE = 50;
+
+interface AchievablePosition {
+  positionSize: number;
+  notional: number;
+  collateral: number;
+  leverage: number;
+  actualRiskAmount: number;
+  actualRiskPct: number;
+  pnlAtSL: number;
+  pnlAtTP1: number;
+  pnlAtTP2: number;
+  belowMinimum: boolean;
+  warning?: string;
+}
 
 interface PositionSizing {
   accountSize: number;
@@ -184,14 +201,104 @@ interface PositionSizing {
   leverage?: number;
   leverageNote?: string;
   lots?: { standard: number; mini: number; micro: number };
+  achievable?: AchievablePosition;
+}
+
+// Compute the "achievable" position given exchange constraints. Uses the
+// scale-factor approach: when the ideal notional is below the exchange's
+// minimum collateral (case C), the position is forced larger, scaling risk
+// and dollar P&L proportionally. When ideal is achievable (cases A/B), we
+// recommend the smallest collateral that satisfies both the exchange minimum
+// and the user's leverage cap. The same scale factor is applied to risk and
+// P&L so this works for any asset class without per-asset currency math —
+// we leverage the fact that ideal P&L = riskAmount × R-multiple.
+function computeAchievable(
+  ideal: { positionSize: number; notional: number; positionSizeUnit: string },
+  riskAmount: number,
+  accountSize: number,
+  entry: number,
+  stopLoss: number,
+  takeProfit1: number,
+  takeProfit2: number,
+  minCollateral: number,
+  maxLeverage: number,
+): AchievablePosition {
+  const slDist = Math.abs(entry - stopLoss);
+  const tp1Dist = Math.abs(takeProfit1 - entry);
+  const tp2Dist = Math.abs(takeProfit2 - entry);
+  const r = (n: number, d = 2) => Math.round(n * 10 ** d) / 10 ** d;
+
+  let scaleFactor = 1;
+  let collateral: number;
+  let leverage: number;
+  let warning: string | undefined;
+  const belowMinimum = ideal.notional > 0 && ideal.notional < minCollateral;
+
+  if (ideal.notional <= 0) {
+    // Defensive: degenerate ideal (zero risk or zero account). Cannot scale.
+    collateral = minCollateral;
+    leverage = 1;
+    warning = `Cannot compute achievable position — ideal notional is zero.`;
+  } else if (belowMinimum) {
+    // CASE C: ideal notional too small to even use 1x lev with min collateral.
+    // Position is forced larger than risk-budgeted.
+    scaleFactor = minCollateral / ideal.notional;
+    collateral = minCollateral;
+    leverage = 1;
+    const overPct = Math.round((scaleFactor - 1) * 100);
+    const parts = [`Ideal position too small for $${minCollateral} min collateral — forced ${overPct}% over-sized.`];
+    if (collateral > accountSize) {
+      parts.push(`Min collateral $${minCollateral} exceeds account $${accountSize}.`);
+    }
+    warning = parts.join(" ");
+  } else {
+    const requiredCollateralAtMaxLev = ideal.notional / maxLeverage;
+    if (requiredCollateralAtMaxLev >= minCollateral) {
+      // CASE A: ideal achievable at exactly maxLev with collateral >= min.
+      collateral = requiredCollateralAtMaxLev;
+      leverage = maxLeverage;
+    } else {
+      // CASE B: at maxLev would be below min collateral. Bump collateral to
+      // min, drop leverage proportionally. Position still matches ideal.
+      collateral = minCollateral;
+      leverage = ideal.notional / minCollateral;
+    }
+    if (collateral > accountSize) {
+      warning = `Required collateral $${collateral.toFixed(2)} exceeds account $${accountSize}.`;
+    }
+  }
+
+  const actualNotional = ideal.notional * scaleFactor;
+  const actualPosition = ideal.positionSize * scaleFactor;
+  const actualRiskAmount = riskAmount * scaleFactor;
+  // Per-unit-of-price-move dollar P&L derived from the known ideal: at slDist
+  // the loss is exactly riskAmount, so $/move = riskAmount / slDist.
+  const dollarPerUnit = slDist > 0 ? riskAmount / slDist : 0;
+  return {
+    positionSize: r(actualPosition, 6),
+    notional: r(actualNotional),
+    collateral: r(collateral, 2),
+    leverage: r(leverage, 1),
+    actualRiskAmount: r(actualRiskAmount),
+    actualRiskPct: r((actualRiskAmount / accountSize) * 100, 2),
+    pnlAtSL: r(-actualRiskAmount),
+    pnlAtTP1: r(dollarPerUnit * tp1Dist * scaleFactor),
+    pnlAtTP2: r(dollarPerUnit * tp2Dist * scaleFactor),
+    belowMinimum,
+    warning,
+  };
 }
 
 function computePositionSizing(
   symbol: Symbol,
   entry: number,
   stopLoss: number,
+  takeProfit1: number,
+  takeProfit2: number,
   accountSize: number = DEFAULT_ACCOUNT_SIZE,
   riskPct: number = DEFAULT_RISK_PCT,
+  minCollateral: number = DEFAULT_MIN_COLLATERAL,
+  maxLeverage: number = DEFAULT_MAX_LEVERAGE,
 ): PositionSizing | undefined {
   const slDist = Math.abs(entry - stopLoss);
   if (!isFinite(slDist) || slDist <= 0 || !isFinite(entry) || entry <= 0) return undefined;
@@ -209,15 +316,27 @@ function computePositionSizing(
     if (leverage > 25) leverageNote = "Required leverage > 25x — exceeds most exchange caps. Skip this setup or use a larger account.";
     else if (leverage > 15) leverageNote = "High leverage — verify your exchange's max and watch for liquidation slippage.";
     else if (leverage > 10) leverageNote = "Moderate-high leverage — keep extra margin in reserve.";
+    const unit = symbol === "BTCUSD" ? "BTC" : "ETH";
     return {
       accountSize: r(accountSize),
       riskAmount: r(riskAmount),
       riskPct: r(riskPct * 100, 2),
       positionSize: r(positionSize, 6),
-      positionSizeUnit: symbol === "BTCUSD" ? "BTC" : "ETH",
+      positionSizeUnit: unit,
       notional: r(notional),
       leverage,
       leverageNote,
+      achievable: computeAchievable(
+        { positionSize, notional, positionSizeUnit: unit },
+        riskAmount,
+        accountSize,
+        entry,
+        stopLoss,
+        takeProfit1,
+        takeProfit2,
+        minCollateral,
+        maxLeverage,
+      ),
     };
   }
 
@@ -241,6 +360,17 @@ function computePositionSizing(
         mini: r(std * 10, 3),
         micro: r(std * 100, 2),
       },
+      achievable: computeAchievable(
+        { positionSize, notional, positionSizeUnit: "oz" },
+        riskAmount,
+        accountSize,
+        entry,
+        stopLoss,
+        takeProfit1,
+        takeProfit2,
+        minCollateral,
+        maxLeverage,
+      ),
     };
   }
 
@@ -269,18 +399,30 @@ function computePositionSizing(
     notional = positionSize * entry; // base × USD/base = USD
   }
   const std = positionSize / 100_000;
+  const unit = symbol.slice(0, 3); // EUR, GBP, AUD, USD
   return {
     accountSize: r(accountSize),
     riskAmount: r(riskAmount),
     riskPct: r(riskPct * 100, 2),
     positionSize: r(positionSize),
-    positionSizeUnit: symbol.slice(0, 3), // EUR, GBP, AUD, USD
+    positionSizeUnit: unit,
     notional: r(notional),
     lots: {
       standard: r(std, 4),
       mini: r(std * 10, 3),
       micro: r(std * 100, 2),
     },
+    achievable: computeAchievable(
+      { positionSize, notional, positionSizeUnit: unit },
+      riskAmount,
+      accountSize,
+      entry,
+      stopLoss,
+      takeProfit1,
+      takeProfit2,
+      minCollateral,
+      maxLeverage,
+    ),
   };
 }
 
@@ -306,6 +448,8 @@ export function computeLevels(
   symbol: Symbol,
   accountSize: number = DEFAULT_ACCOUNT_SIZE,
   riskPct: number = DEFAULT_RISK_PCT,
+  minCollateral: number = DEFAULT_MIN_COLLATERAL,
+  maxLeverage: number = DEFAULT_MAX_LEVERAGE,
 ) {
   const meta = SYMBOLS[symbol];
   const round = makeRounder(meta.decimals);
@@ -422,7 +566,17 @@ export function computeLevels(
   const rewardDist = Math.abs(takeProfit1 - entryPrice);
   const riskRewardRatio = riskDist > 0 ? Math.round((rewardDist / riskDist) * 100) / 100 : 0;
 
-  const positionSizing = computePositionSizing(symbol, entryPrice, stopLoss, accountSize, riskPct);
+  const positionSizing = computePositionSizing(
+    symbol,
+    entryPrice,
+    stopLoss,
+    takeProfit1,
+    takeProfit2,
+    accountSize,
+    riskPct,
+    minCollateral,
+    maxLeverage,
+  );
 
   type LevelType = "resistance" | "support" | "pivot";
   const levels: { label: string; price: number; type: LevelType }[] = [
@@ -521,8 +675,10 @@ export function computeLevelsStable(
   symbol: Symbol,
   accountSize: number = DEFAULT_ACCOUNT_SIZE,
   riskPct: number = DEFAULT_RISK_PCT,
+  minCollateral: number = DEFAULT_MIN_COLLATERAL,
+  maxLeverage: number = DEFAULT_MAX_LEVERAGE,
 ): Levels {
-  const fresh = computeLevels(candles, spotPrice, timeframe, symbol, accountSize, riskPct);
+  const fresh = computeLevels(candles, spotPrice, timeframe, symbol, accountSize, riskPct, minCollateral, maxLeverage);
   const k = tradeKey(symbol, timeframe);
   const existing = activeTrades.get(k);
 
@@ -559,13 +715,17 @@ export function computeLevelsStable(
       pivot: stillActive.pivot,
       levels: stillActive.levelsArr,
       // Recompute sizing fresh against the (possibly updated) account/risk
-      // inputs but using the FROZEN entry and stop loss.
+      // inputs but using the FROZEN entry, stop loss and TP levels.
       positionSizing: computePositionSizing(
         symbol,
         stillActive.entryPrice,
         stillActive.stopLoss,
+        stillActive.takeProfit1,
+        stillActive.takeProfit2,
         accountSize,
         riskPct,
+        minCollateral,
+        maxLeverage,
       ),
     };
   }

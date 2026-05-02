@@ -40,6 +40,7 @@ See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and pa
   - ATR(14) used for stop-loss sizing (0.5× ATR beyond zone boundary)
   - EMA 21/50 for trend bias (UPTREND/DOWNTREND/RANGING)
 - **Trade output**: Entry, Stop Loss, Take Profit 1, Take Profit 2, Risk/Reward ratio
+- **Position sizing**: ideal sizing (riskAmount / slDist) plus an `achievable` block that maps the ideal trade onto Jupiter perps' $10 min collateral and 50× max leverage caps (configurable via `minCollateral` / `maxLeverage` query params). The achievable block reports the exact collateral, leverage, position size, and resulting $ P&L at SL/TP1/TP2 — these are the values shown in the dashboard's TradeRow rows and in Telegram alerts ("Jupiter setup: $X col × Yx lev → Z position"). Three cases: (A) ideal achievable at maxLev with col≥min → use maxLev; (B) ideal needs more col than maxLev allows → bump col to min, lower leverage; (C) ideal notional below min collateral → forced over-sized at 1× with warning.
 - **API endpoints** (OpenAPI v0.2.0):
   - `GET /api/levels` — key price levels + single BUY/SELL/WAIT signal + full trade setup
   - `GET /api/price-history?bars=60` — OHLCV candle data

@@ -26,6 +26,12 @@ export const getLevelsQueryRiskPctDefault = 1;
 export const getLevelsQueryRiskPctMin = 0.01;
 export const getLevelsQueryRiskPctMax = 100;
 
+export const getLevelsQueryMinCollateralDefault = 10;
+export const getLevelsQueryMinCollateralMin = 0.01;
+
+export const getLevelsQueryMaxLeverageDefault = 50;
+export const getLevelsQueryMaxLeverageMax = 200;
+
 export const GetLevelsQueryParams = zod.object({
   symbol: zod
     .enum([
@@ -56,6 +62,21 @@ export const GetLevelsQueryParams = zod.object({
     .max(getLevelsQueryRiskPctMax)
     .default(getLevelsQueryRiskPctDefault)
     .describe("Percent of account risked per trade (1 = 1%)"),
+  minCollateral: zod.coerce
+    .number()
+    .min(getLevelsQueryMinCollateralMin)
+    .default(getLevelsQueryMinCollateralDefault)
+    .describe(
+      "Minimum collateral the exchange will accept per position (USD). Defaults to Jupiter perps minimum of $10.",
+    ),
+  maxLeverage: zod.coerce
+    .number()
+    .min(1)
+    .max(getLevelsQueryMaxLeverageMax)
+    .default(getLevelsQueryMaxLeverageDefault)
+    .describe(
+      "Maximum leverage the trader is willing to use. Defaults to 50x for Jupiter perps.",
+    ),
 });
 
 export const GetLevelsResponse = zod.object({
@@ -133,6 +154,57 @@ export const GetLevelsResponse = zod.object({
         })
         .optional()
         .describe("Lot breakdown for forex \/ metals"),
+      achievable: zod
+        .object({
+          positionSize: zod
+            .number()
+            .describe(
+              "Actual position size in base units after applying exchange constraints",
+            ),
+          notional: zod.number().describe("Actual notional value in USD"),
+          collateral: zod
+            .number()
+            .describe(
+              "Recommended collateral to deposit (USD). At least minCollateral.",
+            ),
+          leverage: zod
+            .number()
+            .describe(
+              "Leverage to set on the exchange so notional = collateral × leverage",
+            ),
+          actualRiskAmount: zod
+            .number()
+            .describe(
+              "Actual dollar loss if SL is hit (may differ from intended riskAmount when minimum forces over-sizing)",
+            ),
+          actualRiskPct: zod
+            .number()
+            .describe("actualRiskAmount as a percent of account"),
+          pnlAtSL: zod
+            .number()
+            .describe("Signed dollar P&L if stop loss hits (always negative)"),
+          pnlAtTP1: zod
+            .number()
+            .describe("Signed dollar P&L if TP1 hits (positive)"),
+          pnlAtTP2: zod
+            .number()
+            .describe("Signed dollar P&L if TP2 hits (positive)"),
+          belowMinimum: zod
+            .boolean()
+            .describe(
+              "True when ideal notional was below the exchange minimum and position was forced over-sized",
+            ),
+          warning: zod
+            .string()
+            .optional()
+            .describe(
+              "Human-readable warning when constraints affected the trade",
+            ),
+        })
+        .optional()
+        .describe(
+          "Position scaled to honour exchange minimums (e.g. Jupiter $10 minimum collateral). Shows what the trader can ACTUALLY take and the real dollar P&L at each level.",
+        ),
     })
     .optional()
     .describe(
