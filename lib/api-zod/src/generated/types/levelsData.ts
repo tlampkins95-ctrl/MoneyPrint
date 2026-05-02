@@ -7,6 +7,7 @@
  */
 import type { LevelsDataSignal } from "./levelsDataSignal";
 import type { LevelsDataTrend } from "./levelsDataTrend";
+import type { PositionSizing } from "./positionSizing";
 import type { PriceLevel } from "./priceLevel";
 import type { TradeZone } from "./tradeZone";
 
@@ -40,4 +41,5 @@ export interface LevelsData {
   /** 0-100 strength score */
   trendStrength: number;
   lastUpdated: string;
+  positionSizing?: PositionSizing;
 }

@@ -72,6 +72,39 @@ export const LevelsDataTrend = {
   RANGING: "RANGING",
 } as const;
 
+/**
+ * Lot breakdown for forex / metals
+ */
+export type PositionSizingLots = {
+  standard: number;
+  mini: number;
+  micro: number;
+};
+
+/**
+ * Suggested position size for a $500 starting account at 1% risk per trade.
+ */
+export interface PositionSizing {
+  /** Account size in USD used for sizing */
+  accountSize: number;
+  /** Dollar amount risked per trade if stop is hit */
+  riskAmount: number;
+  /** Risk percent of account (e.g. 1.0 = 1%) */
+  riskPct: number;
+  /** Position size in base units (coins, oz, base currency) */
+  positionSize: number;
+  /** Unit label for positionSize (BTC, ETH, oz, EUR, etc.) */
+  positionSizeUnit: string;
+  /** Approximate USD notional value of the position */
+  notional: number;
+  /** Suggested minimum leverage multiplier (perps only) */
+  leverage?: number;
+  /** Warning text when required leverage is high */
+  leverageNote?: string;
+  /** Lot breakdown for forex / metals */
+  lots?: PositionSizingLots;
+}
+
 export interface LevelsData {
   symbol: string;
   currentPrice: number;
@@ -102,6 +135,7 @@ export interface LevelsData {
   /** 0-100 strength score */
   trendStrength: number;
   lastUpdated: string;
+  positionSizing?: PositionSizing;
 }
 
 export type BacktestTradeDirection =

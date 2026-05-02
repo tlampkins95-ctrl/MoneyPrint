@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useGetLevels, getGetLevelsQueryKey } from "@workspace/api-client-react";
 import { format } from "date-fns";
-import { RefreshCw, TrendingUp, TrendingDown, ArrowRight, AlertTriangle } from "lucide-react";
+import { RefreshCw, TrendingUp, TrendingDown, ArrowRight, AlertTriangle, Wallet } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Timeframe } from "@/components/timeframe-selector";
 import { SYMBOLS, fmtPrice, fmtPriceCompact, type Symbol } from "@/lib/symbols";
@@ -204,6 +204,76 @@ export function SignalPanel({
             </div>
           </div>
 
+          {/* ── 4.5. Position Size ($500 acct, 1% risk) ────────────────── */}
+          {data.positionSizing && (
+            <div>
+              <div className="text-[10px] text-zinc-500 tracking-widest font-sans font-semibold mb-2 flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-zinc-600 inline-block" />
+                POSITION SIZE
+                <span className="ml-auto text-[9px] text-zinc-600 font-normal tracking-normal">
+                  ${data.positionSizing.accountSize} acct · {data.positionSizing.riskPct.toFixed(1)}% risk
+                </span>
+              </div>
+              <div className="rounded-lg overflow-hidden border border-zinc-800 divide-y divide-zinc-800/60 bg-[#111]">
+                <div className="flex justify-between items-center px-3 py-2.5 gap-2 min-w-0 bg-amber-950/10">
+                  <span className="text-xs text-amber-400/80 flex items-center gap-1.5 truncate">
+                    <Wallet className="w-3 h-3 shrink-0" />
+                    Risk per trade
+                  </span>
+                  <span className="font-bold text-sm tabular-nums shrink-0 text-amber-300">
+                    ${data.positionSizing.riskAmount.toFixed(2)}
+                  </span>
+                </div>
+                <Row
+                  label="Position size"
+                  value={`${formatPositionSize(data.positionSizing.positionSize, data.positionSizing.positionSizeUnit)} ${data.positionSizing.positionSizeUnit}`}
+                  valueClass="text-zinc-100"
+                />
+                <Row
+                  label="Notional value"
+                  value={`$${formatNotional(data.positionSizing.notional)}`}
+                  labelClass="text-zinc-500"
+                />
+                {data.positionSizing.leverage !== undefined && (
+                  <div className="flex flex-col gap-1 px-3 py-2.5 bg-zinc-950/60">
+                    <div className="flex justify-between items-center gap-2">
+                      <span className="text-xs text-zinc-400">Min leverage</span>
+                      <span
+                        className={cn(
+                          "font-bold text-base tabular-nums shrink-0",
+                          data.positionSizing.leverage > 15
+                            ? "text-red-400"
+                            : data.positionSizing.leverage > 10
+                              ? "text-amber-400"
+                              : "text-emerald-400",
+                        )}
+                      >
+                        {data.positionSizing.leverage}x
+                      </span>
+                    </div>
+                    {data.positionSizing.leverageNote && (
+                      <p className="text-[10px] text-zinc-500 leading-snug">
+                        {data.positionSizing.leverageNote}
+                      </p>
+                    )}
+                  </div>
+                )}
+                {data.positionSizing.lots && (
+                  <div className="flex flex-col gap-1 px-3 py-2.5 bg-zinc-950/60">
+                    <span className="text-[10px] text-zinc-500 tracking-widest font-sans font-semibold">
+                      LOTS
+                    </span>
+                    <div className="grid grid-cols-3 gap-2 text-center">
+                      <LotCell label="Standard" value={data.positionSizing.lots.standard} />
+                      <LotCell label="Mini" value={data.positionSizing.lots.mini} />
+                      <LotCell label="Micro" value={data.positionSizing.lots.micro} />
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* ── 5. Market Structure ─────────────────────────────────────── */}
           <div>
             <div className="text-[10px] text-zinc-500 tracking-widest font-sans font-semibold mb-2 flex items-center gap-2">
@@ -285,6 +355,38 @@ function Row({
       <span className={cn("font-bold text-sm tabular-nums shrink-0", valueClass)}>{value}</span>
     </div>
   );
+}
+
+function LotCell({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="flex flex-col gap-0.5 bg-[#0a0a0a] rounded px-1.5 py-1.5 border border-zinc-800/60">
+      <span className="text-[8px] tracking-widest text-zinc-500 font-sans font-semibold">
+        {label}
+      </span>
+      <span className="text-xs font-bold text-zinc-200 tabular-nums">
+        {value < 0.001 ? value.toExponential(1) : value.toFixed(value < 1 ? 3 : 2)}
+      </span>
+    </div>
+  );
+}
+
+function formatPositionSize(size: number, unit: string): string {
+  // For coin units (BTC/ETH), keep decimals. For oz/forex base units, use thousands separators.
+  if (unit === "BTC" || unit === "ETH") {
+    return size.toFixed(size < 0.01 ? 6 : 4);
+  }
+  if (unit === "oz") {
+    return size.toFixed(size < 10 ? 2 : 1);
+  }
+  // Forex base currency — show as integer with thousands separators
+  return Math.round(size).toLocaleString("en-US");
+}
+
+function formatNotional(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
+  if (n >= 10_000) return `${(n / 1_000).toFixed(1)}k`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(2)}k`;
+  return n.toFixed(2);
 }
 
 function ZoneRow({

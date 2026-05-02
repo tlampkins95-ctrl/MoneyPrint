@@ -238,6 +238,8 @@ components:
           description: 0-100 strength score
         lastUpdated:
           type: string
+        positionSizing:
+          $ref: "#/components/schemas/PositionSizing"
       required:
         - symbol
         - currentPrice
@@ -257,6 +259,53 @@ components:
         - trend
         - trendStrength
         - lastUpdated
+
+    PositionSizing:
+      type: object
+      description: Suggested position size for a $500 starting account at 1% risk per trade.
+      properties:
+        accountSize:
+          type: number
+          description: Account size in USD used for sizing
+        riskAmount:
+          type: number
+          description: Dollar amount risked per trade if stop is hit
+        riskPct:
+          type: number
+          description: Risk percent of account (e.g. 1.0 = 1%)
+        positionSize:
+          type: number
+          description: Position size in base units (coins, oz, base currency)
+        positionSizeUnit:
+          type: string
+          description: Unit label for positionSize (BTC, ETH, oz, EUR, etc.)
+        notional:
+          type: number
+          description: Approximate USD notional value of the position
+        leverage:
+          type: number
+          description: Suggested minimum leverage multiplier (perps only)
+        leverageNote:
+          type: string
+          description: Warning text when required leverage is high
+        lots:
+          type: object
+          description: Lot breakdown for forex / metals
+          properties:
+            standard:
+              type: number
+            mini:
+              type: number
+            micro:
+              type: number
+          required: [standard, mini, micro]
+      required:
+        - accountSize
+        - riskAmount
+        - riskPct
+        - positionSize
+        - positionSizeUnit
+        - notional
 
     BacktestTrade:
       type: object

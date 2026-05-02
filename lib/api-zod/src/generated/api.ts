@@ -85,6 +85,43 @@ export const GetLevelsResponse = zod.object({
     .describe("Current market structure"),
   trendStrength: zod.number().describe("0-100 strength score"),
   lastUpdated: zod.string(),
+  positionSizing: zod
+    .object({
+      accountSize: zod.number().describe("Account size in USD used for sizing"),
+      riskAmount: zod
+        .number()
+        .describe("Dollar amount risked per trade if stop is hit"),
+      riskPct: zod.number().describe("Risk percent of account (e.g. 1.0 = 1%)"),
+      positionSize: zod
+        .number()
+        .describe("Position size in base units (coins, oz, base currency)"),
+      positionSizeUnit: zod
+        .string()
+        .describe("Unit label for positionSize (BTC, ETH, oz, EUR, etc.)"),
+      notional: zod
+        .number()
+        .describe("Approximate USD notional value of the position"),
+      leverage: zod
+        .number()
+        .optional()
+        .describe("Suggested minimum leverage multiplier (perps only)"),
+      leverageNote: zod
+        .string()
+        .optional()
+        .describe("Warning text when required leverage is high"),
+      lots: zod
+        .object({
+          standard: zod.number(),
+          mini: zod.number(),
+          micro: zod.number(),
+        })
+        .optional()
+        .describe("Lot breakdown for forex \/ metals"),
+    })
+    .optional()
+    .describe(
+      "Suggested position size for a $500 starting account at 1% risk per trade.",
+    ),
 });
 
 /**

@@ -169,6 +169,121 @@ const TIMEFRAME_LABELS: Record<Timeframe, string> = {
 export const MIN_RR_TP1 = 1.5;
 export const MIN_RR_TP2 = 2.5;
 
+// ─── Position sizing ─────────────────────────────────────────────────────────
+// Defaults assume a $500 starting account, 1% risk per trade.
+export const DEFAULT_ACCOUNT_SIZE = 500;
+export const DEFAULT_RISK_PCT = 0.01;
+
+interface PositionSizing {
+  accountSize: number;
+  riskAmount: number;
+  riskPct: number;
+  positionSize: number;
+  positionSizeUnit: string;
+  notional: number;
+  leverage?: number;
+  leverageNote?: string;
+  lots?: { standard: number; mini: number; micro: number };
+}
+
+function computePositionSizing(
+  symbol: Symbol,
+  entry: number,
+  stopLoss: number,
+  accountSize: number = DEFAULT_ACCOUNT_SIZE,
+  riskPct: number = DEFAULT_RISK_PCT,
+): PositionSizing | undefined {
+  const slDist = Math.abs(entry - stopLoss);
+  if (!isFinite(slDist) || slDist <= 0 || !isFinite(entry) || entry <= 0) return undefined;
+
+  const riskAmount = accountSize * riskPct;
+  const meta = SYMBOLS[symbol];
+  const r = (n: number, d = 2) => Math.round(n * 10 ** d) / 10 ** d;
+
+  // ─── Crypto perps (BTC, ETH) ───
+  if (meta.okxPerp) {
+    const positionSize = riskAmount / slDist; // coin units
+    const notional = positionSize * entry;
+    const leverage = Math.max(1, Math.ceil(notional / accountSize));
+    let leverageNote: string | undefined;
+    if (leverage > 25) leverageNote = "Required leverage > 25x — exceeds most exchange caps. Skip this setup or use a larger account.";
+    else if (leverage > 15) leverageNote = "High leverage — verify your exchange's max and watch for liquidation slippage.";
+    else if (leverage > 10) leverageNote = "Moderate-high leverage — keep extra margin in reserve.";
+    return {
+      accountSize: r(accountSize),
+      riskAmount: r(riskAmount),
+      riskPct: r(riskPct * 100, 2),
+      positionSize: r(positionSize, 6),
+      positionSizeUnit: symbol === "BTCUSD" ? "BTC" : "ETH",
+      notional: r(notional),
+      leverage,
+      leverageNote,
+    };
+  }
+
+  // ─── Metals (XAG, XAU) ───
+  // OANDA std lot conventions: XAG = 5,000 oz, XAU = 100 oz. SL distance is
+  // already in $/oz so risk_$ = ozHeld × slDist exactly.
+  if (meta.goldApi) {
+    const ozPerStd = symbol === "XAGUSD" ? 5000 : 100;
+    const positionSize = riskAmount / slDist; // oz
+    const notional = positionSize * entry;
+    const std = positionSize / ozPerStd;
+    return {
+      accountSize: r(accountSize),
+      riskAmount: r(riskAmount),
+      riskPct: r(riskPct * 100, 2),
+      positionSize: r(positionSize, 3),
+      positionSizeUnit: "oz",
+      notional: r(notional),
+      lots: {
+        standard: r(std, 4),
+        mini: r(std * 10, 3),
+        micro: r(std * 100, 2),
+      },
+    };
+  }
+
+  // ─── Forex ───
+  // For BASE/QUOTE pairs, position size is N units of BASE.
+  // Loss in QUOTE on SL hit = N × slDist. Convert to USD:
+  //   USD-quote pair (EURUSD, GBPUSD, AUDUSD): USD loss = N × slDist
+  //     → N = riskUSD / slDist
+  //   USD-base pair (USDJPY): JPY loss = N × slDist; USD ≈ JPY / entry
+  //     → N = riskUSD × entry / slDist
+  //   Cross JPY pair (GBPJPY): approximate via assumed USDJPY ≈ 150
+  //     → N = riskUSD × 150 / slDist
+  const isUsdBase = symbol === "USDJPY";
+  const isJpyCross = symbol === "GBPJPY";
+  let positionSize: number;
+  let notional: number;
+  if (isUsdBase) {
+    positionSize = (riskAmount * entry) / slDist; // USD units
+    notional = positionSize; // already USD
+  } else if (isJpyCross) {
+    const assumedUsdJpy = 150;
+    positionSize = (riskAmount * assumedUsdJpy) / slDist; // GBP units
+    notional = (positionSize * entry) / assumedUsdJpy; // GBP × JPY/GBP / (JPY/USD) = USD
+  } else {
+    positionSize = riskAmount / slDist; // base units (EUR, GBP, AUD)
+    notional = positionSize * entry; // base × USD/base = USD
+  }
+  const std = positionSize / 100_000;
+  return {
+    accountSize: r(accountSize),
+    riskAmount: r(riskAmount),
+    riskPct: r(riskPct * 100, 2),
+    positionSize: r(positionSize),
+    positionSizeUnit: symbol.slice(0, 3), // EUR, GBP, AUD, USD
+    notional: r(notional),
+    lots: {
+      standard: r(std, 4),
+      mini: r(std * 10, 3),
+      micro: r(std * 100, 2),
+    },
+  };
+}
+
 export function floorTarget(
   entry: number,
   stop: number,
@@ -305,6 +420,8 @@ export function computeLevels(
   const rewardDist = Math.abs(takeProfit1 - entryPrice);
   const riskRewardRatio = riskDist > 0 ? Math.round((rewardDist / riskDist) * 100) / 100 : 0;
 
+  const positionSizing = computePositionSizing(symbol, entryPrice, stopLoss);
+
   type LevelType = "resistance" | "support" | "pivot";
   const levels: { label: string; price: number; type: LevelType }[] = [
     { label: "R3",         price: pivots.r3,      type: "resistance" as LevelType },
@@ -344,5 +461,6 @@ export function computeLevels(
     trend,
     trendStrength,
     lastUpdated: new Date().toISOString(),
+    positionSizing,
   };
 }

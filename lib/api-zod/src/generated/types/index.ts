@@ -24,6 +24,8 @@ export * from "./healthStatus";
 export * from "./levelsData";
 export * from "./levelsDataSignal";
 export * from "./levelsDataTrend";
+export * from "./positionSizing";
+export * from "./positionSizingLots";
 export * from "./priceHistory";
 export * from "./priceLevel";
 export * from "./priceLevelType";
