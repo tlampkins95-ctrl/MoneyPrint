@@ -54,8 +54,10 @@ export default function Dashboard() {
         backgroundImage: `linear-gradient(rgba(10,10,10,0.30), rgba(10,10,10,0.40)), url(${import.meta.env.BASE_URL}terminal-bg.png)`,
       }}
     >
-      {/* Top Navbar */}
-      <header className="h-12 border-b border-border/60 bg-card/60 backdrop-blur-md flex items-center px-4 shrink-0 justify-between">
+      {/* Top Navbar — relative + high z-index creates a stacking context that
+          sits above the TradingView iframe in <main>, so the symbol dropdown
+          isn't covered by the chart. */}
+      <header className="relative z-[60] h-12 border-b border-border/60 bg-card/60 backdrop-blur-md flex items-center px-4 shrink-0 justify-between">
         <div className="flex items-center gap-3">
           <img
             src={`${import.meta.env.BASE_URL}logo.png`}
