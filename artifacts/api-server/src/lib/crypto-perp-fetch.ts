@@ -38,19 +38,44 @@ interface OkxResponse {
   data: string[][];
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+// OKX rate limits are per-IP per-2s window. On 429 (or 5xx) back off and retry
+// a few times so a transient burst doesn't surface as a user-visible 500.
 async function okxGet(path: string): Promise<string[][]> {
-  const response = await fetch(`${BASE}${path}`, {
-    headers: { "User-Agent": "Mozilla/5.0 (compatible; Forex-Screener/1.0)" },
-    signal: AbortSignal.timeout(8000),
-  });
-  if (!response.ok) {
-    throw new Error(`OKX request failed: ${response.status}`);
+  const maxAttempts = 4;
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const response = await fetch(`${BASE}${path}`, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (compatible; Forex-Screener/1.0)",
+        },
+        signal: AbortSignal.timeout(8000),
+      });
+      if (response.status === 429 || response.status >= 500) {
+        lastErr = new Error(`OKX request failed: ${response.status}`);
+        // 600ms, 1.2s, 2.4s — covers the 2s OKX window comfortably.
+        await sleep(600 * Math.pow(2, attempt - 1));
+        continue;
+      }
+      if (!response.ok) {
+        throw new Error(`OKX request failed: ${response.status}`);
+      }
+      const json = (await response.json()) as OkxResponse;
+      if (json.code !== "0") {
+        throw new Error(`OKX error ${json.code}: ${json.msg}`);
+      }
+      return json.data;
+    } catch (err) {
+      lastErr = err;
+      if (attempt === maxAttempts) break;
+      await sleep(600 * Math.pow(2, attempt - 1));
+    }
   }
-  const json = (await response.json()) as OkxResponse;
-  if (json.code !== "0") {
-    throw new Error(`OKX error ${json.code}: ${json.msg}`);
-  }
-  return json.data;
+  throw lastErr instanceof Error ? lastErr : new Error("OKX request failed");
 }
 
 export async function fetchOkxPerpCandles(
@@ -88,6 +113,8 @@ export async function fetchOkxPerpCandles(
     oldestTs = Number(page[page.length - 1][0]);
     if (page.length < limit) break;
     safety--;
+    // Pace pagination to stay under OKX's 20 req / 2s history-candles window.
+    await sleep(120);
   }
 
   // Convert + dedupe by openTime + sort ascending.

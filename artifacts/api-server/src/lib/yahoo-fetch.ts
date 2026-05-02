@@ -39,6 +39,10 @@ const CACHE_TTL_MS: Record<Timeframe, number> = {
 };
 
 const cache = new Map<string, CacheEntry>();
+// Single-flight: when several callers ask for the same (symbol, timeframe)
+// while a fetch is already in progress, they all await the same promise so
+// the upstream API only sees one request burst.
+const inFlight = new Map<string, Promise<CandleRaw[]>>();
 
 function cacheKey(symbol: Symbol, timeframe: Timeframe): string {
   return `${symbol}::${timeframe}`;
@@ -54,6 +58,23 @@ export async function fetchCandlesForTimeframe(
   if (existing && now - existing.timestamp < CACHE_TTL_MS[timeframe]) {
     return existing.candles;
   }
+
+  const pending = inFlight.get(key);
+  if (pending) return pending;
+
+  const promise = doFetch(symbol, timeframe).finally(() => {
+    inFlight.delete(key);
+  });
+  inFlight.set(key, promise);
+  return promise;
+}
+
+async function doFetch(
+  symbol: Symbol,
+  timeframe: Timeframe,
+): Promise<CandleRaw[]> {
+  const now = Date.now();
+  const key = cacheKey(symbol, timeframe);
 
   // Crypto perps → OKX USDT-M swaps (true crypto price discovery; Binance &
   // Bybit are geo-blocked from US-based servers, OKX is not).
