@@ -3,12 +3,11 @@
  * Do not edit manually.
  * Api
  * XAGUSD Screener API
- * OpenAPI spec version: 0.1.0
+ * OpenAPI spec version: 0.2.0
  */
 import * as zod from "zod";
 
 /**
- * Returns server health status
  * @summary Health check
  */
 export const HealthCheckResponse = zod.object({
@@ -16,30 +15,58 @@ export const HealthCheckResponse = zod.object({
 });
 
 /**
- * Returns technical indicator signals for XAGUSD
- * @summary Get XAGUSD technical signals
+ * Returns pivot-point-derived support/resistance levels, buy/sell zones, and a single clear trade signal for XAGUSD
+ * @summary Get key price levels and clear trade signal
  */
-export const GetSignalsResponse = zod.object({
+export const GetLevelsResponse = zod.object({
   symbol: zod.string(),
   currentPrice: zod.number(),
   priceChange: zod.number(),
   priceChangePct: zod.number(),
-  indicators: zod.array(
-    zod.object({
-      name: zod.string(),
-      signal: zod.enum(["BUY", "SELL", "NEUTRAL"]),
-      value: zod.number(),
-      description: zod.string(),
-    }),
-  ),
+  signal: zod
+    .enum(["BUY", "SELL", "WAIT"])
+    .describe("Single clear trade signal"),
+  signalReason: zod
+    .string()
+    .describe("Plain-language explanation of why this signal was generated"),
+  entryPrice: zod.number().describe("Ideal entry price"),
+  stopLoss: zod.number().describe("Recommended stop loss"),
+  takeProfit1: zod.number().describe("First take profit target"),
+  takeProfit2: zod.number().describe("Second take profit target"),
+  riskRewardRatio: zod.number().describe("Risk\/reward ratio for the trade"),
+  buyZone: zod.object({
+    low: zod.number(),
+    high: zod.number(),
+    label: zod.string(),
+  }),
+  sellZone: zod.object({
+    low: zod.number(),
+    high: zod.number(),
+    label: zod.string(),
+  }),
+  levels: zod
+    .array(
+      zod.object({
+        label: zod
+          .string()
+          .describe('e.g. \"R3\", \"S1\", \"Fib 61.8%\", \"Swing High\"'),
+        price: zod.number(),
+        type: zod.enum(["resistance", "support", "pivot"]),
+      }),
+    )
+    .describe("All key support and resistance levels"),
+  pivot: zod.number().describe("Daily pivot point"),
+  trend: zod
+    .enum(["UPTREND", "DOWNTREND", "RANGING"])
+    .describe("Current market structure"),
+  trendStrength: zod.number().describe("0-100 strength score"),
   lastUpdated: zod.string(),
 });
 
 /**
- * Returns recent OHLCV price data for XAGUSD
  * @summary Get XAGUSD price history
  */
-export const getPriceHistoryQueryBarsDefault = 100;
+export const getPriceHistoryQueryBarsDefault = 60;
 
 export const GetPriceHistoryQueryParams = zod.object({
   bars: zod.coerce
@@ -60,28 +87,5 @@ export const GetPriceHistoryResponse = zod.object({
       volume: zod.number(),
     }),
   ),
-  lastUpdated: zod.string(),
-});
-
-/**
- * Returns overall buy/sell/neutral recommendation for XAGUSD
- * @summary Get aggregated signal summary
- */
-export const GetSignalSummaryResponse = zod.object({
-  symbol: zod.string(),
-  overallSignal: zod.enum([
-    "STRONG_BUY",
-    "BUY",
-    "NEUTRAL",
-    "SELL",
-    "STRONG_SELL",
-  ]),
-  buyCount: zod.number(),
-  sellCount: zod.number(),
-  neutralCount: zod.number(),
-  confidence: zod.number().describe("Confidence score from 0 to 100"),
-  currentPrice: zod.number(),
-  priceChange: zod.number(),
-  priceChangePct: zod.number(),
   lastUpdated: zod.string(),
 });

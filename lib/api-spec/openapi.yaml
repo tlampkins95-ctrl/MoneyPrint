@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
-  version: 0.1.0
+  version: 0.2.0
   description: XAGUSD Screener API
 servers:
   - url: /api
@@ -18,7 +18,6 @@ paths:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -27,32 +26,31 @@ paths:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
 
-  /signals:
+  /levels:
     get:
-      operationId: getSignals
+      operationId: getLevels
       tags: [signals]
-      summary: Get XAGUSD technical signals
-      description: Returns technical indicator signals for XAGUSD
+      summary: Get key price levels and clear trade signal
+      description: Returns pivot-point-derived support/resistance levels, buy/sell zones, and a single clear trade signal for XAGUSD
       responses:
         "200":
-          description: Signal data
+          description: Price levels and signal
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/SignalData"
+                $ref: "#/components/schemas/LevelsData"
 
   /price-history:
     get:
       operationId: getPriceHistory
       tags: [signals]
       summary: Get XAGUSD price history
-      description: Returns recent OHLCV price data for XAGUSD
       parameters:
         - in: query
           name: bars
           schema:
             type: integer
-            default: 100
+            default: 60
           description: Number of bars to return
       responses:
         "200":
@@ -62,20 +60,6 @@ paths:
               schema:
                 $ref: "#/components/schemas/PriceHistory"
 
-  /signal-summary:
-    get:
-      operationId: getSignalSummary
-      tags: [signals]
-      summary: Get aggregated signal summary
-      description: Returns overall buy/sell/neutral recommendation for XAGUSD
-      responses:
-        "200":
-          description: Signal summary
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/SignalSummary"
-
 components:
   schemas:
     HealthStatus:
@@ -83,8 +67,7 @@ components:
       properties:
         status:
           type: string
-      required:
-        - status
+      required: [status]
 
     Candle:
       type: object
@@ -101,13 +84,7 @@ components:
           type: number
         volume:
           type: number
-      required:
-        - date
-        - open
-        - high
-        - low
-        - close
-        - volume
+      required: [date, open, high, low, close, volume]
 
     PriceHistory:
       type: object
@@ -120,44 +97,84 @@ components:
             $ref: "#/components/schemas/Candle"
         lastUpdated:
           type: string
-      required:
-        - symbol
-        - candles
-        - lastUpdated
+      required: [symbol, candles, lastUpdated]
 
-    IndicatorSignal:
+    PriceLevel:
       type: object
       properties:
-        name:
+        label:
           type: string
+          description: e.g. "R3", "S1", "Fib 61.8%", "Swing High"
+        price:
+          type: number
+        type:
+          type: string
+          enum: [resistance, support, pivot]
+      required: [label, price, type]
+
+    TradeZone:
+      type: object
+      properties:
+        low:
+          type: number
+        high:
+          type: number
+        label:
+          type: string
+      required: [low, high, label]
+
+    LevelsData:
+      type: object
+      properties:
+        symbol:
+          type: string
+        currentPrice:
+          type: number
+        priceChange:
+          type: number
+        priceChangePct:
+          type: number
         signal:
           type: string
-          enum: [BUY, SELL, NEUTRAL]
-        value:
-          type: number
-        description:
+          enum: [BUY, SELL, WAIT]
+          description: Single clear trade signal
+        signalReason:
           type: string
-      required:
-        - name
-        - signal
-        - value
-        - description
-
-    SignalData:
-      type: object
-      properties:
-        symbol:
-          type: string
-        currentPrice:
+          description: Plain-language explanation of why this signal was generated
+        entryPrice:
           type: number
-        priceChange:
+          description: Ideal entry price
+        stopLoss:
           type: number
-        priceChangePct:
+          description: Recommended stop loss
+        takeProfit1:
           type: number
-        indicators:
+          description: First take profit target
+        takeProfit2:
+          type: number
+          description: Second take profit target
+        riskRewardRatio:
+          type: number
+          description: Risk/reward ratio for the trade
+        buyZone:
+          $ref: "#/components/schemas/TradeZone"
+        sellZone:
+          $ref: "#/components/schemas/TradeZone"
+        levels:
           type: array
           items:
-            $ref: "#/components/schemas/IndicatorSignal"
+            $ref: "#/components/schemas/PriceLevel"
+          description: All key support and resistance levels
+        pivot:
+          type: number
+          description: Daily pivot point
+        trend:
+          type: string
+          enum: [UPTREND, DOWNTREND, RANGING]
+          description: Current market structure
+        trendStrength:
+          type: number
+          description: 0-100 strength score
         lastUpdated:
           type: string
       required:
@@ -165,42 +182,17 @@ components:
         - currentPrice
         - priceChange
         - priceChangePct
-        - indicators
-        - lastUpdated
-
-    SignalSummary:
-      type: object
-      properties:
-        symbol:
-          type: string
-        overallSignal:
-          type: string
-          enum: [STRONG_BUY, BUY, NEUTRAL, SELL, STRONG_SELL]
-        buyCount:
-          type: integer
-        sellCount:
-          type: integer
-        neutralCount:
-          type: integer
-        confidence:
-          type: number
-          description: Confidence score from 0 to 100
-        currentPrice:
-          type: number
-        priceChange:
-          type: number
-        priceChangePct:
-          type: number
-        lastUpdated:
-          type: string
-      required:
-        - symbol
-        - overallSignal
-        - buyCount
-        - sellCount
-        - neutralCount
-        - confidence
-        - currentPrice
-        - priceChange
-        - priceChangePct
+        - signal
+        - signalReason
+        - entryPrice
+        - stopLoss
+        - takeProfit1
+        - takeProfit2
+        - riskRewardRatio
+        - buyZone
+        - sellZone
+        - levels
+        - pivot
+        - trend
+        - trendStrength
         - lastUpdated

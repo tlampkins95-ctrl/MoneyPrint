@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Api
  * XAGUSD Screener API
- * OpenAPI spec version: 0.1.0
+ * OpenAPI spec version: 0.2.0
  */
 export interface HealthStatus {
   status: string;
@@ -24,53 +24,81 @@ export interface PriceHistory {
   lastUpdated: string;
 }
 
-export type IndicatorSignalSignal =
-  (typeof IndicatorSignalSignal)[keyof typeof IndicatorSignalSignal];
+export type PriceLevelType =
+  (typeof PriceLevelType)[keyof typeof PriceLevelType];
 
-export const IndicatorSignalSignal = {
-  BUY: "BUY",
-  SELL: "SELL",
-  NEUTRAL: "NEUTRAL",
+export const PriceLevelType = {
+  resistance: "resistance",
+  support: "support",
+  pivot: "pivot",
 } as const;
 
-export interface IndicatorSignal {
-  name: string;
-  signal: IndicatorSignalSignal;
-  value: number;
-  description: string;
+export interface PriceLevel {
+  /** e.g. "R3", "S1", "Fib 61.8%", "Swing High" */
+  label: string;
+  price: number;
+  type: PriceLevelType;
 }
 
-export interface SignalData {
+export interface TradeZone {
+  low: number;
+  high: number;
+  label: string;
+}
+
+/**
+ * Single clear trade signal
+ */
+export type LevelsDataSignal =
+  (typeof LevelsDataSignal)[keyof typeof LevelsDataSignal];
+
+export const LevelsDataSignal = {
+  BUY: "BUY",
+  SELL: "SELL",
+  WAIT: "WAIT",
+} as const;
+
+/**
+ * Current market structure
+ */
+export type LevelsDataTrend =
+  (typeof LevelsDataTrend)[keyof typeof LevelsDataTrend];
+
+export const LevelsDataTrend = {
+  UPTREND: "UPTREND",
+  DOWNTREND: "DOWNTREND",
+  RANGING: "RANGING",
+} as const;
+
+export interface LevelsData {
   symbol: string;
   currentPrice: number;
   priceChange: number;
   priceChangePct: number;
-  indicators: IndicatorSignal[];
-  lastUpdated: string;
-}
-
-export type SignalSummaryOverallSignal =
-  (typeof SignalSummaryOverallSignal)[keyof typeof SignalSummaryOverallSignal];
-
-export const SignalSummaryOverallSignal = {
-  STRONG_BUY: "STRONG_BUY",
-  BUY: "BUY",
-  NEUTRAL: "NEUTRAL",
-  SELL: "SELL",
-  STRONG_SELL: "STRONG_SELL",
-} as const;
-
-export interface SignalSummary {
-  symbol: string;
-  overallSignal: SignalSummaryOverallSignal;
-  buyCount: number;
-  sellCount: number;
-  neutralCount: number;
-  /** Confidence score from 0 to 100 */
-  confidence: number;
-  currentPrice: number;
-  priceChange: number;
-  priceChangePct: number;
+  /** Single clear trade signal */
+  signal: LevelsDataSignal;
+  /** Plain-language explanation of why this signal was generated */
+  signalReason: string;
+  /** Ideal entry price */
+  entryPrice: number;
+  /** Recommended stop loss */
+  stopLoss: number;
+  /** First take profit target */
+  takeProfit1: number;
+  /** Second take profit target */
+  takeProfit2: number;
+  /** Risk/reward ratio for the trade */
+  riskRewardRatio: number;
+  buyZone: TradeZone;
+  sellZone: TradeZone;
+  /** All key support and resistance levels */
+  levels: PriceLevel[];
+  /** Daily pivot point */
+  pivot: number;
+  /** Current market structure */
+  trend: LevelsDataTrend;
+  /** 0-100 strength score */
+  trendStrength: number;
   lastUpdated: string;
 }
 

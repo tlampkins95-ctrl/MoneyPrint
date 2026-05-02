@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Api
  * XAGUSD Screener API
- * OpenAPI spec version: 0.1.0
+ * OpenAPI spec version: 0.2.0
  */
 import { useQuery } from "@tanstack/react-query";
 import type {
@@ -16,9 +16,8 @@ import type {
 import type {
   GetPriceHistoryParams,
   HealthStatus,
+  LevelsData,
   PriceHistory,
-  SignalData,
-  SignalSummary,
 } from "./api.schemas";
 
 import { customFetch } from "../custom-fetch";
@@ -31,7 +30,6 @@ type Awaited<O> = O extends AwaitedInput<infer T> ? T : never;
 type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
 
 /**
- * Returns server health status
  * @summary Health check
  */
 export const getHealthCheckUrl = () => {
@@ -107,73 +105,63 @@ export function useHealthCheck<
 }
 
 /**
- * Returns technical indicator signals for XAGUSD
- * @summary Get XAGUSD technical signals
+ * Returns pivot-point-derived support/resistance levels, buy/sell zones, and a single clear trade signal for XAGUSD
+ * @summary Get key price levels and clear trade signal
  */
-export const getGetSignalsUrl = () => {
-  return `/api/signals`;
+export const getGetLevelsUrl = () => {
+  return `/api/levels`;
 };
 
-export const getSignals = async (
-  options?: RequestInit,
-): Promise<SignalData> => {
-  return customFetch<SignalData>(getGetSignalsUrl(), {
+export const getLevels = async (options?: RequestInit): Promise<LevelsData> => {
+  return customFetch<LevelsData>(getGetLevelsUrl(), {
     ...options,
     method: "GET",
   });
 };
 
-export const getGetSignalsQueryKey = () => {
-  return [`/api/signals`] as const;
+export const getGetLevelsQueryKey = () => {
+  return [`/api/levels`] as const;
 };
 
-export const getGetSignalsQueryOptions = <
-  TData = Awaited<ReturnType<typeof getSignals>>,
+export const getGetLevelsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getLevels>>,
   TError = ErrorType<unknown>,
 >(options?: {
-  query?: UseQueryOptions<
-    Awaited<ReturnType<typeof getSignals>>,
-    TError,
-    TData
-  >;
+  query?: UseQueryOptions<Awaited<ReturnType<typeof getLevels>>, TError, TData>;
   request?: SecondParameter<typeof customFetch>;
 }) => {
   const { query: queryOptions, request: requestOptions } = options ?? {};
 
-  const queryKey = queryOptions?.queryKey ?? getGetSignalsQueryKey();
+  const queryKey = queryOptions?.queryKey ?? getGetLevelsQueryKey();
 
-  const queryFn: QueryFunction<Awaited<ReturnType<typeof getSignals>>> = ({
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getLevels>>> = ({
     signal,
-  }) => getSignals({ signal, ...requestOptions });
+  }) => getLevels({ signal, ...requestOptions });
 
   return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
-    Awaited<ReturnType<typeof getSignals>>,
+    Awaited<ReturnType<typeof getLevels>>,
     TError,
     TData
   > & { queryKey: QueryKey };
 };
 
-export type GetSignalsQueryResult = NonNullable<
-  Awaited<ReturnType<typeof getSignals>>
+export type GetLevelsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getLevels>>
 >;
-export type GetSignalsQueryError = ErrorType<unknown>;
+export type GetLevelsQueryError = ErrorType<unknown>;
 
 /**
- * @summary Get XAGUSD technical signals
+ * @summary Get key price levels and clear trade signal
  */
 
-export function useGetSignals<
-  TData = Awaited<ReturnType<typeof getSignals>>,
+export function useGetLevels<
+  TData = Awaited<ReturnType<typeof getLevels>>,
   TError = ErrorType<unknown>,
 >(options?: {
-  query?: UseQueryOptions<
-    Awaited<ReturnType<typeof getSignals>>,
-    TError,
-    TData
-  >;
+  query?: UseQueryOptions<Awaited<ReturnType<typeof getLevels>>, TError, TData>;
   request?: SecondParameter<typeof customFetch>;
 }): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
-  const queryOptions = getGetSignalsQueryOptions(options);
+  const queryOptions = getGetLevelsQueryOptions(options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;
@@ -183,7 +171,6 @@ export function useGetSignals<
 }
 
 /**
- * Returns recent OHLCV price data for XAGUSD
  * @summary Get XAGUSD price history
  */
 export const getGetPriceHistoryUrl = (params?: GetPriceHistoryParams) => {
@@ -269,82 +256,6 @@ export function useGetPriceHistory<
   },
 ): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetPriceHistoryQueryOptions(params, options);
-
-  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
-    queryKey: QueryKey;
-  };
-
-  return { ...query, queryKey: queryOptions.queryKey };
-}
-
-/**
- * Returns overall buy/sell/neutral recommendation for XAGUSD
- * @summary Get aggregated signal summary
- */
-export const getGetSignalSummaryUrl = () => {
-  return `/api/signal-summary`;
-};
-
-export const getSignalSummary = async (
-  options?: RequestInit,
-): Promise<SignalSummary> => {
-  return customFetch<SignalSummary>(getGetSignalSummaryUrl(), {
-    ...options,
-    method: "GET",
-  });
-};
-
-export const getGetSignalSummaryQueryKey = () => {
-  return [`/api/signal-summary`] as const;
-};
-
-export const getGetSignalSummaryQueryOptions = <
-  TData = Awaited<ReturnType<typeof getSignalSummary>>,
-  TError = ErrorType<unknown>,
->(options?: {
-  query?: UseQueryOptions<
-    Awaited<ReturnType<typeof getSignalSummary>>,
-    TError,
-    TData
-  >;
-  request?: SecondParameter<typeof customFetch>;
-}) => {
-  const { query: queryOptions, request: requestOptions } = options ?? {};
-
-  const queryKey = queryOptions?.queryKey ?? getGetSignalSummaryQueryKey();
-
-  const queryFn: QueryFunction<
-    Awaited<ReturnType<typeof getSignalSummary>>
-  > = ({ signal }) => getSignalSummary({ signal, ...requestOptions });
-
-  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
-    Awaited<ReturnType<typeof getSignalSummary>>,
-    TError,
-    TData
-  > & { queryKey: QueryKey };
-};
-
-export type GetSignalSummaryQueryResult = NonNullable<
-  Awaited<ReturnType<typeof getSignalSummary>>
->;
-export type GetSignalSummaryQueryError = ErrorType<unknown>;
-
-/**
- * @summary Get aggregated signal summary
- */
-
-export function useGetSignalSummary<
-  TData = Awaited<ReturnType<typeof getSignalSummary>>,
-  TError = ErrorType<unknown>,
->(options?: {
-  query?: UseQueryOptions<
-    Awaited<ReturnType<typeof getSignalSummary>>,
-    TError,
-    TData
-  >;
-  request?: SecondParameter<typeof customFetch>;
-}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
-  const queryOptions = getGetSignalSummaryQueryOptions(options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

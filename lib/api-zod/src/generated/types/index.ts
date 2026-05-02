@@ -3,15 +3,16 @@
  * Do not edit manually.
  * Api
  * XAGUSD Screener API
- * OpenAPI spec version: 0.1.0
+ * OpenAPI spec version: 0.2.0
  */
 
 export * from "./candle";
 export * from "./getPriceHistoryParams";
 export * from "./healthStatus";
-export * from "./indicatorSignal";
-export * from "./indicatorSignalSignal";
+export * from "./levelsData";
+export * from "./levelsDataSignal";
+export * from "./levelsDataTrend";
 export * from "./priceHistory";
-export * from "./signalData";
-export * from "./signalSummary";
-export * from "./signalSummaryOverallSignal";
+export * from "./priceLevel";
+export * from "./priceLevelType";
+export * from "./tradeZone";
