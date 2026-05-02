@@ -677,6 +677,23 @@ interface ActiveTrade {
   trendStrength: number;
   openedAt: number;
   tp1Hit: boolean;
+  // Whether the limit order at `entryPrice` has actually been tagged by price
+  // since the snapshot was taken. Critical for honesty: a signal that fires
+  // when price is "approaching" the zone may never see a real fill if price
+  // bounces away before tagging entry. Without this flag the dashboard would
+  // claim "+1R in profit" when no trade actually occurred.
+  triggered: boolean;
+  // Price at the moment the snapshot was first created. Used only for context
+  // in the description; not used for trade math.
+  openedPrice: number;
+  // Start timestamp + low + high of the candle that contained `openedAt`.
+  // Used to detect post-snapshot wicks in that same candle WITHOUT
+  // false-positiving on a pre-snapshot wick. A real fill requires the
+  // candle's low (BUY) or high (SELL) to extend PAST this baseline AND
+  // reach entry — proving the wick happened after the limit was placed.
+  openedCandleStartTs: number;
+  openedCandleLow: number;
+  openedCandleHigh: number;
 }
 
 const activeTrades = new Map<string, ActiveTrade>();
@@ -695,10 +712,50 @@ const ACTIVE_TRADES_FILE =
 function loadActiveTradesFromDisk(): void {
   try {
     const raw = readFileSync(ACTIVE_TRADES_FILE, "utf-8");
-    const obj = JSON.parse(raw) as Record<string, ActiveTrade>;
+    const obj = JSON.parse(raw) as Record<string, Partial<ActiveTrade>>;
+    let didMigrate = false;
     for (const [k, v] of Object.entries(obj)) {
-      activeTrades.set(k, v);
+      // Backward-compat for snapshots persisted before fill-tracking existed.
+      // Default triggered=false; the next tick's candle scan since openedAt
+      // will retroactively flip it to true if price actually did tag entry.
+      // openedPrice falls back to entryPrice for missing-field cases.
+      const needsMigration =
+        typeof v.triggered !== "boolean" ||
+        typeof v.openedPrice !== "number" ||
+        typeof v.openedCandleStartTs !== "number" ||
+        typeof v.openedCandleLow !== "number" ||
+        typeof v.openedCandleHigh !== "number";
+      if (needsMigration) didMigrate = true;
+      const migrated: ActiveTrade = {
+        ...(v as ActiveTrade),
+        triggered: typeof v.triggered === "boolean" ? v.triggered : false,
+        openedPrice:
+          typeof v.openedPrice === "number" ? v.openedPrice : (v.entryPrice ?? 0),
+        // Migrated trades have no baseline. Default the start-ts to openedAt
+        // so the containing-candle branch in wasEntryTagged won't fire (a
+        // candle's start ts won't equal an arbitrary openedAt). Migrated
+        // trades only check fully-post-snapshot candles + live spot — slightly
+        // conservative, avoids false-positives on pre-existing wicks.
+        openedCandleStartTs:
+          typeof v.openedCandleStartTs === "number"
+            ? v.openedCandleStartTs
+            : (v.openedAt ?? 0),
+        // Sentinels of 0 are safe: the containing-candle branch in
+        // wasEntryTagged only fires when ts === openedCandleStartTs, which
+        // for migrated trades equals openedAt and won't match any real
+        // candle's start ts. So the baseline values are unreachable for
+        // migrated trades — they're populated solely to satisfy the schema
+        // and survive JSON roundtripping (Infinity serializes to null).
+        openedCandleLow:
+          typeof v.openedCandleLow === "number" ? v.openedCandleLow : 0,
+        openedCandleHigh:
+          typeof v.openedCandleHigh === "number" ? v.openedCandleHigh : 0,
+      };
+      activeTrades.set(k, migrated);
     }
+    // Flush migrated state to disk so the file matches in-memory shape and
+    // diagnostic dumps don't show stale `undefined` for the new fields.
+    if (didMigrate) persistActiveTrades();
   } catch {
     // No file yet, or unreadable — start fresh.
   }
@@ -729,6 +786,49 @@ function isInvalidated(trade: ActiveTrade, currentPrice: number): boolean {
   return currentPrice >= trade.stopLoss || currentPrice <= trade.takeProfit2;
 }
 
+// Scan all candles since the trade snapshot to determine whether the limit
+// at `entryPrice` was actually tagged. Three candle classes:
+//
+//   ts > openedCandleStartTs (fully post-snapshot)
+//     → simple check: candle wick reaches entry → fill confirmed.
+//
+//   ts === openedCandleStartTs (the containing candle — was in-progress at
+//   snapshot, may have since closed)
+//     → baseline check: count only if the wick EXTENDED past the snapshot's
+//       opening low/high AND reached entry. Without this we'd false-positive
+//       on a pre-snapshot wick (a wick that happened earlier in the same
+//       candle, before the limit was even staged) — re-introducing the
+//       lying-about-fills bug this whole fix exists to eliminate.
+//
+//   ts < openedCandleStartTs (closed before snapshot)
+//     → skip entirely; the limit didn't exist yet.
+function wasEntryTagged(trade: ActiveTrade, candles: CandleRaw[]): boolean {
+  for (const c of candles) {
+    const ts = Date.parse(c.date);
+    if (Number.isNaN(ts)) continue;
+    if (ts > trade.openedCandleStartTs) {
+      if (trade.signal === "BUY" && c.low <= trade.entryPrice) return true;
+      if (trade.signal === "SELL" && c.high >= trade.entryPrice) return true;
+    } else if (ts === trade.openedCandleStartTs) {
+      if (
+        trade.signal === "BUY" &&
+        c.low < trade.openedCandleLow &&
+        c.low <= trade.entryPrice
+      ) {
+        return true;
+      }
+      if (
+        trade.signal === "SELL" &&
+        c.high > trade.openedCandleHigh &&
+        c.high >= trade.entryPrice
+      ) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 // Build a context-aware description of an active (frozen) trade based on
 // where the live price sits relative to the frozen entry / SL / TPs. The
 // snapshot's original signalReason text goes stale fast — once price walks
@@ -747,6 +847,7 @@ function describeFrozenTrade(
   const tfLabel = TIMEFRAME_LABELS[timeframe];
   const isBuy = trade.signal === "BUY";
   const dirWord = isBuy ? "BUY" : "SELL";
+  const triggered = trade.triggered;
 
   const risk = Math.abs(trade.entryPrice - trade.stopLoss);
   const rawPnl = isBuy ? currentPrice - trade.entryPrice : trade.entryPrice - currentPrice;
@@ -758,38 +859,50 @@ function describeFrozenTrade(
   const distToSl = Math.abs(currentPrice - trade.stopLoss);
   const distToEntry = Math.abs(currentPrice - trade.entryPrice);
 
-  // States, in priority order:
-  //   1. Past TP2 → about to invalidate
-  //   2. Past TP1 → trail / take partials
-  //   3. Past entry in trade direction → in-profit if filled
-  //   4. Past SL → about to invalidate
-  //   5. Between entry and SL (counter-trade-direction side of entry) →
-  //      pending limit order (or drawdown if filled)
-
   const beyondTp2 = isBuy ? currentPrice >= trade.takeProfit2 : currentPrice <= trade.takeProfit2;
-  if (beyondTp2) {
-    return `[${tfLabel}] ${dirWord} from ${fmt(trade.entryPrice)} reached TP2 ${fmt(trade.takeProfit2)} (${rStr}). Full target hit — trade closing.`;
-  }
-
   const beyondTp1 = isBuy ? currentPrice >= trade.takeProfit1 : currentPrice <= trade.takeProfit1;
-  if (beyondTp1) {
-    return `[${tfLabel}] ${dirWord} from ${fmt(trade.entryPrice)}: TP1 ${fmt(trade.takeProfit1)} reached (${rStr}). ${fmt(distToTp2)} from TP2 ${fmt(trade.takeProfit2)} — trail stop or take partials.`;
-  }
-
   const inProfit = isBuy ? currentPrice > trade.entryPrice : currentPrice < trade.entryPrice;
-  if (inProfit) {
-    return `[${tfLabel}] ${dirWord} setup from ${fmt(trade.entryPrice)}: price ${fmt(currentPrice)} (${rStr}, ${fmt(distToTp1)} from TP1 ${fmt(trade.takeProfit1)}). If your limit order filled, you're in profit; if it never tagged ${fmt(trade.entryPrice)}, the setup may have expired.`;
-  }
-
   const beyondSl = isBuy ? currentPrice <= trade.stopLoss : currentPrice >= trade.stopLoss;
-  if (beyondSl) {
-    return `[${tfLabel}] ${dirWord} from ${fmt(trade.entryPrice)} hit stop loss ${fmt(trade.stopLoss)} (${rStr}). Trade invalidated.`;
+
+  // ─── NOT TRIGGERED: limit at entry was never tagged by price ────────────
+  // The trade is a pending limit order, not an actual position. R-multiple
+  // and "in profit" language do NOT apply — no fill happened.
+  //
+  // Note: !triggered + beyondTp1/Tp2/SL never reaches this function in
+  // practice. computeLevelsStable's isInvalidated (SL/TP2) and auto-MISSED
+  // (TP1) checks delete the trade before describe runs. So we only need
+  // to handle inProfit and pending-side states.
+  if (!triggered) {
+    if (inProfit) {
+      // Price moved in the trade's favor without the limit being tagged.
+      // For BUY: price went up past S1 (above) without coming down to S1.
+      // For SELL: price went down past R1 (below) without coming up to R1.
+      const dirToEntry = isBuy ? "above" : "below";
+      return `[${tfLabel}] ${dirWord} setup PENDING — price ${fmt(currentPrice)} moved ${fmt(distToEntry)} ${dirToEntry} entry ${fmt(trade.entryPrice)} without tagging it. Limit order still staged; needs a pullback to ${fmt(trade.entryPrice)} to fill. Auto-expires if price reaches TP1 ${fmt(trade.takeProfit1)} unfilled.`;
+    }
+    // Price on the SL side of entry. For BUY this would mean spot crossed
+    // entry going down — but the spot-cross trigger would have flipped
+    // triggered=true first. So in practice this path is taken only at the
+    // exact tick where price equals entry, or in defensive edge cases.
+    const dirFromEntry = isBuy ? "below" : "above";
+    return `[${tfLabel}] ${dirWord} PENDING — limit at ${fmt(trade.entryPrice)}, price ${fmt(currentPrice)} (${fmt(distToEntry)} ${dirFromEntry} entry, ${fmt(distToSl)} from SL ${fmt(trade.stopLoss)}). Order will fill if price tags ${fmt(trade.entryPrice)}.`;
   }
 
-  // Price is on the entry-vs-SL side: limit order pending fill (or drawdown
-  // if the trader manually entered before the limit price was reached).
-  const sideWord = isBuy ? "below" : "above";
-  return `[${tfLabel}] ${dirWord} pending: limit at ${fmt(trade.entryPrice)}, price ${fmt(currentPrice)} (${fmt(distToEntry)} ${sideWord} entry, ${fmt(distToSl)} from SL ${fmt(trade.stopLoss)}). ${rStr} if filled.`;
+  // ─── TRIGGERED: position is real ────────────────────────────────────────
+  if (beyondTp2) {
+    return `[${tfLabel}] ${dirWord} filled at ${fmt(trade.entryPrice)} reached TP2 ${fmt(trade.takeProfit2)} (${rStr}). Full target hit — trade closing.`;
+  }
+  if (beyondTp1) {
+    return `[${tfLabel}] ${dirWord} filled at ${fmt(trade.entryPrice)}: TP1 ${fmt(trade.takeProfit1)} reached (${rStr}). ${fmt(distToTp2)} from TP2 ${fmt(trade.takeProfit2)} — trail stop or take partials.`;
+  }
+  if (inProfit) {
+    return `[${tfLabel}] ${dirWord} filled at ${fmt(trade.entryPrice)}, in profit: price ${fmt(currentPrice)} (${rStr}, ${fmt(distToTp1)} from TP1 ${fmt(trade.takeProfit1)}).`;
+  }
+  if (beyondSl) {
+    return `[${tfLabel}] ${dirWord} filled at ${fmt(trade.entryPrice)} hit stop loss ${fmt(trade.stopLoss)} (${rStr}). Trade invalidated.`;
+  }
+  // Price on SL side after fill — drawdown.
+  return `[${tfLabel}] ${dirWord} filled at ${fmt(trade.entryPrice)}, in drawdown: price ${fmt(currentPrice)} (${rStr}, ${fmt(distToSl)} from SL ${fmt(trade.stopLoss)}).`;
 }
 
 export function computeLevelsStable(
@@ -824,6 +937,40 @@ export function computeLevelsStable(
   ) {
     activeTrades.delete(k);
     persistActiveTrades();
+  }
+
+  // Detect fill via two complementary signals:
+  //   1. Live spot crossed the limit (catches taps before candle aggregation
+  //      catches up — yahoo's hourly low can lag the live tick by minutes).
+  //   2. Any candle since openedAt wicked through entry (catches intra-candle
+  //      taps between polls when spot has since recovered past entry).
+  const preTriggerCheck = activeTrades.get(k);
+  if (preTriggerCheck && !preTriggerCheck.triggered) {
+    const spotTagged =
+      preTriggerCheck.signal === "BUY"
+        ? fresh.currentPrice <= preTriggerCheck.entryPrice
+        : fresh.currentPrice >= preTriggerCheck.entryPrice;
+    if (spotTagged || wasEntryTagged(preTriggerCheck, candles)) {
+      preTriggerCheck.triggered = true;
+      persistActiveTrades();
+    }
+  }
+
+  // Auto-invalidate as MISSED: a still-pending limit order whose price has
+  // already reached TP1 in the trade's favorable direction is dead — no
+  // pullback to entry is going to happen at this point. Drop it so the next
+  // genuine setup can take over instead of leaving a phantom "pending" trade
+  // on the dashboard forever.
+  const missedCheck = activeTrades.get(k);
+  if (missedCheck && !missedCheck.triggered) {
+    const reachedTp1 =
+      missedCheck.signal === "BUY"
+        ? fresh.currentPrice >= missedCheck.takeProfit1
+        : fresh.currentPrice <= missedCheck.takeProfit1;
+    if (reachedTp1) {
+      activeTrades.delete(k);
+      persistActiveTrades();
+    }
   }
 
   // Keep frozen view if the trade is still active. Note we re-read `existing`
@@ -874,6 +1021,19 @@ export function computeLevelsStable(
 
   // No active trade. If fresh is BUY/SELL, snapshot it as the new active trade.
   if (fresh.signal === "BUY" || fresh.signal === "SELL") {
+    // If price is already at/past the limit at fire time, the order would
+    // fill immediately. BUY: limit fills when price drops to S1, so a
+    // currentPrice ≤ entry means it's already there. SELL: mirror.
+    const triggered =
+      fresh.signal === "BUY"
+        ? fresh.currentPrice <= fresh.entryPrice
+        : fresh.currentPrice >= fresh.entryPrice;
+    // Capture the in-progress candle's range as a baseline, so subsequent
+    // wick extensions (and only those) can prove a real post-snapshot fill.
+    const lastCandle = candles[candles.length - 1];
+    const openedCandleStartTs = lastCandle ? Date.parse(lastCandle.date) : Date.now();
+    const openedCandleLow = lastCandle ? lastCandle.low : Infinity;
+    const openedCandleHigh = lastCandle ? lastCandle.high : -Infinity;
     activeTrades.set(k, {
       signal: fresh.signal,
       signalReason: fresh.signalReason,
@@ -890,6 +1050,11 @@ export function computeLevelsStable(
       trendStrength: fresh.trendStrength,
       openedAt: Date.now(),
       tp1Hit: false,
+      triggered,
+      openedPrice: fresh.currentPrice,
+      openedCandleStartTs: Number.isNaN(openedCandleStartTs) ? Date.now() : openedCandleStartTs,
+      openedCandleLow,
+      openedCandleHigh,
     });
     persistActiveTrades();
   }
