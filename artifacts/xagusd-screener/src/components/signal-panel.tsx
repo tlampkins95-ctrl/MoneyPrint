@@ -121,8 +121,29 @@ export function SignalPanel({ timeframe }: { timeframe: Timeframe }) {
               <div className="text-[10px] text-zinc-500 tracking-widest font-sans font-semibold mb-2 flex items-center gap-2">
                 <span className="w-1.5 h-1.5 rounded-full bg-zinc-600 inline-block" />
                 TRADE TICKET
+                {data.signal !== "WAIT" && (
+                  <span
+                    className={cn(
+                      "ml-auto text-[9px] font-bold tracking-widest px-1.5 py-0.5 rounded",
+                      data.signal === "BUY"
+                        ? "bg-emerald-500/30 text-emerald-300 animate-pulse"
+                        : "bg-red-500/30 text-red-300 animate-pulse",
+                    )}
+                  >
+                    LIVE
+                  </span>
+                )}
               </div>
-              <div className="rounded-lg overflow-hidden border border-zinc-800 divide-y divide-zinc-800/60 bg-[#111]">
+              <div
+                className={cn(
+                  "rounded-lg overflow-hidden border divide-y divide-zinc-800/60 bg-[#111] transition-all",
+                  data.signal === "BUY"
+                    ? "border-emerald-400/80 bg-emerald-950/20 shadow-[0_0_24px_rgba(0,201,80,0.45)] ring-1 ring-emerald-400/40"
+                    : data.signal === "SELL"
+                      ? "border-red-400/80 bg-red-950/20 shadow-[0_0_24px_rgba(229,62,62,0.45)] ring-1 ring-red-400/40"
+                      : "border-zinc-800",
+                )}
+              >
                 <Row label="Entry" value={`$${data.entryPrice.toFixed(3)}`} />
                 <Row label="Stop Loss" value={`$${data.stopLoss.toFixed(3)}`} valueClass="text-[#e53e3e]" labelClass="text-[#e53e3e]" bg="bg-red-950/10" />
                 <Row label="Take Profit 1" value={`$${data.takeProfit1.toFixed(3)}`} valueClass="text-[#4ade80]" labelClass="text-[#4ade80]" bg="bg-emerald-950/10" />
