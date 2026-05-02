@@ -141,6 +141,20 @@ export function SignalPanel({
 
   const signalTextColor = data.signal === "WAIT" || data.signal === "BUY" ? "text-black" : "text-white";
 
+  // For BUY we render the big word in glowing gold instead of plain black —
+  // gives the "long the metal" call a luxe, treasury-bar feel against the
+  // green hero. Other signals keep their default high-contrast black/white.
+  const isBuy = data.signal === "BUY";
+  const signalWordStyle: React.CSSProperties = isBuy
+    ? {
+        fontFamily: "var(--app-font-display)",
+        color: "#FFD56B",
+        textShadow:
+          "0 0 6px rgba(255, 213, 107, 0.85), 0 0 18px rgba(255, 191, 71, 0.65), 0 0 36px rgba(255, 165, 0, 0.45), 0 1px 0 rgba(0,0,0,0.4)",
+        WebkitTextStroke: "0.5px rgba(120, 80, 0, 0.55)",
+      }
+    : { fontFamily: "var(--app-font-display)" };
+
   return (
     <div className="flex flex-col h-full bg-[#0a0a0a]/50 backdrop-blur-md text-zinc-100 rounded-xl border border-zinc-800 overflow-hidden font-mono shadow-2xl">
 
@@ -151,7 +165,7 @@ export function SignalPanel({
         </span>
         <div
           className="text-[64px] leading-none font-black tracking-tight"
-          style={{ fontFamily: "var(--app-font-display)" }}
+          style={signalWordStyle}
         >
           {data.signal}
         </div>
