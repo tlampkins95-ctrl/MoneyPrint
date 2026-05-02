@@ -1035,17 +1035,28 @@ function describeFrozenTrade(
     return `[${tfLabel}] ${dirWord} PENDING — limit at ${fmt(trade.entryPrice)}, price ${fmt(currentPrice)} (${fmt(distToEntry)} ${dirFromEntry} entry, ${fmt(distToSl)} from SL ${fmt(trade.stopLoss)}). Order will fill if price tags ${fmt(trade.entryPrice)}.`;
   }
 
+  // After TP1 hits the engine trails the stop to the entry price, so a
+  // post-TP1 SL hit is really a flat break-even exit, not a -1R loss. Detect
+  // that case explicitly so the message reads honestly.
+  const trailedToBE = trade.tp1Hit && trade.stopLoss === trade.entryPrice;
+
   // ─── TRIGGERED: position is real ────────────────────────────────────────
   if (beyondTp2) {
     return `[${tfLabel}] ${dirWord} filled at ${fmt(trade.entryPrice)} reached TP2 ${fmt(trade.takeProfit2)} (${rStr}). Full target hit — trade closing.`;
   }
   if (beyondTp1) {
-    return `[${tfLabel}] ${dirWord} filled at ${fmt(trade.entryPrice)}: TP1 ${fmt(trade.takeProfit1)} reached (${rStr}). ${fmt(distToTp2)} from TP2 ${fmt(trade.takeProfit2)} — trail stop or take partials.`;
+    const trailNote = trailedToBE
+      ? ` Stop trailed to break-even (${fmt(trade.entryPrice)}) — risk-free runner.`
+      : "";
+    return `[${tfLabel}] ${dirWord} filled at ${fmt(trade.entryPrice)}: TP1 ${fmt(trade.takeProfit1)} reached (${rStr}).${trailNote} ${fmt(distToTp2)} from TP2 ${fmt(trade.takeProfit2)} — let it run or take partials.`;
   }
   if (inProfit) {
     return `[${tfLabel}] ${dirWord} filled at ${fmt(trade.entryPrice)}, in profit: price ${fmt(currentPrice)} (${rStr}, ${fmt(distToTp1)} from TP1 ${fmt(trade.takeProfit1)}).`;
   }
   if (beyondSl) {
+    if (trailedToBE) {
+      return `[${tfLabel}] ${dirWord} filled at ${fmt(trade.entryPrice)} retraced to break-even after TP1 hit — trade closing flat (0R). Stop was trailed up to entry once TP1 tagged.`;
+    }
     return `[${tfLabel}] ${dirWord} filled at ${fmt(trade.entryPrice)} hit stop loss ${fmt(trade.stopLoss)} (${rStr}). Trade invalidated.`;
   }
   // Price on SL side after fill — drawdown.
@@ -1125,14 +1136,23 @@ export function computeLevelsStable(
   // because the delete above may have cleared it.
   const stillActive = activeTrades.get(k);
   if (stillActive) {
-    // Mark TP1 as hit (purely informational — does NOT invalidate the trade).
-    if (!stillActive.tp1Hit) {
+    // When TP1 is reached on a FILLED trade, trail the stop to break-even
+    // (entry). This is standard trader practice: a trade that has already
+    // moved +1.5R in your favor should not be allowed to round-trip into a
+    // full -1R loss. After this trail, a retrace back to entry trips the
+    // existing isInvalidated check on the next tick, closing the trade flat
+    // — no more "phantom BUY" hanging on the dashboard after price has
+    // already pumped and retraced. PENDING (un-triggered) limit orders are
+    // handled separately by the auto-MISSED path above; we only trail real
+    // fills.
+    if (!stillActive.tp1Hit && stillActive.triggered) {
       const tp1Reached =
         stillActive.signal === "BUY"
           ? fresh.currentPrice >= stillActive.takeProfit1
           : fresh.currentPrice <= stillActive.takeProfit1;
       if (tp1Reached) {
         stillActive.tp1Hit = true;
+        stillActive.stopLoss = stillActive.entryPrice;
         persistActiveTrades();
       }
     }

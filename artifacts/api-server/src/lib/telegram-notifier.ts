@@ -244,6 +244,19 @@ let started = false;
 
 export function startTelegramNotifier(): void {
   if (started) return;
+  // Explicit kill-switch. Default is enabled (preserves existing dev
+  // behaviour). Production deploys set ENABLE_TELEGRAM_NOTIFIER="false" in
+  // artifact.toml so the autoscale instance doesn't double-fire alerts that
+  // dev is already sending. Flip this back to "true" (or unset) when the
+  // deploy moves to a Reserved VM and should own 24/7 notifications.
+  const enableFlag = process.env["ENABLE_TELEGRAM_NOTIFIER"];
+  if (enableFlag === "false" || enableFlag === "0") {
+    logger.info(
+      { enableFlag },
+      "Telegram notifier explicitly disabled (ENABLE_TELEGRAM_NOTIFIER=false)",
+    );
+    return;
+  }
   const token = process.env["TELEGRAM_BOT_TOKEN"];
   const chatId = process.env["TELEGRAM_CHAT_ID"];
   if (!token || !chatId) {
