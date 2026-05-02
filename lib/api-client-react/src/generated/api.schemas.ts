@@ -102,6 +102,71 @@ export interface LevelsData {
   lastUpdated: string;
 }
 
+export type BacktestTradeDirection =
+  (typeof BacktestTradeDirection)[keyof typeof BacktestTradeDirection];
+
+export const BacktestTradeDirection = {
+  BUY: "BUY",
+  SELL: "SELL",
+} as const;
+
+export type BacktestTradeOutcome =
+  (typeof BacktestTradeOutcome)[keyof typeof BacktestTradeOutcome];
+
+export const BacktestTradeOutcome = {
+  TP1: "TP1",
+  TP2: "TP2",
+  SL: "SL",
+  EXPIRED: "EXPIRED",
+} as const;
+
+export interface BacktestTrade {
+  entryDate: string;
+  direction: BacktestTradeDirection;
+  entry: number;
+  stopLoss: number;
+  takeProfit1: number;
+  takeProfit2: number;
+  exitDate: string;
+  exitPrice: number;
+  outcome: BacktestTradeOutcome;
+  /** Profit/loss in units of risk (R) */
+  rMultiple: number;
+  barsHeld: number;
+}
+
+export interface BacktestResult {
+  symbol: string;
+  startDate: string;
+  endDate: string;
+  totalBars: number;
+  totalTrades: number;
+  winningTrades: number;
+  losingTrades: number;
+  /** Percentage of trades that hit at least TP1 */
+  winRate: number;
+  /** Cumulative R-multiples */
+  totalReturnR: number;
+  /** Average R per trade */
+  avgReturnR: number;
+  /** Gross profit / gross loss */
+  profitFactor: number;
+  /** Largest peak-to-trough drawdown in R */
+  maxDrawdownR: number;
+  avgBarsHeld: number;
+  buyTrades: number;
+  sellTrades: number;
+  buyWinRate: number;
+  sellWinRate: number;
+  tp1Hits: number;
+  tp2Hits: number;
+  slHits: number;
+  expiredHits: number;
+  /** Most recent trades (capped to last 50 for response size) */
+  trades: BacktestTrade[];
+  lastUpdated: string;
+}
+
 export type GetPriceHistoryParams = {
   /**
    * Number of bars to return

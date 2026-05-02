@@ -14,6 +14,7 @@ import type {
 } from "@tanstack/react-query";
 
 import type {
+  BacktestResult,
   GetPriceHistoryParams,
   HealthStatus,
   LevelsData,
@@ -162,6 +163,82 @@ export function useGetLevels<
   request?: SecondParameter<typeof customFetch>;
 }): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetLevelsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Replays the buy/sell zone signal logic over the last ~2 years of daily candles and returns aggregate performance stats and individual trade outcomes.
+ * @summary Backtest the signal criteria over historical candles
+ */
+export const getGetBacktestUrl = () => {
+  return `/api/backtest`;
+};
+
+export const getBacktest = async (
+  options?: RequestInit,
+): Promise<BacktestResult> => {
+  return customFetch<BacktestResult>(getGetBacktestUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetBacktestQueryKey = () => {
+  return [`/api/backtest`] as const;
+};
+
+export const getGetBacktestQueryOptions = <
+  TData = Awaited<ReturnType<typeof getBacktest>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getBacktest>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetBacktestQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getBacktest>>> = ({
+    signal,
+  }) => getBacktest({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getBacktest>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetBacktestQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getBacktest>>
+>;
+export type GetBacktestQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Backtest the signal criteria over historical candles
+ */
+
+export function useGetBacktest<
+  TData = Awaited<ReturnType<typeof getBacktest>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getBacktest>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetBacktestQueryOptions(options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

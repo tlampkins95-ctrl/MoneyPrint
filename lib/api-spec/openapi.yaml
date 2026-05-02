@@ -40,6 +40,20 @@ paths:
               schema:
                 $ref: "#/components/schemas/LevelsData"
 
+  /backtest:
+    get:
+      operationId: getBacktest
+      tags: [signals]
+      summary: Backtest the signal criteria over historical candles
+      description: Replays the buy/sell zone signal logic over the last ~2 years of daily candles and returns aggregate performance stats and individual trade outcomes.
+      responses:
+        "200":
+          description: Backtest results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BacktestResult"
+
   /price-history:
     get:
       operationId: getPriceHistory
@@ -195,4 +209,127 @@ components:
         - pivot
         - trend
         - trendStrength
+        - lastUpdated
+
+    BacktestTrade:
+      type: object
+      properties:
+        entryDate:
+          type: string
+        direction:
+          type: string
+          enum: [BUY, SELL]
+        entry:
+          type: number
+        stopLoss:
+          type: number
+        takeProfit1:
+          type: number
+        takeProfit2:
+          type: number
+        exitDate:
+          type: string
+        exitPrice:
+          type: number
+        outcome:
+          type: string
+          enum: [TP1, TP2, SL, EXPIRED]
+        rMultiple:
+          type: number
+          description: Profit/loss in units of risk (R)
+        barsHeld:
+          type: integer
+      required:
+        - entryDate
+        - direction
+        - entry
+        - stopLoss
+        - takeProfit1
+        - takeProfit2
+        - exitDate
+        - exitPrice
+        - outcome
+        - rMultiple
+        - barsHeld
+
+    BacktestResult:
+      type: object
+      properties:
+        symbol:
+          type: string
+        startDate:
+          type: string
+        endDate:
+          type: string
+        totalBars:
+          type: integer
+        totalTrades:
+          type: integer
+        winningTrades:
+          type: integer
+        losingTrades:
+          type: integer
+        winRate:
+          type: number
+          description: Percentage of trades that hit at least TP1
+        totalReturnR:
+          type: number
+          description: Cumulative R-multiples
+        avgReturnR:
+          type: number
+          description: Average R per trade
+        profitFactor:
+          type: number
+          description: Gross profit / gross loss
+        maxDrawdownR:
+          type: number
+          description: Largest peak-to-trough drawdown in R
+        avgBarsHeld:
+          type: number
+        buyTrades:
+          type: integer
+        sellTrades:
+          type: integer
+        buyWinRate:
+          type: number
+        sellWinRate:
+          type: number
+        tp1Hits:
+          type: integer
+        tp2Hits:
+          type: integer
+        slHits:
+          type: integer
+        expiredHits:
+          type: integer
+        trades:
+          type: array
+          items:
+            $ref: "#/components/schemas/BacktestTrade"
+          description: Most recent trades (capped to last 50 for response size)
+        lastUpdated:
+          type: string
+      required:
+        - symbol
+        - startDate
+        - endDate
+        - totalBars
+        - totalTrades
+        - winningTrades
+        - losingTrades
+        - winRate
+        - totalReturnR
+        - avgReturnR
+        - profitFactor
+        - maxDrawdownR
+        - avgBarsHeld
+        - buyTrades
+        - sellTrades
+        - buyWinRate
+        - sellWinRate
+        - tp1Hits
+        - tp2Hits
+        - slHits
+        - expiredHits
+        - trades
         - lastUpdated

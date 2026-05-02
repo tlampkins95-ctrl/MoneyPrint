@@ -6,6 +6,10 @@
  * OpenAPI spec version: 0.2.0
  */
 
+export * from "./backtestResult";
+export * from "./backtestTrade";
+export * from "./backtestTradeDirection";
+export * from "./backtestTradeOutcome";
 export * from "./candle";
 export * from "./getPriceHistoryParams";
 export * from "./healthStatus";

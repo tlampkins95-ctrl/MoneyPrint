@@ -1,9 +1,10 @@
 import { TradingViewChart } from "@/components/trading-view-chart";
 import { SignalPanel } from "@/components/signal-panel";
+import { BacktestPanel } from "@/components/backtest-panel";
 
 export default function Dashboard() {
   return (
-    <div className="min-h-[100dvh] w-full bg-background flex flex-col overflow-hidden">
+    <div className="min-h-[100dvh] w-full bg-background flex flex-col">
       {/* Top Navbar */}
       <header className="h-12 border-b bg-card flex items-center px-4 shrink-0 justify-between">
         <div className="flex items-center gap-3">
@@ -26,13 +27,19 @@ export default function Dashboard() {
       </header>
 
       {/* Main Content Area */}
-      <main className="flex-1 p-2 md:p-3 flex flex-col lg:flex-row gap-2 md:gap-3 min-h-0">
-        <div className="flex-1 lg:w-[65%] min-h-[400px] lg:min-h-0">
-          <TradingViewChart />
+      <main className="flex-1 p-2 md:p-3 flex flex-col gap-2 md:gap-3">
+        {/* Top row: chart + signal panel */}
+        <div className="flex flex-col lg:flex-row gap-2 md:gap-3 lg:h-[640px]">
+          <div className="flex-1 lg:w-[65%] min-h-[400px] lg:min-h-0">
+            <TradingViewChart />
+          </div>
+          <div className="lg:w-[35%] w-full h-[480px] lg:h-auto min-h-0">
+            <SignalPanel />
+          </div>
         </div>
-        <div className="lg:w-[35%] w-full h-[480px] lg:h-auto min-h-0">
-          <SignalPanel />
-        </div>
+
+        {/* Backtest section */}
+        <BacktestPanel />
       </main>
     </div>
   );

@@ -64,6 +64,52 @@ export const GetLevelsResponse = zod.object({
 });
 
 /**
+ * Replays the buy/sell zone signal logic over the last ~2 years of daily candles and returns aggregate performance stats and individual trade outcomes.
+ * @summary Backtest the signal criteria over historical candles
+ */
+export const GetBacktestResponse = zod.object({
+  symbol: zod.string(),
+  startDate: zod.string(),
+  endDate: zod.string(),
+  totalBars: zod.number(),
+  totalTrades: zod.number(),
+  winningTrades: zod.number(),
+  losingTrades: zod.number(),
+  winRate: zod.number().describe("Percentage of trades that hit at least TP1"),
+  totalReturnR: zod.number().describe("Cumulative R-multiples"),
+  avgReturnR: zod.number().describe("Average R per trade"),
+  profitFactor: zod.number().describe("Gross profit \/ gross loss"),
+  maxDrawdownR: zod.number().describe("Largest peak-to-trough drawdown in R"),
+  avgBarsHeld: zod.number(),
+  buyTrades: zod.number(),
+  sellTrades: zod.number(),
+  buyWinRate: zod.number(),
+  sellWinRate: zod.number(),
+  tp1Hits: zod.number(),
+  tp2Hits: zod.number(),
+  slHits: zod.number(),
+  expiredHits: zod.number(),
+  trades: zod
+    .array(
+      zod.object({
+        entryDate: zod.string(),
+        direction: zod.enum(["BUY", "SELL"]),
+        entry: zod.number(),
+        stopLoss: zod.number(),
+        takeProfit1: zod.number(),
+        takeProfit2: zod.number(),
+        exitDate: zod.string(),
+        exitPrice: zod.number(),
+        outcome: zod.enum(["TP1", "TP2", "SL", "EXPIRED"]),
+        rMultiple: zod.number().describe("Profit\/loss in units of risk (R)"),
+        barsHeld: zod.number(),
+      }),
+    )
+    .describe("Most recent trades (capped to last 50 for response size)"),
+  lastUpdated: zod.string(),
+});
+
+/**
  * @summary Get XAGUSD price history
  */
 export const getPriceHistoryQueryBarsDefault = 60;
