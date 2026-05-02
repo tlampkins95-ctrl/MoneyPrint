@@ -19,6 +19,11 @@ router.get("/levels", async (req: Request, res: Response) => {
     const query = GetLevelsQueryParams.parse(req.query);
     const symbol = (query.symbol ?? "XAGUSD") as Symbol;
     const timeframe = (query.timeframe ?? "1d") as Timeframe;
+    // Convert riskPct from human form (1 = 1%) to fraction (0.01) for the
+    // signals helper. Clamp to a sane range so a misconfigured client can't
+    // produce nonsense leverage values.
+    const accountSize = Math.max(1, Math.min(10_000_000, query.accountSize ?? 500));
+    const riskPctFrac = Math.max(0.0001, Math.min(1, (query.riskPct ?? 1) / 100));
     const [candles, spotPrice] = await Promise.all([
       fetchCandlesForTimeframe(symbol, timeframe),
       fetchSpotPrice(symbol),
@@ -28,7 +33,7 @@ router.get("/levels", async (req: Request, res: Response) => {
       return;
     }
     const data = GetLevelsResponse.parse(
-      computeLevels(candles, spotPrice, timeframe, symbol),
+      computeLevels(candles, spotPrice, timeframe, symbol, accountSize, riskPctFrac),
     );
     res.json(data);
   } catch (err) {

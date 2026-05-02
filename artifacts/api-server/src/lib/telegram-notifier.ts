@@ -139,20 +139,26 @@ async function checkSymbol(
       const tp1R = risk > 0 ? Math.abs(levels.takeProfit1 - levels.entryPrice) / risk : 0;
       const tp2R = risk > 0 ? Math.abs(levels.takeProfit2 - levels.entryPrice) / risk : 0;
 
+      // Dollar P&L per leg, scaled to the configured risk amount. Falls back
+      // to "—" when sizing isn't available (shouldn't happen for valid setups).
+      const ps = levels.positionSizing;
+      const slDollar = ps ? `−$${ps.riskAmount.toFixed(2)}` : "—";
+      const tp1Dollar = ps ? `+$${(ps.riskAmount * tp1R).toFixed(2)}` : "—";
+      const tp2Dollar = ps ? `+$${(ps.riskAmount * tp2R).toFixed(2)}` : "—";
+
       const lines = [
         `${sideEmoji} <b>${sideWord} ${escapeHtml(SYMBOLS[symbol].label)}</b>`,
         `<i>${tfLabel} · now ${fmt(symbol, levels.currentPrice)}</i>`,
         "",
         `🎯 Entry  <b>${fmt(symbol, levels.entryPrice)}</b>`,
-        `🛑 Stop   <b>${fmt(symbol, levels.stopLoss)}</b>`,
-        `✅ TP1    <b>${fmt(symbol, levels.takeProfit1)}</b>  <i>(+${tp1R.toFixed(1)}R)</i>`,
-        `🏆 TP2    <b>${fmt(symbol, levels.takeProfit2)}</b>  <i>(+${tp2R.toFixed(1)}R)</i>`,
+        `🛑 Stop   <b>${fmt(symbol, levels.stopLoss)}</b>  <i>${slDollar}</i>`,
+        `✅ TP1    <b>${fmt(symbol, levels.takeProfit1)}</b>  <i>${tp1Dollar} (+${tp1R.toFixed(1)}R)</i>`,
+        `🏆 TP2    <b>${fmt(symbol, levels.takeProfit2)}</b>  <i>${tp2Dollar} (+${tp2R.toFixed(1)}R)</i>`,
         "",
         `Trend: <b>${levels.trend}</b> (${levels.trendStrength})`,
       ];
 
-      if (levels.positionSizing) {
-        const ps = levels.positionSizing;
+      if (ps) {
         const sizeLine =
           ps.leverage !== undefined
             ? `Size: <b>${ps.positionSize} ${ps.positionSizeUnit}</b> · <b>${ps.leverage}x</b> lev · $${ps.notional.toFixed(0)} notional`

@@ -1,10 +1,21 @@
 import { useEffect, useState } from "react";
 import { useGetLevels, getGetLevelsQueryKey } from "@workspace/api-client-react";
 import { format } from "date-fns";
-import { RefreshCw, TrendingUp, TrendingDown, ArrowRight, AlertTriangle, Wallet } from "lucide-react";
+import { RefreshCw, TrendingUp, TrendingDown, ArrowRight, AlertTriangle, Wallet, Settings } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Timeframe } from "@/components/timeframe-selector";
 import { SYMBOLS, fmtPrice, fmtPriceCompact, type Symbol } from "@/lib/symbols";
+
+const ACCOUNT_KEY = "screener.accountSize";
+const RISK_KEY = "screener.riskPct";
+
+function readNumber(key: string, fallback: number): number {
+  if (typeof window === "undefined") return fallback;
+  const raw = window.localStorage.getItem(key);
+  if (!raw) return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
 
 const TIMEFRAME_LABEL: Record<Timeframe, string> = {
   "1m": "1m",
@@ -22,12 +33,22 @@ export function SignalPanel({
   timeframe: Timeframe;
 }) {
   const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
+  const [accountSize, setAccountSize] = useState<number>(() => readNumber(ACCOUNT_KEY, 500));
+  const [riskPct, setRiskPct] = useState<number>(() => readNumber(RISK_KEY, 1));
 
+  useEffect(() => {
+    window.localStorage.setItem(ACCOUNT_KEY, String(accountSize));
+  }, [accountSize]);
+  useEffect(() => {
+    window.localStorage.setItem(RISK_KEY, String(riskPct));
+  }, [riskPct]);
+
+  const params = { symbol, timeframe, accountSize, riskPct };
   const { data, isLoading, isError, error, refetch, isFetching } = useGetLevels(
-    { symbol, timeframe },
+    params,
     {
       query: {
-        queryKey: getGetLevelsQueryKey({ symbol, timeframe }),
+        queryKey: getGetLevelsQueryKey(params),
         refetchInterval: 60000,
       },
     },
@@ -161,9 +182,33 @@ export function SignalPanel({
                 )}
               >
                 <Row label="Entry" value={fmtPrice(symbol, data.entryPrice)} />
-                <Row label="Stop Loss" value={fmtPrice(symbol, data.stopLoss)} valueClass="text-[#e53e3e]" labelClass="text-[#e53e3e]" bg="bg-red-950/10" />
-                <Row label="Take Profit 1" value={fmtPrice(symbol, data.takeProfit1)} valueClass="text-[#4ade80]" labelClass="text-[#4ade80]" bg="bg-emerald-950/10" />
-                <Row label="Take Profit 2" value={fmtPrice(symbol, data.takeProfit2)} valueClass="text-[#86efac]" labelClass="text-[#86efac]" bg="bg-emerald-900/10" />
+                <TradeRow
+                  label="Stop Loss"
+                  value={fmtPrice(symbol, data.stopLoss)}
+                  pnl={data.positionSizing ? -data.positionSizing.riskAmount : null}
+                  rMultiple={-1}
+                  valueClass="text-[#e53e3e]"
+                  labelClass="text-[#e53e3e]"
+                  bg="bg-red-950/10"
+                />
+                <TradeRow
+                  label="Take Profit 1"
+                  value={fmtPrice(symbol, data.takeProfit1)}
+                  pnl={data.positionSizing ? data.positionSizing.riskAmount * computeR(data.entryPrice, data.stopLoss, data.takeProfit1) : null}
+                  rMultiple={computeR(data.entryPrice, data.stopLoss, data.takeProfit1)}
+                  valueClass="text-[#4ade80]"
+                  labelClass="text-[#4ade80]"
+                  bg="bg-emerald-950/10"
+                />
+                <TradeRow
+                  label="Take Profit 2"
+                  value={fmtPrice(symbol, data.takeProfit2)}
+                  pnl={data.positionSizing ? data.positionSizing.riskAmount * computeR(data.entryPrice, data.stopLoss, data.takeProfit2) : null}
+                  rMultiple={computeR(data.entryPrice, data.stopLoss, data.takeProfit2)}
+                  valueClass="text-[#86efac]"
+                  labelClass="text-[#86efac]"
+                  bg="bg-emerald-900/10"
+                />
                 <div className="flex justify-between items-center px-3 py-2.5 bg-zinc-950 gap-2">
                   <span className="text-[9px] font-sans font-semibold tracking-widest text-zinc-500">
                     R / R
@@ -204,15 +249,45 @@ export function SignalPanel({
             </div>
           </div>
 
-          {/* ── 4.5. Position Size ($500 acct, 1% risk) ────────────────── */}
+          {/* ── 4.5. Position Size ──────────────────────────────────────── */}
           {data.positionSizing && (
             <div>
               <div className="text-[10px] text-zinc-500 tracking-widest font-sans font-semibold mb-2 flex items-center gap-2">
                 <span className="w-1.5 h-1.5 rounded-full bg-zinc-600 inline-block" />
                 POSITION SIZE
-                <span className="ml-auto text-[9px] text-zinc-600 font-normal tracking-normal">
-                  ${data.positionSizing.accountSize} acct · {data.positionSizing.riskPct.toFixed(1)}% risk
-                </span>
+                <div className="ml-auto flex items-center gap-1.5 text-[10px] text-zinc-400 font-sans font-normal tracking-normal">
+                  <Settings className="w-3 h-3 text-zinc-600" />
+                  <span>$</span>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    min={1}
+                    step={50}
+                    value={accountSize}
+                    onChange={(e) => {
+                      const v = Number(e.target.value);
+                      if (Number.isFinite(v) && v > 0) setAccountSize(v);
+                    }}
+                    className="w-16 bg-zinc-900 border border-zinc-700 rounded px-1.5 py-0.5 text-right tabular-nums text-zinc-100 focus:outline-none focus:border-amber-500/60"
+                    aria-label="Account size in USD"
+                  />
+                  <span className="text-zinc-600">·</span>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    min={0.01}
+                    max={100}
+                    step={0.25}
+                    value={riskPct}
+                    onChange={(e) => {
+                      const v = Number(e.target.value);
+                      if (Number.isFinite(v) && v > 0) setRiskPct(v);
+                    }}
+                    className="w-12 bg-zinc-900 border border-zinc-700 rounded px-1.5 py-0.5 text-right tabular-nums text-zinc-100 focus:outline-none focus:border-amber-500/60"
+                    aria-label="Risk percent of account"
+                  />
+                  <span>% risk</span>
+                </div>
               </div>
               <div className="rounded-lg overflow-hidden border border-zinc-800 divide-y divide-zinc-800/60 bg-[#111]">
                 <div className="flex justify-between items-center px-3 py-2.5 gap-2 min-w-0 bg-amber-950/10">
@@ -355,6 +430,61 @@ function Row({
       <span className={cn("font-bold text-sm tabular-nums shrink-0", valueClass)}>{value}</span>
     </div>
   );
+}
+
+function TradeRow({
+  label,
+  value,
+  pnl,
+  rMultiple,
+  labelClass = "text-zinc-400",
+  valueClass = "text-zinc-100",
+  bg = "",
+}: {
+  label: string;
+  value: string;
+  pnl: number | null;
+  rMultiple: number;
+  labelClass?: string;
+  valueClass?: string;
+  bg?: string;
+}) {
+  const isLoss = pnl !== null && pnl < 0;
+  const pnlText =
+    pnl === null
+      ? null
+      : `${pnl >= 0 ? "+" : "−"}$${Math.abs(pnl).toFixed(2)}`;
+  const rText = `${rMultiple >= 0 ? "+" : ""}${rMultiple.toFixed(1)}R`;
+  return (
+    <div className={cn("flex justify-between items-center px-3 py-2 gap-2 min-w-0", bg)}>
+      <span className={cn("text-xs truncate shrink-0", labelClass)}>{label}</span>
+      <div className="flex flex-col items-end shrink-0 leading-tight">
+        <span className={cn("font-bold text-sm tabular-nums", valueClass)}>{value}</span>
+        {pnlText && (
+          <span
+            className={cn(
+              "tabular-nums text-[11px] font-semibold whitespace-nowrap mt-0.5",
+              isLoss ? "text-red-300" : "text-emerald-300",
+            )}
+          >
+            {pnlText}
+            <span className="ml-1 text-[9px] opacity-70 font-normal">
+              {rText}
+            </span>
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function computeR(entry: number, stopLoss: number, target: number): number {
+  const risk = Math.abs(entry - stopLoss);
+  if (risk <= 0) return 0;
+  // Sign reflects whether target is in the trade's favour. Floor enforcement
+  // already guarantees positive for TP1/TP2; SL passes -1 directly.
+  const dir = target >= entry ? 1 : -1;
+  return (dir * Math.abs(target - entry)) / risk;
 }
 
 function LotCell({ label, value }: { label: string; value: number }) {

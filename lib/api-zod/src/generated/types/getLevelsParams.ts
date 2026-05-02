@@ -17,4 +17,15 @@ export type GetLevelsParams = {
    * Bar timeframe used to compute pivots and zones
    */
   timeframe?: GetLevelsTimeframe;
+  /**
+   * Trading account size in USD used to compute position sizing
+   * @minimum 1
+   */
+  accountSize?: number;
+  /**
+   * Percent of account risked per trade (1 = 1%)
+   * @minimum 0.01
+   * @maximum 100
+   */
+  riskPct?: number;
 };

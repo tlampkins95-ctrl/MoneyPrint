@@ -20,6 +20,11 @@ export const HealthCheckResponse = zod.object({
  */
 export const getLevelsQuerySymbolDefault = `XAGUSD`;
 export const getLevelsQueryTimeframeDefault = `1d`;
+export const getLevelsQueryAccountSizeDefault = 500;
+
+export const getLevelsQueryRiskPctDefault = 1;
+export const getLevelsQueryRiskPctMin = 0.01;
+export const getLevelsQueryRiskPctMax = 100;
 
 export const GetLevelsQueryParams = zod.object({
   symbol: zod
@@ -40,6 +45,17 @@ export const GetLevelsQueryParams = zod.object({
     .enum(["1m", "15m", "30m", "1h", "1d"])
     .default(getLevelsQueryTimeframeDefault)
     .describe("Bar timeframe used to compute pivots and zones"),
+  accountSize: zod.coerce
+    .number()
+    .min(1)
+    .default(getLevelsQueryAccountSizeDefault)
+    .describe("Trading account size in USD used to compute position sizing"),
+  riskPct: zod.coerce
+    .number()
+    .min(getLevelsQueryRiskPctMin)
+    .max(getLevelsQueryRiskPctMax)
+    .default(getLevelsQueryRiskPctDefault)
+    .describe("Percent of account risked per trade (1 = 1%)"),
 });
 
 export const GetLevelsResponse = zod.object({

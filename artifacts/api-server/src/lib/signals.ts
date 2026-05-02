@@ -304,6 +304,8 @@ export function computeLevels(
   spotPrice: number | null,
   timeframe: Timeframe,
   symbol: Symbol,
+  accountSize: number = DEFAULT_ACCOUNT_SIZE,
+  riskPct: number = DEFAULT_RISK_PCT,
 ) {
   const meta = SYMBOLS[symbol];
   const round = makeRounder(meta.decimals);
@@ -420,7 +422,7 @@ export function computeLevels(
   const rewardDist = Math.abs(takeProfit1 - entryPrice);
   const riskRewardRatio = riskDist > 0 ? Math.round((rewardDist / riskDist) * 100) / 100 : 0;
 
-  const positionSizing = computePositionSizing(symbol, entryPrice, stopLoss);
+  const positionSizing = computePositionSizing(symbol, entryPrice, stopLoss, accountSize, riskPct);
 
   type LevelType = "resistance" | "support" | "pivot";
   const levels: { label: string; price: number; type: LevelType }[] = [
