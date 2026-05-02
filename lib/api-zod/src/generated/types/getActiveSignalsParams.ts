@@ -29,4 +29,10 @@ export type GetActiveSignalsParams = {
    * @maximum 200
    */
   maxLeverage?: number;
+  /**
+   * MetaTrader 5 lot size used to size forex/metals positions in every entry. Ignored for crypto perps (BTC/ETH).
+   * @minimum 0.01
+   * @maximum 100
+   */
+  mt5Lots?: number;
 };

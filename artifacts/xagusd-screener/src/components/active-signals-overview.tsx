@@ -63,13 +63,54 @@ interface RowProps {
   takeProfit1: number;
   takeProfit2: number;
   riskRewardRatio: number;
+  // Venue-tagged P&L: pnls are sourced from the venue's projection block on
+  // the server (achievable for JUP, mt5 for MT5) so the dollar figures here
+  // always match what the SignalPanel shows for the same symbol/timeframe.
+  venue: "JUP" | "MT5";
   pnlAtSL: number | null;
   pnlAtTP1: number | null;
   pnlAtTP2: number | null;
+  // JUP-only fields (null for MT5 venue)
   collateral: number | null;
   leverage: number | null;
+  // MT5-only fields (null for JUP venue)
+  mt5Lots: number | null;
   onClick: () => void;
   highlighted: boolean;
+}
+
+// Pull the venue + projection fields off a server signal in one place so the
+// three SignalRow call sites (filled/pending/other) stay in lockstep. If a
+// new venue/field gets added, only this helper changes — no risk of the three
+// blocks drifting apart.
+function toRowSizing(ps: {
+  venue?: "JUP" | "MT5";
+  achievable?: { pnlAtSL: number; pnlAtTP1: number; pnlAtTP2: number; collateral: number; leverage: number } | null;
+  mt5?: { pnlAtSL: number; pnlAtTP1: number; pnlAtTP2: number; lots: number } | null;
+} | undefined | null) {
+  const venue: "JUP" | "MT5" = ps?.venue ?? "JUP";
+  if (venue === "MT5") {
+    const m = ps?.mt5;
+    return {
+      venue,
+      pnlAtSL: m?.pnlAtSL ?? null,
+      pnlAtTP1: m?.pnlAtTP1 ?? null,
+      pnlAtTP2: m?.pnlAtTP2 ?? null,
+      collateral: null,
+      leverage: null,
+      mt5Lots: m?.lots ?? null,
+    };
+  }
+  const a = ps?.achievable;
+  return {
+    venue,
+    pnlAtSL: a?.pnlAtSL ?? null,
+    pnlAtTP1: a?.pnlAtTP1 ?? null,
+    pnlAtTP2: a?.pnlAtTP2 ?? null,
+    collateral: a?.collateral ?? null,
+    leverage: a?.leverage ?? null,
+    mt5Lots: null,
+  };
 }
 
 function SignalRow(p: RowProps) {
@@ -139,11 +180,22 @@ function SignalRow(p: RowProps) {
         </div>
       </div>
 
-      {/* Jupiter $PnL projection — ground-truth dollar outcomes per leg */}
-      {p.pnlAtSL !== null && p.pnlAtTP1 !== null && p.pnlAtTP2 !== null && p.collateral !== null && p.leverage !== null && (
+      {/* Per-venue $PnL projection — ground-truth dollar outcomes per leg.
+          JUP shows $col×lev, MT5 shows the lot size — never mix them, since
+          each badge is a promise about which exchange the dollars came from. */}
+      {p.pnlAtSL !== null && p.pnlAtTP1 !== null && p.pnlAtTP2 !== null && (
         <div className="flex items-center gap-2 pl-2 text-[10px] font-mono">
-          <span className="text-zinc-500">JUP</span>
-          <span className="text-zinc-300">${p.collateral.toFixed(0)}×{p.leverage.toFixed(0)}</span>
+          {p.venue === "MT5" && p.mt5Lots !== null ? (
+            <>
+              <span className="text-zinc-500">MT5</span>
+              <span className="text-zinc-300">{p.mt5Lots.toFixed(2)} lot</span>
+            </>
+          ) : p.collateral !== null && p.leverage !== null ? (
+            <>
+              <span className="text-zinc-500">JUP</span>
+              <span className="text-zinc-300">${p.collateral.toFixed(0)}×{p.leverage.toFixed(0)}</span>
+            </>
+          ) : null}
           <span className="text-zinc-600">→</span>
           <span className="text-rose-400">SL {fmtUsd(p.pnlAtSL)}</span>
           <span className="text-zinc-600">·</span>
@@ -187,8 +239,11 @@ export function ActiveSignalsOverview({
   const riskPct = readNumber("screener.riskPct", 1);
   const minCollateral = readNumber("screener.minCollateral", 10);
   const maxLeverage = readNumber("screener.maxLeverage", 50);
+  // MT5 lot size for forex/metals projections — paired with the SignalPanel's
+  // mt5Lots input. BTC/ETH ignore this and stay on the JUP $col×lev model.
+  const mt5Lots = readNumber("screener.mt5Lots", 0.01);
 
-  const params = { accountSize, riskPct, minCollateral, maxLeverage };
+  const params = { accountSize, riskPct, minCollateral, maxLeverage, mt5Lots };
   const { data, isLoading, isError, refetch, isFetching } = useGetActiveSignals(params, {
     query: {
       queryKey: getGetActiveSignalsQueryKey(params),
@@ -322,11 +377,7 @@ export function ActiveSignalsOverview({
                       takeProfit1={s.levels.takeProfit1}
                       takeProfit2={s.levels.takeProfit2}
                       riskRewardRatio={s.levels.riskRewardRatio}
-                      pnlAtSL={s.levels.positionSizing?.achievable?.pnlAtSL ?? null}
-                      pnlAtTP1={s.levels.positionSizing?.achievable?.pnlAtTP1 ?? null}
-                      pnlAtTP2={s.levels.positionSizing?.achievable?.pnlAtTP2 ?? null}
-                      collateral={s.levels.positionSizing?.achievable?.collateral ?? null}
-                      leverage={s.levels.positionSizing?.achievable?.leverage ?? null}
+                      {...toRowSizing(s.levels.positionSizing)}
                       onClick={() => onSelect(s.symbol as Symbol, s.timeframe as Timeframe)}
                       highlighted={s.symbol === selectedSymbol && s.timeframe === selectedTimeframe}
                     />
@@ -354,11 +405,7 @@ export function ActiveSignalsOverview({
                       takeProfit1={s.levels.takeProfit1}
                       takeProfit2={s.levels.takeProfit2}
                       riskRewardRatio={s.levels.riskRewardRatio}
-                      pnlAtSL={s.levels.positionSizing?.achievable?.pnlAtSL ?? null}
-                      pnlAtTP1={s.levels.positionSizing?.achievable?.pnlAtTP1 ?? null}
-                      pnlAtTP2={s.levels.positionSizing?.achievable?.pnlAtTP2 ?? null}
-                      collateral={s.levels.positionSizing?.achievable?.collateral ?? null}
-                      leverage={s.levels.positionSizing?.achievable?.leverage ?? null}
+                      {...toRowSizing(s.levels.positionSizing)}
                       onClick={() => onSelect(s.symbol as Symbol, s.timeframe as Timeframe)}
                       highlighted={s.symbol === selectedSymbol && s.timeframe === selectedTimeframe}
                     />
@@ -386,11 +433,7 @@ export function ActiveSignalsOverview({
                       takeProfit1={s.levels.takeProfit1}
                       takeProfit2={s.levels.takeProfit2}
                       riskRewardRatio={s.levels.riskRewardRatio}
-                      pnlAtSL={s.levels.positionSizing?.achievable?.pnlAtSL ?? null}
-                      pnlAtTP1={s.levels.positionSizing?.achievable?.pnlAtTP1 ?? null}
-                      pnlAtTP2={s.levels.positionSizing?.achievable?.pnlAtTP2 ?? null}
-                      collateral={s.levels.positionSizing?.achievable?.collateral ?? null}
-                      leverage={s.levels.positionSizing?.achievable?.leverage ?? null}
+                      {...toRowSizing(s.levels.positionSizing)}
                       onClick={() => onSelect(s.symbol as Symbol, s.timeframe as Timeframe)}
                       highlighted={s.symbol === selectedSymbol && s.timeframe === selectedTimeframe}
                     />

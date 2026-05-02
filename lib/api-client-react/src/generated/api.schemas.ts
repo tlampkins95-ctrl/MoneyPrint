@@ -89,6 +89,17 @@ export const LevelsDataTrend = {
 } as const;
 
 /**
+ * Which trading venue this symbol uses. JUP = Jupiter perps (BTC/ETH, collateral × leverage). MT5 = MetaTrader 5 (forex/metals, lot-based sizing).
+ */
+export type PositionSizingVenue =
+  (typeof PositionSizingVenue)[keyof typeof PositionSizingVenue];
+
+export const PositionSizingVenue = {
+  JUP: "JUP",
+  MT5: "MT5",
+} as const;
+
+/**
  * Position scaled to honour exchange minimums (e.g. Jupiter $10 minimum collateral). Shows what the trader can ACTUALLY take and the real dollar P&L at each level.
  */
 export interface AchievablePosition {
@@ -117,6 +128,30 @@ export interface AchievablePosition {
 }
 
 /**
+ * MetaTrader 5 lot-based sizing for forex and metals. The trader chooses a fixed lot size (default 0.01 = 1 micro lot); the dollar P&L at SL/TP1/TP2 is derived from the pair's contract size and quote-currency conversion. For X/USD pairs this is exact; for USDJPY it uses the live entry price; for GBPJPY it approximates via an assumed USDJPY rate.
+ */
+export interface MT5Sizing {
+  /** Lot size the trader will place (e.g. 0.01 = 1 micro lot, 0.10 = 1 mini lot, 1.00 = 1 standard lot) */
+  lots: number;
+  /** Units of base asset per 1.0 standard lot (100,000 for forex, 100 oz for XAU, 5,000 oz for XAG) */
+  contractSize: number;
+  /** Total base units this trade controls (lots × contractSize) */
+  positionSize: number;
+  /** Unit label for positionSize (EUR, GBP, AUD, USD, oz) */
+  positionSizeUnit: string;
+  /** Approximate USD notional value of the position */
+  notional: number;
+  /** Signed dollar P&L if stop loss hits (always negative) */
+  pnlAtSL: number;
+  /** Signed dollar P&L if TP1 hits (positive) */
+  pnlAtTP1: number;
+  /** Signed dollar P&L if TP2 hits (positive) */
+  pnlAtTP2: number;
+  /** Absolute pnlAtSL as a percent of the account size — useful for sanity-checking that 0.01 lots isn't over-leveraging the account on a high-pip-value pair like XAGUSD */
+  riskPctOfAccount: number;
+}
+
+/**
  * Lot breakdown for forex / metals
  */
 export type PositionSizingLots = {
@@ -126,12 +161,14 @@ export type PositionSizingLots = {
 };
 
 /**
- * Suggested position size for a $500 starting account at 1% risk per trade.
+ * Suggested position size for the trader's account. The `venue` field decides which downstream block is authoritative — JUP (crypto perps) renders `achievable`, MT5 (forex/metals) renders `mt5`.
  */
 export interface PositionSizing {
+  /** Which trading venue this symbol uses. JUP = Jupiter perps (BTC/ETH, collateral × leverage). MT5 = MetaTrader 5 (forex/metals, lot-based sizing). */
+  venue: PositionSizingVenue;
   /** Account size in USD used for sizing */
   accountSize: number;
-  /** Dollar amount risked per trade if stop is hit */
+  /** Dollar amount risked per trade if stop is hit (JUP venue's risk-budget; on MT5 venue this is the *would-be* budget, not the actual lot-based risk — read mt5.pnlAtSL for the actual loss) */
   riskAmount: number;
   /** Risk percent of account (e.g. 1.0 = 1%) */
   riskPct: number;
@@ -148,6 +185,7 @@ export interface PositionSizing {
   /** Lot breakdown for forex / metals */
   lots?: PositionSizingLots;
   achievable?: AchievablePosition;
+  mt5?: MT5Sizing;
 }
 
 export interface LevelsData {
@@ -336,6 +374,12 @@ export type GetLevelsParams = {
    * @maximum 200
    */
   maxLeverage?: number;
+  /**
+   * MetaTrader 5 lot size used to size forex/metals positions. Ignored for crypto perps (BTC/ETH) which use Jupiter collateral × leverage. Default 0.01 (1 micro lot).
+   * @minimum 0.01
+   * @maximum 100
+   */
+  mt5Lots?: number;
 };
 
 export type GetLevelsSymbol =
@@ -422,6 +466,12 @@ export type GetActiveSignalsParams = {
    * @maximum 200
    */
   maxLeverage?: number;
+  /**
+   * MetaTrader 5 lot size used to size forex/metals positions in every entry. Ignored for crypto perps (BTC/ETH).
+   * @minimum 0.01
+   * @maximum 100
+   */
+  mt5Lots?: number;
 };
 
 export type GetPriceHistoryParams = {

@@ -10,6 +10,9 @@ const ACCOUNT_KEY = "screener.accountSize";
 const RISK_KEY = "screener.riskPct";
 const MIN_COL_KEY = "screener.minCollateral";
 const MAX_LEV_KEY = "screener.maxLeverage";
+// MT5 lot size for forex/metals (BTC/ETH still use Jupiter collateral × leverage).
+// 0.01 lot = 1 micro lot, the standard "starter" size on most MT5 brokers.
+const MT5_LOTS_KEY = "screener.mt5Lots";
 
 function readNumber(key: string, fallback: number): number {
   if (typeof window === "undefined") return fallback;
@@ -38,6 +41,15 @@ export function SignalPanel({
   const [riskPct, setRiskPct] = useState<number>(() => readNumber(RISK_KEY, 1));
   const [minCollateral, setMinCollateral] = useState<number>(() => readNumber(MIN_COL_KEY, 10));
   const [maxLeverage, setMaxLeverage] = useState<number>(() => readNumber(MAX_LEV_KEY, 50));
+  const [mt5Lots, setMt5Lots] = useState<number>(() => readNumber(MT5_LOTS_KEY, 0.01));
+  // The lots input is backed by a string buffer so the user can freely type
+  // intermediate values like "0." or "0.0" without our >= 0.01 guard
+  // rejecting them and leaving the visible input out of sync with state
+  // (a real bug we hit with a controlled type=number input). The numeric
+  // mt5Lots state is only updated when the buffer parses to a valid value.
+  const [mt5LotsText, setMt5LotsText] = useState<string>(() =>
+    String(readNumber(MT5_LOTS_KEY, 0.01)),
+  );
 
   useEffect(() => {
     window.localStorage.setItem(ACCOUNT_KEY, String(accountSize));
@@ -51,8 +63,11 @@ export function SignalPanel({
   useEffect(() => {
     window.localStorage.setItem(MAX_LEV_KEY, String(maxLeverage));
   }, [maxLeverage]);
+  useEffect(() => {
+    window.localStorage.setItem(MT5_LOTS_KEY, String(mt5Lots));
+  }, [mt5Lots]);
 
-  const params = { symbol, timeframe, accountSize, riskPct, minCollateral, maxLeverage };
+  const params = { symbol, timeframe, accountSize, riskPct, minCollateral, maxLeverage, mt5Lots };
   const { data, isLoading, isError, error, refetch, isFetching } = useGetLevels(
     params,
     {
@@ -104,6 +119,19 @@ export function SignalPanel({
 
   const isPositive = data.priceChange >= 0;
   const meta = SYMBOLS[symbol];
+
+  // Venue routing: BTC/ETH trade on Jupiter perps ($collateral × leverage),
+  // everything else (XAU/XAG/forex pairs) trades on MetaTrader 5 (lot-based).
+  // The sizing block emits two parallel projection shapes:
+  //   • achievable — JUP exchange-floor rounded values
+  //   • mt5        — lot-based USD P&L for the chosen lots
+  // Read whichever matches the venue so the TradeRow $ figures and the
+  // EXACT TRADE TO PLACE panel both reflect the actual venue the trader uses.
+  const venue: "JUP" | "MT5" = data.positionSizing?.venue ?? "JUP";
+  const isMT5 = venue === "MT5";
+  const pnls = isMT5
+    ? data.positionSizing?.mt5
+    : data.positionSizing?.achievable;
 
   const signalBg = data.signal === "BUY"
     ? "bg-[#00c950]"
@@ -194,7 +222,7 @@ export function SignalPanel({
                 <TradeRow
                   label="Stop Loss"
                   value={fmtPrice(symbol, data.stopLoss)}
-                  pnl={data.positionSizing?.achievable?.pnlAtSL ?? null}
+                  pnl={pnls?.pnlAtSL ?? null}
                   rMultiple={-1}
                   valueClass="text-[#e53e3e]"
                   labelClass="text-[#e53e3e]"
@@ -203,7 +231,7 @@ export function SignalPanel({
                 <TradeRow
                   label="Take Profit 1"
                   value={fmtPrice(symbol, data.takeProfit1)}
-                  pnl={data.positionSizing?.achievable?.pnlAtTP1 ?? null}
+                  pnl={pnls?.pnlAtTP1 ?? null}
                   rMultiple={computeR(data.entryPrice, data.stopLoss, data.takeProfit1)}
                   valueClass="text-[#4ade80]"
                   labelClass="text-[#4ade80]"
@@ -212,7 +240,7 @@ export function SignalPanel({
                 <TradeRow
                   label="Take Profit 2"
                   value={fmtPrice(symbol, data.takeProfit2)}
-                  pnl={data.positionSizing?.achievable?.pnlAtTP2 ?? null}
+                  pnl={pnls?.pnlAtTP2 ?? null}
                   rMultiple={computeR(data.entryPrice, data.stopLoss, data.takeProfit2)}
                   valueClass="text-[#86efac]"
                   labelClass="text-[#86efac]"
@@ -280,54 +308,87 @@ export function SignalPanel({
                     className="w-16 bg-zinc-900 border border-zinc-700 rounded px-1.5 py-0.5 text-right tabular-nums text-zinc-100 focus:outline-none focus:border-amber-500/60"
                     aria-label="Account size in USD"
                   />
-                  <span className="text-zinc-600">·</span>
-                  <input
-                    type="number"
-                    inputMode="decimal"
-                    min={0.01}
-                    max={100}
-                    step={0.25}
-                    value={riskPct}
-                    onChange={(e) => {
-                      const v = Number(e.target.value);
-                      if (Number.isFinite(v) && v > 0) setRiskPct(v);
-                    }}
-                    className="w-12 bg-zinc-900 border border-zinc-700 rounded px-1.5 py-0.5 text-right tabular-nums text-zinc-100 focus:outline-none focus:border-amber-500/60"
-                    aria-label="Risk percent of account"
-                  />
-                  <span>% risk</span>
-                  <span className="text-zinc-700 ml-1">|</span>
-                  <span title="Exchange minimum collateral (Jupiter = $10)">min&nbsp;$</span>
-                  <input
-                    type="number"
-                    inputMode="decimal"
-                    min={0.01}
-                    step={1}
-                    value={minCollateral}
-                    onChange={(e) => {
-                      const v = Number(e.target.value);
-                      if (Number.isFinite(v) && v > 0) setMinCollateral(v);
-                    }}
-                    className="w-12 bg-zinc-900 border border-zinc-700 rounded px-1.5 py-0.5 text-right tabular-nums text-zinc-100 focus:outline-none focus:border-amber-500/60"
-                    aria-label="Minimum collateral in USD"
-                  />
-                  <span className="text-zinc-600">·</span>
-                  <span title="Max leverage you'll use">max</span>
-                  <input
-                    type="number"
-                    inputMode="decimal"
-                    min={1}
-                    max={200}
-                    step={5}
-                    value={maxLeverage}
-                    onChange={(e) => {
-                      const v = Number(e.target.value);
-                      if (Number.isFinite(v) && v >= 1) setMaxLeverage(v);
-                    }}
-                    className="w-12 bg-zinc-900 border border-zinc-700 rounded px-1.5 py-0.5 text-right tabular-nums text-zinc-100 focus:outline-none focus:border-amber-500/60"
-                    aria-label="Max leverage"
-                  />
-                  <span>x lev</span>
+                  {isMT5 ? (
+                    <>
+                      {/* MT5 venue: only the lot size matters — risk %, min collateral
+                          and max leverage are JUP-specific concepts. */}
+                      <span className="text-zinc-700 ml-1">|</span>
+                      <span title="MT5 lot size (0.01 = 1 micro lot)">lots</span>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={mt5LotsText}
+                        onChange={(e) => {
+                          const text = e.target.value;
+                          setMt5LotsText(text);
+                          const v = Number(text);
+                          if (Number.isFinite(v) && v >= 0.01 && v <= 100) {
+                            setMt5Lots(v);
+                          }
+                        }}
+                        onBlur={() => {
+                          // On blur, snap the visible buffer back to the
+                          // last accepted numeric value so partial typing
+                          // ("0." / "0.0" / "") doesn't linger in the UI.
+                          setMt5LotsText(String(mt5Lots));
+                        }}
+                        className="w-14 bg-zinc-900 border border-zinc-700 rounded px-1.5 py-0.5 text-right tabular-nums text-zinc-100 focus:outline-none focus:border-amber-500/60"
+                        aria-label="MT5 lot size"
+                        data-testid="mt5-lots-input"
+                      />
+                    </>
+                  ) : (
+                    <>
+                      <span className="text-zinc-600">·</span>
+                      <input
+                        type="number"
+                        inputMode="decimal"
+                        min={0.01}
+                        max={100}
+                        step={0.25}
+                        value={riskPct}
+                        onChange={(e) => {
+                          const v = Number(e.target.value);
+                          if (Number.isFinite(v) && v > 0) setRiskPct(v);
+                        }}
+                        className="w-12 bg-zinc-900 border border-zinc-700 rounded px-1.5 py-0.5 text-right tabular-nums text-zinc-100 focus:outline-none focus:border-amber-500/60"
+                        aria-label="Risk percent of account"
+                      />
+                      <span>% risk</span>
+                      <span className="text-zinc-700 ml-1">|</span>
+                      <span title="Exchange minimum collateral (Jupiter = $10)">min&nbsp;$</span>
+                      <input
+                        type="number"
+                        inputMode="decimal"
+                        min={0.01}
+                        step={1}
+                        value={minCollateral}
+                        onChange={(e) => {
+                          const v = Number(e.target.value);
+                          if (Number.isFinite(v) && v > 0) setMinCollateral(v);
+                        }}
+                        className="w-12 bg-zinc-900 border border-zinc-700 rounded px-1.5 py-0.5 text-right tabular-nums text-zinc-100 focus:outline-none focus:border-amber-500/60"
+                        aria-label="Minimum collateral in USD"
+                      />
+                      <span className="text-zinc-600">·</span>
+                      <span title="Max leverage you'll use">max</span>
+                      <input
+                        type="number"
+                        inputMode="decimal"
+                        min={1}
+                        max={200}
+                        step={5}
+                        value={maxLeverage}
+                        onChange={(e) => {
+                          const v = Number(e.target.value);
+                          if (Number.isFinite(v) && v >= 1) setMaxLeverage(v);
+                        }}
+                        className="w-12 bg-zinc-900 border border-zinc-700 rounded px-1.5 py-0.5 text-right tabular-nums text-zinc-100 focus:outline-none focus:border-amber-500/60"
+                        aria-label="Max leverage"
+                      />
+                      <span>x lev</span>
+                    </>
+                  )}
                 </div>
               </div>
               <div className="rounded-lg overflow-hidden border border-zinc-800 divide-y divide-zinc-800/60 bg-[#111]">
@@ -337,63 +398,167 @@ export function SignalPanel({
                     Risk per trade
                   </span>
                   <span className="font-bold text-sm tabular-nums shrink-0 text-amber-300">
-                    ${data.positionSizing.riskAmount.toFixed(2)}
+                    {isMT5 && data.positionSizing.mt5
+                      ? `$${Math.abs(data.positionSizing.mt5.pnlAtSL).toFixed(2)} (${data.positionSizing.mt5.riskPctOfAccount.toFixed(2)}% acct)`
+                      : `$${data.positionSizing.riskAmount.toFixed(2)}`}
                   </span>
                 </div>
-                <Row
-                  label="Position size"
-                  value={`${formatPositionSize(data.positionSizing.positionSize, data.positionSizing.positionSizeUnit)} ${data.positionSizing.positionSizeUnit}`}
-                  valueClass="text-zinc-100"
-                />
-                <Row
-                  label="Notional value"
-                  value={`$${formatNotional(data.positionSizing.notional)}`}
-                  labelClass="text-zinc-500"
-                />
-                {data.positionSizing.leverage !== undefined && (
-                  <div className="flex flex-col gap-1 px-3 py-2.5 bg-zinc-950/60">
-                    <div className="flex justify-between items-center gap-2">
-                      <span className="text-xs text-zinc-400">Min leverage</span>
-                      <span
-                        className={cn(
-                          "font-bold text-base tabular-nums shrink-0",
-                          data.positionSizing.leverage > 15
-                            ? "text-red-400"
-                            : data.positionSizing.leverage > 10
-                              ? "text-amber-400"
-                              : "text-emerald-400",
+                {isMT5 && data.positionSizing.mt5 ? (
+                  <>
+                    {/* MT5: show the contract sizing the trader actually places.
+                        Notional / position size derive from chosen lots, not a
+                        risk budget — riskPct is a JUP concept here. */}
+                    <Row
+                      label="Position size"
+                      value={`${formatPositionSize(data.positionSizing.mt5.positionSize, data.positionSizing.positionSizeUnit)} ${data.positionSizing.positionSizeUnit}`}
+                      valueClass="text-zinc-100"
+                    />
+                    <Row
+                      label="Notional value"
+                      value={`$${formatNotional(data.positionSizing.mt5.notional)}`}
+                      labelClass="text-zinc-500"
+                    />
+                    <Row
+                      label="Contract size"
+                      value={`1 lot = ${data.positionSizing.mt5.contractSize.toLocaleString()} ${data.positionSizing.positionSizeUnit}`}
+                      labelClass="text-zinc-500"
+                    />
+                  </>
+                ) : (
+                  <>
+                    <Row
+                      label="Position size"
+                      value={`${formatPositionSize(data.positionSizing.positionSize, data.positionSizing.positionSizeUnit)} ${data.positionSizing.positionSizeUnit}`}
+                      valueClass="text-zinc-100"
+                    />
+                    <Row
+                      label="Notional value"
+                      value={`$${formatNotional(data.positionSizing.notional)}`}
+                      labelClass="text-zinc-500"
+                    />
+                    {data.positionSizing.leverage !== undefined && (
+                      <div className="flex flex-col gap-1 px-3 py-2.5 bg-zinc-950/60">
+                        <div className="flex justify-between items-center gap-2">
+                          <span className="text-xs text-zinc-400">Min leverage</span>
+                          <span
+                            className={cn(
+                              "font-bold text-base tabular-nums shrink-0",
+                              data.positionSizing.leverage > 15
+                                ? "text-red-400"
+                                : data.positionSizing.leverage > 10
+                                  ? "text-amber-400"
+                                  : "text-emerald-400",
+                            )}
+                          >
+                            {data.positionSizing.leverage}x
+                          </span>
+                        </div>
+                        {data.positionSizing.leverageNote && (
+                          <p className="text-[10px] text-zinc-500 leading-snug">
+                            {data.positionSizing.leverageNote}
+                          </p>
                         )}
-                      >
-                        {data.positionSizing.leverage}x
-                      </span>
-                    </div>
-                    {data.positionSizing.leverageNote && (
-                      <p className="text-[10px] text-zinc-500 leading-snug">
-                        {data.positionSizing.leverageNote}
-                      </p>
+                      </div>
                     )}
-                  </div>
-                )}
-                {data.positionSizing.lots && (
-                  <div className="flex flex-col gap-1 px-3 py-2.5 bg-zinc-950/60">
-                    <span className="text-[10px] text-zinc-500 tracking-widest font-sans font-semibold">
-                      LOTS
-                    </span>
-                    <div className="grid grid-cols-3 gap-2 text-center">
-                      <LotCell label="Standard" value={data.positionSizing.lots.standard} />
-                      <LotCell label="Mini" value={data.positionSizing.lots.mini} />
-                      <LotCell label="Micro" value={data.positionSizing.lots.micro} />
-                    </div>
-                  </div>
+                    {data.positionSizing.lots && (
+                      <div className="flex flex-col gap-1 px-3 py-2.5 bg-zinc-950/60">
+                        <span className="text-[10px] text-zinc-500 tracking-widest font-sans font-semibold">
+                          LOTS
+                        </span>
+                        <div className="grid grid-cols-3 gap-2 text-center">
+                          <LotCell label="Standard" value={data.positionSizing.lots.standard} />
+                          <LotCell label="Mini" value={data.positionSizing.lots.mini} />
+                          <LotCell label="Micro" value={data.positionSizing.lots.micro} />
+                        </div>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
 
               {/* ── EXACT EXCHANGE SETUP ─────────────────────────────────── */}
-              {data.positionSizing.achievable && (
+              {/* Two parallel renderings: JUP (BTC/ETH) shows COLLATERAL/LEVERAGE/POSITION,
+                  MT5 (forex/metals) shows LOTS/POSITION/NOTIONAL. The IF SL/TP1/TP2
+                  P&L row is identical in shape but always sources from the venue's
+                  projection block (mt5 vs achievable) so the dollars never lie about
+                  which exchange they came from. */}
+              {isMT5 && data.positionSizing.mt5 ? (
                 <div className="mt-3 rounded-lg overflow-hidden border-2 border-amber-500/40 bg-gradient-to-br from-amber-950/20 to-zinc-900">
                   <div className="px-3 py-1.5 bg-amber-500/10 border-b border-amber-500/30 flex items-center gap-2">
                     <span className="text-[10px] text-amber-300 font-sans font-bold tracking-widest">
-                      EXACT TRADE TO PLACE
+                      EXACT TRADE TO PLACE · MT5
+                    </span>
+                    <span className="ml-auto text-[9px] text-zinc-500 font-mono">
+                      {meta.short}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-px bg-zinc-800 text-center">
+                    <div className="bg-[#0a0a0a] px-2 py-2">
+                      <div className="text-[8px] text-zinc-500 font-sans font-semibold tracking-widest">
+                        LOTS
+                      </div>
+                      <div className="text-base font-bold text-amber-200 tabular-nums mt-0.5">
+                        {data.positionSizing.mt5.lots.toFixed(2)}
+                      </div>
+                    </div>
+                    <div className="bg-[#0a0a0a] px-2 py-2">
+                      <div className="text-[8px] text-zinc-500 font-sans font-semibold tracking-widest">
+                        POSITION
+                      </div>
+                      <div className="text-base font-bold text-amber-200 tabular-nums mt-0.5 truncate">
+                        {formatPositionSize(data.positionSizing.mt5.positionSize, data.positionSizing.positionSizeUnit)}
+                      </div>
+                    </div>
+                    <div className="bg-[#0a0a0a] px-2 py-2">
+                      <div className="text-[8px] text-zinc-500 font-sans font-semibold tracking-widest">
+                        NOTIONAL
+                      </div>
+                      <div className="text-base font-bold text-amber-200 tabular-nums mt-0.5 truncate">
+                        ${formatNotional(data.positionSizing.mt5.notional)}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-px bg-zinc-800 text-center border-t border-zinc-800">
+                    <div className="bg-red-950/20 px-2 py-2">
+                      <div className="text-[8px] text-red-400/70 font-sans font-semibold tracking-widest">
+                        IF SL HIT
+                      </div>
+                      <div className="text-sm font-bold text-red-300 tabular-nums mt-0.5">
+                        −${Math.abs(data.positionSizing.mt5.pnlAtSL).toFixed(2)}
+                      </div>
+                      <div className="text-[8px] text-red-400/60 mt-0.5">
+                        −{data.positionSizing.mt5.riskPctOfAccount.toFixed(2)}% acct
+                      </div>
+                    </div>
+                    <div className="bg-emerald-950/20 px-2 py-2">
+                      <div className="text-[8px] text-emerald-400/70 font-sans font-semibold tracking-widest">
+                        IF TP1 HIT
+                      </div>
+                      <div className="text-sm font-bold text-emerald-300 tabular-nums mt-0.5">
+                        +${data.positionSizing.mt5.pnlAtTP1.toFixed(2)}
+                      </div>
+                      <div className="text-[8px] text-emerald-400/60 mt-0.5">
+                        +{((data.positionSizing.mt5.pnlAtTP1 / data.positionSizing.accountSize) * 100).toFixed(2)}% acct
+                      </div>
+                    </div>
+                    <div className="bg-emerald-900/30 px-2 py-2">
+                      <div className="text-[8px] text-emerald-300/80 font-sans font-semibold tracking-widest">
+                        IF TP2 HIT
+                      </div>
+                      <div className="text-sm font-bold text-emerald-200 tabular-nums mt-0.5">
+                        +${data.positionSizing.mt5.pnlAtTP2.toFixed(2)}
+                      </div>
+                      <div className="text-[8px] text-emerald-300/70 mt-0.5">
+                        +{((data.positionSizing.mt5.pnlAtTP2 / data.positionSizing.accountSize) * 100).toFixed(2)}% acct
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : data.positionSizing.achievable ? (
+                <div className="mt-3 rounded-lg overflow-hidden border-2 border-amber-500/40 bg-gradient-to-br from-amber-950/20 to-zinc-900">
+                  <div className="px-3 py-1.5 bg-amber-500/10 border-b border-amber-500/30 flex items-center gap-2">
+                    <span className="text-[10px] text-amber-300 font-sans font-bold tracking-widest">
+                      EXACT TRADE TO PLACE · JUP
                     </span>
                     {data.positionSizing.achievable.belowMinimum && (
                       <span className="ml-auto text-[9px] text-amber-400 font-bold tracking-wider px-1.5 py-0.5 rounded bg-amber-500/20 border border-amber-500/40">
@@ -470,7 +635,7 @@ export function SignalPanel({
                     </div>
                   )}
                 </div>
-              )}
+              ) : null}
             </div>
           )}
 

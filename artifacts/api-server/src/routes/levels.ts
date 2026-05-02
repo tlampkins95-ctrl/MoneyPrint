@@ -33,6 +33,7 @@ router.get("/levels", async (req: Request, res: Response) => {
     const riskPctFrac = Math.max(0.0001, Math.min(1, (query.riskPct ?? 1) / 100));
     const minCollateral = Math.max(0.01, Math.min(1_000_000, query.minCollateral ?? 10));
     const maxLeverage = Math.max(1, Math.min(200, query.maxLeverage ?? 50));
+    const mt5Lots = Math.max(0.01, Math.min(100, query.mt5Lots ?? 0.01));
     const [candles, spotPrice] = await Promise.all([
       fetchCandlesForTimeframe(symbol, timeframe),
       fetchSpotPrice(symbol),
@@ -51,6 +52,7 @@ router.get("/levels", async (req: Request, res: Response) => {
         riskPctFrac,
         minCollateral,
         maxLeverage,
+        mt5Lots,
       ),
     );
     res.json(data);
@@ -133,7 +135,7 @@ router.get("/active-signals", async (req: Request, res: Response) => {
     // Jupiter $col×lev / SL/TP1/TP2 dollar projections match what the
     // signal panel shows for the same symbol.
     const params = GetActiveSignalsQueryParams.parse(req.query);
-    const { accountSize, riskPct, minCollateral, maxLeverage } = params;
+    const { accountSize, riskPct, minCollateral, maxLeverage, mt5Lots } = params;
 
     // Dedupe spot fetches: each symbol's spot is the same regardless of
     // timeframe, so issue ONE upstream call per symbol (was 4× before, which
@@ -171,6 +173,7 @@ router.get("/active-signals", async (req: Request, res: Response) => {
             riskPct / 100,
             minCollateral,
             maxLeverage,
+            mt5Lots,
           );
           return { ok: true, symbol, timeframe, levels };
         } catch (err) {

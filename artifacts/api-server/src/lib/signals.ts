@@ -172,11 +172,92 @@ export const MIN_RR_TP2 = 2.5;
 
 // ─── Position sizing ─────────────────────────────────────────────────────────
 // Defaults assume a $500 starting account, 1% risk per trade, Jupiter perps
-// minimums ($10 min collateral, 50x leverage cap).
+// minimums ($10 min collateral, 50x leverage cap), and MT5 micro lots (0.01).
 export const DEFAULT_ACCOUNT_SIZE = 500;
 export const DEFAULT_RISK_PCT = 0.01;
 export const DEFAULT_MIN_COLLATERAL = 10;
 export const DEFAULT_MAX_LEVERAGE = 50;
+export const DEFAULT_MT5_LOTS = 0.01;
+
+// ─── MT5 lot sizing helpers ──────────────────────────────────────────────────
+// Standard MT5 contract sizes per symbol class:
+//   * Forex: 1 lot = 100,000 base units
+//   * XAUUSD (gold): 1 lot = 100 oz
+//   * XAGUSD (silver): 1 lot = 5,000 oz
+// USD P&L per 1.0 price-unit move per 1.0 lot depends on the quote currency:
+//   * X/USD pairs (EUR/GBP/AUD/XAU/XAG): contractSize directly (USD = base × USD/base)
+//   * USD/X pairs (USDJPY): contractSize / entry (convert JPY back to USD using live entry)
+//   * Cross JPY pairs (GBPJPY): contractSize / liveUsdJpy (read from spotCache;
+//       fallback to 150 only on cold start before USDJPY has been fetched once.
+//       USDJPY is one of the 9 tracked symbols so this cache is normally warm.)
+const USDJPY_FALLBACK = 150;
+
+function getUsdJpyRate(): { rate: number; live: boolean } {
+  const cached = spotCache.get("USDJPY");
+  if (cached && Number.isFinite(cached.price) && cached.price > 0) {
+    return { rate: cached.price, live: true };
+  }
+  return { rate: USDJPY_FALLBACK, live: false };
+}
+
+function mt5ContractSize(symbol: Symbol): { size: number; unit: string } {
+  if (symbol === "XAUUSD") return { size: 100, unit: "oz" };
+  if (symbol === "XAGUSD") return { size: 5000, unit: "oz" };
+  return { size: 100_000, unit: symbol.slice(0, 3) }; // EUR/GBP/AUD/USD
+}
+
+function mt5UsdPerPriceUnitPerLot(symbol: Symbol, entry: number): number {
+  const { size } = mt5ContractSize(symbol);
+  if (symbol === "USDJPY") return entry > 0 ? size / entry : 0;
+  if (symbol === "GBPJPY") return size / getUsdJpyRate().rate;
+  return size; // EURUSD, GBPUSD, AUDUSD, XAUUSD, XAGUSD
+}
+
+interface MT5Sizing {
+  lots: number;
+  contractSize: number;
+  positionSize: number;
+  positionSizeUnit: string;
+  notional: number;
+  pnlAtSL: number;
+  pnlAtTP1: number;
+  pnlAtTP2: number;
+  riskPctOfAccount: number;
+}
+
+function computeMT5Sizing(
+  symbol: Symbol,
+  lots: number,
+  entry: number,
+  stopLoss: number,
+  takeProfit1: number,
+  takeProfit2: number,
+  accountSize: number,
+): MT5Sizing {
+  const { size, unit } = mt5ContractSize(symbol);
+  const usdPerUnit = mt5UsdPerPriceUnitPerLot(symbol, entry);
+  const slDist = Math.abs(entry - stopLoss);
+  const tp1Dist = Math.abs(takeProfit1 - entry);
+  const tp2Dist = Math.abs(takeProfit2 - entry);
+  const positionSize = lots * size;
+  // USD notional = USD-per-price-unit × entry × lots, which works for every
+  // class above (X/USD, USD/X, JPY-cross, metals) because usdPerUnit already
+  // bakes in the quote-currency conversion.
+  const notional = usdPerUnit * entry * lots;
+  const lossUsd = slDist * usdPerUnit * lots;
+  const r = (n: number, d = 2) => Math.round(n * 10 ** d) / 10 ** d;
+  return {
+    lots: r(lots, 2),
+    contractSize: size,
+    positionSize: r(positionSize, 2),
+    positionSizeUnit: unit,
+    notional: r(notional),
+    pnlAtSL: r(-lossUsd),
+    pnlAtTP1: r(tp1Dist * usdPerUnit * lots),
+    pnlAtTP2: r(tp2Dist * usdPerUnit * lots),
+    riskPctOfAccount: r((lossUsd / accountSize) * 100, 2),
+  };
+}
 
 interface AchievablePosition {
   positionSize: number;
@@ -193,6 +274,7 @@ interface AchievablePosition {
 }
 
 interface PositionSizing {
+  venue: "JUP" | "MT5";
   accountSize: number;
   riskAmount: number;
   riskPct: number;
@@ -203,6 +285,7 @@ interface PositionSizing {
   leverageNote?: string;
   lots?: { standard: number; mini: number; micro: number };
   achievable?: AchievablePosition;
+  mt5?: MT5Sizing;
 }
 
 // Compute the "achievable" position given exchange constraints. Uses the
@@ -300,6 +383,7 @@ function computePositionSizing(
   riskPct: number = DEFAULT_RISK_PCT,
   minCollateral: number = DEFAULT_MIN_COLLATERAL,
   maxLeverage: number = DEFAULT_MAX_LEVERAGE,
+  mt5Lots: number = DEFAULT_MT5_LOTS,
 ): PositionSizing | undefined {
   const slDist = Math.abs(entry - stopLoss);
   if (!isFinite(slDist) || slDist <= 0 || !isFinite(entry) || entry <= 0) return undefined;
@@ -308,7 +392,7 @@ function computePositionSizing(
   const meta = SYMBOLS[symbol];
   const r = (n: number, d = 2) => Math.round(n * 10 ** d) / 10 ** d;
 
-  // ─── Crypto perps (BTC, ETH) ───
+  // ─── Crypto perps (BTC, ETH) — venue: JUP ───
   if (meta.okxPerp) {
     const positionSize = riskAmount / slDist; // coin units
     const notional = positionSize * entry;
@@ -319,6 +403,7 @@ function computePositionSizing(
     else if (leverage > 10) leverageNote = "Moderate-high leverage — keep extra margin in reserve.";
     const unit = symbol === "BTCUSD" ? "BTC" : "ETH";
     return {
+      venue: "JUP",
       accountSize: r(accountSize),
       riskAmount: r(riskAmount),
       riskPct: r(riskPct * 100, 2),
@@ -341,15 +426,18 @@ function computePositionSizing(
     };
   }
 
-  // ─── Metals (XAG, XAU) ───
+  // ─── Metals (XAG, XAU) — venue: MT5 ───
   // OANDA std lot conventions: XAG = 5,000 oz, XAU = 100 oz. SL distance is
-  // already in $/oz so risk_$ = ozHeld × slDist exactly.
+  // already in $/oz so risk_$ = ozHeld × slDist exactly. We still emit the
+  // risk-budget-derived sizing for context, but the AUTHORITATIVE block for
+  // MT5 venue is `mt5` (lots × contractSize → exact $ P&L).
   if (meta.goldApi) {
     const ozPerStd = symbol === "XAGUSD" ? 5000 : 100;
     const positionSize = riskAmount / slDist; // oz
     const notional = positionSize * entry;
     const std = positionSize / ozPerStd;
     return {
+      venue: "MT5",
       accountSize: r(accountSize),
       riskAmount: r(riskAmount),
       riskPct: r(riskPct * 100, 2),
@@ -361,29 +449,19 @@ function computePositionSizing(
         mini: r(std * 10, 3),
         micro: r(std * 100, 2),
       },
-      achievable: computeAchievable(
-        { positionSize, notional, positionSizeUnit: "oz" },
-        riskAmount,
-        accountSize,
-        entry,
-        stopLoss,
-        takeProfit1,
-        takeProfit2,
-        minCollateral,
-        maxLeverage,
-      ),
+      mt5: computeMT5Sizing(symbol, mt5Lots, entry, stopLoss, takeProfit1, takeProfit2, accountSize),
     };
   }
 
-  // ─── Forex ───
+  // ─── Forex — venue: MT5 ───
   // For BASE/QUOTE pairs, position size is N units of BASE.
   // Loss in QUOTE on SL hit = N × slDist. Convert to USD:
   //   USD-quote pair (EURUSD, GBPUSD, AUDUSD): USD loss = N × slDist
   //     → N = riskUSD / slDist
   //   USD-base pair (USDJPY): JPY loss = N × slDist; USD ≈ JPY / entry
   //     → N = riskUSD × entry / slDist
-  //   Cross JPY pair (GBPJPY): approximate via assumed USDJPY ≈ 150
-  //     → N = riskUSD × 150 / slDist
+  //   Cross JPY pair (GBPJPY): use live USDJPY from spotCache (fallback 150)
+  //     → N = riskUSD × usdJpy / slDist
   const isUsdBase = symbol === "USDJPY";
   const isJpyCross = symbol === "GBPJPY";
   let positionSize: number;
@@ -392,9 +470,9 @@ function computePositionSizing(
     positionSize = (riskAmount * entry) / slDist; // USD units
     notional = positionSize; // already USD
   } else if (isJpyCross) {
-    const assumedUsdJpy = 150;
-    positionSize = (riskAmount * assumedUsdJpy) / slDist; // GBP units
-    notional = (positionSize * entry) / assumedUsdJpy; // GBP × JPY/GBP / (JPY/USD) = USD
+    const usdJpy = getUsdJpyRate().rate;
+    positionSize = (riskAmount * usdJpy) / slDist; // GBP units
+    notional = (positionSize * entry) / usdJpy; // GBP × JPY/GBP / (JPY/USD) = USD
   } else {
     positionSize = riskAmount / slDist; // base units (EUR, GBP, AUD)
     notional = positionSize * entry; // base × USD/base = USD
@@ -402,6 +480,7 @@ function computePositionSizing(
   const std = positionSize / 100_000;
   const unit = symbol.slice(0, 3); // EUR, GBP, AUD, USD
   return {
+    venue: "MT5",
     accountSize: r(accountSize),
     riskAmount: r(riskAmount),
     riskPct: r(riskPct * 100, 2),
@@ -413,17 +492,7 @@ function computePositionSizing(
       mini: r(std * 10, 3),
       micro: r(std * 100, 2),
     },
-    achievable: computeAchievable(
-      { positionSize, notional, positionSizeUnit: unit },
-      riskAmount,
-      accountSize,
-      entry,
-      stopLoss,
-      takeProfit1,
-      takeProfit2,
-      minCollateral,
-      maxLeverage,
-    ),
+    mt5: computeMT5Sizing(symbol, mt5Lots, entry, stopLoss, takeProfit1, takeProfit2, accountSize),
   };
 }
 
@@ -451,6 +520,7 @@ export function computeLevels(
   riskPct: number = DEFAULT_RISK_PCT,
   minCollateral: number = DEFAULT_MIN_COLLATERAL,
   maxLeverage: number = DEFAULT_MAX_LEVERAGE,
+  mt5Lots: number = DEFAULT_MT5_LOTS,
 ) {
   const meta = SYMBOLS[symbol];
   const round = makeRounder(meta.decimals);
@@ -600,6 +670,7 @@ export function computeLevels(
     riskPct,
     minCollateral,
     maxLeverage,
+    mt5Lots,
   );
 
   type LevelType = "resistance" | "support" | "pivot";
@@ -953,8 +1024,9 @@ export function computeLevelsStable(
   riskPct: number = DEFAULT_RISK_PCT,
   minCollateral: number = DEFAULT_MIN_COLLATERAL,
   maxLeverage: number = DEFAULT_MAX_LEVERAGE,
+  mt5Lots: number = DEFAULT_MT5_LOTS,
 ): Levels {
-  const fresh = computeLevels(candles, spotPrice, timeframe, symbol, accountSize, riskPct, minCollateral, maxLeverage);
+  const fresh = computeLevels(candles, spotPrice, timeframe, symbol, accountSize, riskPct, minCollateral, maxLeverage, mt5Lots);
   const k = tradeKey(symbol, timeframe);
   const existing = activeTrades.get(k);
 
@@ -1057,6 +1129,7 @@ export function computeLevelsStable(
         riskPct,
         minCollateral,
         maxLeverage,
+        mt5Lots,
       ),
     };
   }

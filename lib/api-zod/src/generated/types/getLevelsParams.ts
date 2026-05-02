@@ -39,4 +39,10 @@ export type GetLevelsParams = {
    * @maximum 200
    */
   maxLeverage?: number;
+  /**
+   * MetaTrader 5 lot size used to size forex/metals positions. Ignored for crypto perps (BTC/ETH) which use Jupiter collateral × leverage. Default 0.01 (1 micro lot).
+   * @minimum 0.01
+   * @maximum 100
+   */
+  mt5Lots?: number;
 };

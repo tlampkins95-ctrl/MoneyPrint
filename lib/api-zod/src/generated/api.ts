@@ -32,6 +32,10 @@ export const getLevelsQueryMinCollateralMin = 0.01;
 export const getLevelsQueryMaxLeverageDefault = 50;
 export const getLevelsQueryMaxLeverageMax = 200;
 
+export const getLevelsQueryMt5LotsDefault = 0.01;
+export const getLevelsQueryMt5LotsMin = 0.01;
+export const getLevelsQueryMt5LotsMax = 100;
+
 export const GetLevelsQueryParams = zod.object({
   symbol: zod
     .enum([
@@ -76,6 +80,14 @@ export const GetLevelsQueryParams = zod.object({
     .default(getLevelsQueryMaxLeverageDefault)
     .describe(
       "Maximum leverage the trader is willing to use. Defaults to 50x for Jupiter perps.",
+    ),
+  mt5Lots: zod.coerce
+    .number()
+    .min(getLevelsQueryMt5LotsMin)
+    .max(getLevelsQueryMt5LotsMax)
+    .default(getLevelsQueryMt5LotsDefault)
+    .describe(
+      "MetaTrader 5 lot size used to size forex\/metals positions. Ignored for crypto perps (BTC\/ETH) which use Jupiter collateral × leverage. Default 0.01 (1 micro lot).",
     ),
 });
 
@@ -137,10 +149,17 @@ export const GetLevelsResponse = zod.object({
   lastUpdated: zod.string(),
   positionSizing: zod
     .object({
+      venue: zod
+        .enum(["JUP", "MT5"])
+        .describe(
+          "Which trading venue this symbol uses. JUP = Jupiter perps (BTC\/ETH, collateral × leverage). MT5 = MetaTrader 5 (forex\/metals, lot-based sizing).",
+        ),
       accountSize: zod.number().describe("Account size in USD used for sizing"),
       riskAmount: zod
         .number()
-        .describe("Dollar amount risked per trade if stop is hit"),
+        .describe(
+          "Dollar amount risked per trade if stop is hit (JUP venue's risk-budget; on MT5 venue this is the \*would-be\* budget, not the actual lot-based risk — read mt5.pnlAtSL for the actual loss)",
+        ),
       riskPct: zod.number().describe("Risk percent of account (e.g. 1.0 = 1%)"),
       positionSize: zod
         .number()
@@ -218,10 +237,52 @@ export const GetLevelsResponse = zod.object({
         .describe(
           "Position scaled to honour exchange minimums (e.g. Jupiter $10 minimum collateral). Shows what the trader can ACTUALLY take and the real dollar P&L at each level.",
         ),
+      mt5: zod
+        .object({
+          lots: zod
+            .number()
+            .describe(
+              "Lot size the trader will place (e.g. 0.01 = 1 micro lot, 0.10 = 1 mini lot, 1.00 = 1 standard lot)",
+            ),
+          contractSize: zod
+            .number()
+            .describe(
+              "Units of base asset per 1.0 standard lot (100,000 for forex, 100 oz for XAU, 5,000 oz for XAG)",
+            ),
+          positionSize: zod
+            .number()
+            .describe(
+              "Total base units this trade controls (lots × contractSize)",
+            ),
+          positionSizeUnit: zod
+            .string()
+            .describe("Unit label for positionSize (EUR, GBP, AUD, USD, oz)"),
+          notional: zod
+            .number()
+            .describe("Approximate USD notional value of the position"),
+          pnlAtSL: zod
+            .number()
+            .describe("Signed dollar P&L if stop loss hits (always negative)"),
+          pnlAtTP1: zod
+            .number()
+            .describe("Signed dollar P&L if TP1 hits (positive)"),
+          pnlAtTP2: zod
+            .number()
+            .describe("Signed dollar P&L if TP2 hits (positive)"),
+          riskPctOfAccount: zod
+            .number()
+            .describe(
+              "Absolute pnlAtSL as a percent of the account size — useful for sanity-checking that 0.01 lots isn't over-leveraging the account on a high-pip-value pair like XAGUSD",
+            ),
+        })
+        .optional()
+        .describe(
+          "MetaTrader 5 lot-based sizing for forex and metals. The trader chooses a fixed lot size (default 0.01 = 1 micro lot); the dollar P&L at SL\/TP1\/TP2 is derived from the pair's contract size and quote-currency conversion. For X\/USD pairs this is exact; for USDJPY it uses the live entry price; for GBPJPY it approximates via an assumed USDJPY rate.",
+        ),
     })
     .optional()
     .describe(
-      "Suggested position size for a $500 starting account at 1% risk per trade.",
+      "Suggested position size for the trader's account. The `venue` field decides which downstream block is authoritative — JUP (crypto perps) renders `achievable`, MT5 (forex\/metals) renders `mt5`.",
     ),
 });
 
@@ -311,6 +372,10 @@ export const getActiveSignalsQueryMinCollateralMin = 0.01;
 export const getActiveSignalsQueryMaxLeverageDefault = 50;
 export const getActiveSignalsQueryMaxLeverageMax = 200;
 
+export const getActiveSignalsQueryMt5LotsDefault = 0.01;
+export const getActiveSignalsQueryMt5LotsMin = 0.01;
+export const getActiveSignalsQueryMt5LotsMax = 100;
+
 export const GetActiveSignalsQueryParams = zod.object({
   accountSize: zod.coerce
     .number()
@@ -339,6 +404,14 @@ export const GetActiveSignalsQueryParams = zod.object({
     .default(getActiveSignalsQueryMaxLeverageDefault)
     .describe(
       "Maximum leverage the trader is willing to use. Defaults to 50x for Jupiter perps.",
+    ),
+  mt5Lots: zod.coerce
+    .number()
+    .min(getActiveSignalsQueryMt5LotsMin)
+    .max(getActiveSignalsQueryMt5LotsMax)
+    .default(getActiveSignalsQueryMt5LotsDefault)
+    .describe(
+      "MetaTrader 5 lot size used to size forex\/metals positions in every entry. Ignored for crypto perps (BTC\/ETH).",
     ),
 });
 
@@ -423,12 +496,19 @@ export const GetActiveSignalsResponse = zod.object({
             lastUpdated: zod.string(),
             positionSizing: zod
               .object({
+                venue: zod
+                  .enum(["JUP", "MT5"])
+                  .describe(
+                    "Which trading venue this symbol uses. JUP = Jupiter perps (BTC\/ETH, collateral × leverage). MT5 = MetaTrader 5 (forex\/metals, lot-based sizing).",
+                  ),
                 accountSize: zod
                   .number()
                   .describe("Account size in USD used for sizing"),
                 riskAmount: zod
                   .number()
-                  .describe("Dollar amount risked per trade if stop is hit"),
+                  .describe(
+                    "Dollar amount risked per trade if stop is hit (JUP venue's risk-budget; on MT5 venue this is the \*would-be\* budget, not the actual lot-based risk — read mt5.pnlAtSL for the actual loss)",
+                  ),
                 riskPct: zod
                   .number()
                   .describe("Risk percent of account (e.g. 1.0 = 1%)"),
@@ -518,10 +598,58 @@ export const GetActiveSignalsResponse = zod.object({
                   .describe(
                     "Position scaled to honour exchange minimums (e.g. Jupiter $10 minimum collateral). Shows what the trader can ACTUALLY take and the real dollar P&L at each level.",
                   ),
+                mt5: zod
+                  .object({
+                    lots: zod
+                      .number()
+                      .describe(
+                        "Lot size the trader will place (e.g. 0.01 = 1 micro lot, 0.10 = 1 mini lot, 1.00 = 1 standard lot)",
+                      ),
+                    contractSize: zod
+                      .number()
+                      .describe(
+                        "Units of base asset per 1.0 standard lot (100,000 for forex, 100 oz for XAU, 5,000 oz for XAG)",
+                      ),
+                    positionSize: zod
+                      .number()
+                      .describe(
+                        "Total base units this trade controls (lots × contractSize)",
+                      ),
+                    positionSizeUnit: zod
+                      .string()
+                      .describe(
+                        "Unit label for positionSize (EUR, GBP, AUD, USD, oz)",
+                      ),
+                    notional: zod
+                      .number()
+                      .describe(
+                        "Approximate USD notional value of the position",
+                      ),
+                    pnlAtSL: zod
+                      .number()
+                      .describe(
+                        "Signed dollar P&L if stop loss hits (always negative)",
+                      ),
+                    pnlAtTP1: zod
+                      .number()
+                      .describe("Signed dollar P&L if TP1 hits (positive)"),
+                    pnlAtTP2: zod
+                      .number()
+                      .describe("Signed dollar P&L if TP2 hits (positive)"),
+                    riskPctOfAccount: zod
+                      .number()
+                      .describe(
+                        "Absolute pnlAtSL as a percent of the account size — useful for sanity-checking that 0.01 lots isn't over-leveraging the account on a high-pip-value pair like XAGUSD",
+                      ),
+                  })
+                  .optional()
+                  .describe(
+                    "MetaTrader 5 lot-based sizing for forex and metals. The trader chooses a fixed lot size (default 0.01 = 1 micro lot); the dollar P&L at SL\/TP1\/TP2 is derived from the pair's contract size and quote-currency conversion. For X\/USD pairs this is exact; for USDJPY it uses the live entry price; for GBPJPY it approximates via an assumed USDJPY rate.",
+                  ),
               })
               .optional()
               .describe(
-                "Suggested position size for a $500 starting account at 1% risk per trade.",
+                "Suggested position size for the trader's account. The `venue` field decides which downstream block is authoritative — JUP (crypto perps) renders `achievable`, MT5 (forex\/metals) renders `mt5`.",
               ),
           }),
         })
