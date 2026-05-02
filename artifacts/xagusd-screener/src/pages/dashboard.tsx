@@ -15,11 +15,12 @@ export default function Dashboard() {
       {/* Top Navbar */}
       <header className="h-12 border-b bg-card flex items-center px-4 shrink-0 justify-between">
         <div className="flex items-center gap-3">
-          <div className="h-6 w-6 rounded bg-primary text-primary-foreground flex items-center justify-center font-bold text-xs">
+          <div className="h-7 w-7 rounded-lg bg-primary text-primary-foreground flex items-center justify-center font-black text-xs shadow-[0_0_16px_rgba(251,191,36,0.35)]" style={{ fontFamily: "var(--app-font-display)" }}>
             Ag
           </div>
-          <h1 className="font-semibold text-sm tracking-widest text-foreground">
-            XAGUSD <span className="text-muted-foreground font-normal">SILVER TERMINAL</span>
+          <h1 className="font-bold text-sm tracking-[0.18em] text-foreground" style={{ fontFamily: "var(--app-font-display)" }}>
+            XAGUSD<span className="text-primary">.</span>
+            <span className="text-muted-foreground font-medium ml-1">SILVER TERMINAL</span>
           </h1>
         </div>
         <div className="flex items-center gap-3 text-xs font-mono">

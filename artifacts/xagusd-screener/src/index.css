@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Outfit:wght@400;500;600;700;800&family=Orbitron:wght@500;600;700;800;900&display=swap');
 @import "tailwindcss";
 @import "tw-animate-css";
 @plugin "@tailwindcss/typography";
@@ -112,9 +112,10 @@
   --chart-4: 280 80% 50%;
   --chart-5: 346 87% 43%;
 
-  --app-font-sans: 'Plus Jakarta Sans', sans-serif;
-  --app-font-serif: Georgia, serif;
+  --app-font-sans: 'Outfit', sans-serif;
+  --app-font-serif: 'Orbitron', sans-serif;
   --app-font-mono: 'JetBrains Mono', monospace;
+  --app-font-display: 'Orbitron', sans-serif;
   --radius: .25rem;
   --shadow-2xs: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00);
   --shadow-xs: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00);
@@ -145,41 +146,42 @@
   --elevate-1: rgba(255,255,255, .04);
   --elevate-2: rgba(255,255,255, .09);
 
-  --background: 224 71% 4%;
-  --foreground: 210 40% 98%;
-  --border: 215 28% 17%;
-  --card: 224 71% 6%;
+  /* TyveMind palette — deep cool-black base, amber accent, slate-blue links */
+  --background: 225 23% 4%;        /* #08090C */
+  --foreground: 210 40% 98%;       /* #F8FAFC */
+  --border: 220 5% 12%;            /* #1C1D1F */
+  --card: 232 33% 6%;              /* #0B0C16 */
   --card-foreground: 210 40% 98%;
-  --card-border: 215 28% 17%;
-  --sidebar: 224 71% 6%;
+  --card-border: 220 5% 12%;
+  --sidebar: 232 33% 6%;
   --sidebar-foreground: 210 40% 98%;
-  --sidebar-border: 215 28% 17%;
-  --sidebar-primary: 210 100% 50%;
-  --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 215 28% 17%;
+  --sidebar-border: 220 5% 12%;
+  --sidebar-primary: 43 96% 56%;   /* #FBBF24 amber */
+  --sidebar-primary-foreground: 225 23% 4%;
+  --sidebar-accent: 220 5% 12%;
   --sidebar-accent-foreground: 210 40% 98%;
-  --sidebar-ring: 210 100% 50%;
-  --popover: 224 71% 6%;
+  --sidebar-ring: 43 96% 56%;
+  --popover: 232 33% 6%;
   --popover-foreground: 210 40% 98%;
-  --popover-border: 215 28% 17%;
-  --primary: 210 100% 50%;
-  --primary-foreground: 0 0% 100%;
-  --secondary: 215 28% 17%;
-  --secondary-foreground: 210 40% 98%;
-  --muted: 215 28% 17%;
-  --muted-foreground: 215 20% 65%;
-  --accent: 215 28% 17%;
-  --accent-foreground: 210 40% 98%;
-  --destructive: 346 87% 43%;
+  --popover-border: 220 5% 12%;
+  --primary: 43 96% 56%;           /* #FBBF24 amber — main brand accent */
+  --primary-foreground: 225 23% 4%;
+  --secondary: 217 17% 55%;        /* #7588A3 slate-blue */
+  --secondary-foreground: 225 23% 4%;
+  --muted: 220 5% 12%;
+  --muted-foreground: 217 17% 55%; /* slate-blue for tertiary text */
+  --accent: 43 96% 56%;
+  --accent-foreground: 225 23% 4%;
+  --destructive: 0 72% 51%;        /* red */
   --destructive-foreground: 210 40% 98%;
-  
-  --input: 215 28% 17%;
-  --ring: 210 100% 50%;
-  --chart-1: 210 100% 50%;
-  --chart-2: 142 71% 45%;
-  --chart-3: 45 93% 47%;
-  --chart-4: 280 80% 50%;
-  --chart-5: 346 87% 43%;
+
+  --input: 220 5% 12%;
+  --ring: 43 96% 56%;
+  --chart-1: 43 96% 56%;           /* amber */
+  --chart-2: 142 71% 45%;          /* green (BUY) */
+  --chart-3: 217 17% 55%;          /* slate */
+  --chart-4: 280 80% 50%;          /* purple */
+  --chart-5: 0 72% 51%;            /* red (SELL) */
 
   --shadow-2xs: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00);
   --shadow-xs: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00);

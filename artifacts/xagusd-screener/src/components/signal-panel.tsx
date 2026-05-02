@@ -66,9 +66,9 @@ export function SignalPanel({ timeframe }: { timeframe: Timeframe }) {
     ? "bg-[#00c950]"
     : data.signal === "SELL"
     ? "bg-[#e53e3e]"
-    : "bg-[#b45309]";
+    : "bg-[#FBBF24]";
 
-  const signalTextColor = data.signal === "BUY" ? "text-black" : "text-white";
+  const signalTextColor = data.signal === "WAIT" || data.signal === "BUY" ? "text-black" : "text-white";
 
   return (
     <div className="flex flex-col h-full bg-[#0a0a0a] text-zinc-100 rounded-xl border border-zinc-800 overflow-hidden font-mono shadow-2xl">
@@ -78,7 +78,10 @@ export function SignalPanel({ timeframe }: { timeframe: Timeframe }) {
         <span className="absolute top-2 right-3 text-[10px] tracking-widest font-bold opacity-80 bg-black/30 rounded px-2 py-0.5">
           {TIMEFRAME_LABEL[timeframe]}
         </span>
-        <div className="text-[72px] leading-none font-black tracking-tighter">
+        <div
+          className="text-[64px] leading-none font-black tracking-tight"
+          style={{ fontFamily: "var(--app-font-display)" }}
+        >
           {data.signal}
         </div>
         <p className="mt-2 text-sm font-medium leading-snug max-w-xs bg-black/20 rounded-lg px-3 py-2">
