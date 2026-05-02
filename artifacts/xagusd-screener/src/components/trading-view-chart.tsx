@@ -208,19 +208,25 @@ export function TradingViewChart({
 
   return (
     <div className="relative h-full w-full bg-[#0a0a0a]/50 backdrop-blur-md rounded-sm overflow-hidden border border-zinc-800">
-      {/* Header: symbol + signal + price */}
-      <div className="absolute top-0 left-0 right-0 z-10 flex items-center justify-between px-3 py-2 pointer-events-none">
-        <div className="flex items-center gap-2 font-mono text-[11px]">
-          <span className="text-zinc-300 font-bold tracking-wider">
+      {/* Header: symbol + signal + price.
+          gap-2 between the two halves and min-w-0 + truncate on the left half
+          stop the venue label from bleeding under the signal/price badges
+          on narrow phones. The right-side badges never shrink. */}
+      <div className="absolute top-0 left-0 right-0 z-10 flex items-center justify-between gap-2 px-3 py-2 pointer-events-none">
+        <div className="flex items-center gap-2 font-mono text-[11px] min-w-0 flex-1">
+          <span className="text-zinc-300 font-bold tracking-wider shrink-0">
             {meta.short}
           </span>
-          <span className="text-zinc-600">·</span>
-          <span className="text-zinc-500 uppercase tracking-widest">
-            {timeframe} · {meta.venue ?? "OANDA"}
+          <span className="text-zinc-600 shrink-0">·</span>
+          <span className="text-zinc-500 uppercase tracking-widest truncate">
+            <span className="sm:hidden">{timeframe}</span>
+            <span className="hidden sm:inline">
+              {timeframe} · {meta.venue ?? "OANDA"}
+            </span>
           </span>
         </div>
         {levels && (
-          <div className="flex items-center gap-1 font-mono">
+          <div className="flex items-center gap-1 font-mono shrink-0">
             <span
               className={`px-2 py-0.5 rounded-sm font-bold tracking-widest border text-[11px] ${signalColor}`}
             >

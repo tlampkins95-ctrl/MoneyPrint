@@ -86,12 +86,15 @@ export default function Dashboard() {
 
       {/* Main Content Area */}
       <main className="flex-1 p-2 md:p-3 flex flex-col gap-2 md:gap-3">
-        {/* Top row: chart + signal panel */}
+        {/* Top row: chart + signal panel.
+            Mobile: explicit chart/panel heights so flex-1 inside <main> doesn't
+            balloon the chart to fill the whole viewport. Desktop (lg+): the
+            row is locked to 640px and children flex normally. */}
         <div className="flex flex-col lg:flex-row gap-2 md:gap-3 lg:h-[640px]">
-          <div className="flex-1 lg:w-[65%] min-h-[400px] lg:min-h-0">
+          <div className="w-full h-[420px] md:h-[480px] lg:w-[65%] lg:h-auto lg:flex-1 lg:min-h-0">
             <TradingViewChart symbol={symbol} timeframe={timeframe} />
           </div>
-          <div className="lg:w-[35%] w-full h-[480px] lg:h-auto min-h-0">
+          <div className="w-full h-[520px] lg:w-[35%] lg:h-auto lg:min-h-0">
             <SignalPanel symbol={symbol} timeframe={timeframe} />
           </div>
         </div>
