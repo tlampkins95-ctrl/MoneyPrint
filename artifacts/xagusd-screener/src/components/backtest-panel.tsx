@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useGetBacktest } from "@workspace/api-client-react";
 import { TrendingUp, TrendingDown, Target, AlertTriangle, ChevronDown, ChevronRight } from "lucide-react";
 import type { Timeframe } from "@/components/timeframe-selector";
@@ -10,6 +10,55 @@ const TIMEFRAME_LABEL: Record<Timeframe, string> = {
   "1h": "1-hour",
   "1d": "Daily",
 };
+
+// Always-visible header so the section can be expanded after a previous
+// collapse, even while loading or in an error state. The body slot is what
+// `collapsed` actually hides.
+function BacktestShell({
+  timeframe,
+  subtitle,
+  collapsed,
+  onToggle,
+  children,
+}: {
+  timeframe: Timeframe;
+  subtitle: ReactNode;
+  collapsed: boolean;
+  onToggle: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <div className="border border-border rounded-lg bg-card flex flex-col" data-testid="backtest-panel">
+      <div className="px-4 py-3 border-b border-border/50 flex items-center justify-between">
+        <button
+          type="button"
+          onClick={onToggle}
+          className="flex items-center gap-2 -my-1 -mx-2 px-2 py-1 rounded hover:bg-muted/30 transition-colors"
+          aria-expanded={!collapsed}
+          aria-controls="backtest-body"
+          data-testid="backtest-toggle"
+        >
+          {collapsed ? (
+            <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />
+          ) : (
+            <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
+          )}
+          <Target className="w-4 h-4 text-primary" />
+          <h2 className="text-sm font-semibold tracking-widest font-mono">
+            STRATEGY BACKTEST
+          </h2>
+          <span className="ml-2 px-2 py-0.5 rounded bg-primary/15 text-primary text-[10px] font-bold tracking-widest">
+            {TIMEFRAME_LABEL[timeframe]}
+          </span>
+        </button>
+        <span className="text-[10px] text-muted-foreground font-mono truncate ml-2">
+          {subtitle}
+        </span>
+      </div>
+      {!collapsed && <div id="backtest-body">{children}</div>}
+    </div>
+  );
+}
 
 function StatCard({
   label,
@@ -53,18 +102,35 @@ export function BacktestPanel({
   const { data, isLoading, error } = useGetBacktest({ symbol, timeframe });
   const [tradesOpen, setTradesOpen] = useState(false);
 
+  // Persisted collapse state, default open. The shell renders the header even
+  // during loading/error, so the trader can always toggle the section.
+  const [collapsed, setCollapsed] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return window.localStorage.getItem("screener.backtest.collapsed") === "1";
+  });
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("screener.backtest.collapsed", collapsed ? "1" : "0");
+    }
+  }, [collapsed]);
+  const toggle = () => setCollapsed((v) => !v);
+
   if (isLoading) {
     return (
-      <div className="border border-border rounded-lg p-6 bg-card flex items-center justify-center text-muted-foreground text-sm font-mono">
-        Running backtest…
-      </div>
+      <BacktestShell timeframe={timeframe} subtitle="loading…" collapsed={collapsed} onToggle={toggle}>
+        <div className="p-6 flex items-center justify-center text-muted-foreground text-sm font-mono">
+          Running backtest…
+        </div>
+      </BacktestShell>
     );
   }
   if (error || !data) {
     return (
-      <div className="border border-rose-500/40 rounded-lg p-6 bg-rose-950/20 text-rose-300 text-sm font-mono">
-        Backtest failed to load.
-      </div>
+      <BacktestShell timeframe={timeframe} subtitle="error" collapsed={collapsed} onToggle={toggle}>
+        <div className="p-6 bg-rose-950/20 text-rose-300 text-sm font-mono">
+          Backtest failed to load.
+        </div>
+      </BacktestShell>
     );
   }
 
@@ -74,23 +140,12 @@ export function BacktestPanel({
   const ddOk = Math.abs(data.maxDrawdownR) < Math.abs(data.totalReturnR);
 
   return (
-    <div className="border border-border rounded-lg bg-card flex flex-col">
-      {/* Header */}
-      <div className="px-4 py-3 border-b border-border/50 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Target className="w-4 h-4 text-primary" />
-          <h2 className="text-sm font-semibold tracking-widest font-mono">
-            STRATEGY BACKTEST
-          </h2>
-          <span className="ml-2 px-2 py-0.5 rounded bg-primary/15 text-primary text-[10px] font-bold tracking-widest">
-            {TIMEFRAME_LABEL[timeframe]}
-          </span>
-        </div>
-        <span className="text-[10px] text-muted-foreground font-mono truncate ml-2">
-          {data.totalBars} bars · {data.totalTrades} trades
-        </span>
-      </div>
-
+    <BacktestShell
+      timeframe={timeframe}
+      subtitle={`${data.totalBars} bars · ${data.totalTrades} trades`}
+      collapsed={collapsed}
+      onToggle={toggle}
+    >
       {/* Verdict banner */}
       <div
         className={`px-4 py-3 border-b border-border/50 flex items-center gap-3 ${
@@ -276,6 +331,6 @@ export function BacktestPanel({
           Past performance does not guarantee future results.
         </p>
       </div>
-    </div>
+    </BacktestShell>
   );
 }

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useGetActiveSignals, getGetActiveSignalsQueryKey } from "@workspace/api-client-react";
 import type { LevelsDataTradeState } from "@workspace/api-client-react";
-import { TrendingUp, TrendingDown, RefreshCw, AlertTriangle, Target } from "lucide-react";
+import { TrendingUp, TrendingDown, RefreshCw, AlertTriangle, Target, ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SYMBOLS, fmtPrice, type Symbol } from "@/lib/symbols";
 import type { Timeframe } from "@/components/timeframe-selector";
@@ -168,6 +168,18 @@ export function ActiveSignalsOverview({
 }) {
   const [lastFetched, setLastFetched] = useState<Date>(new Date());
 
+  // Collapsed state persists per-section so the trader's choice survives reloads.
+  // Default open — the overview is the most decision-critical block on the page.
+  const [collapsed, setCollapsed] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return window.localStorage.getItem("screener.activeSignals.collapsed") === "1";
+  });
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("screener.activeSignals.collapsed", collapsed ? "1" : "0");
+    }
+  }, [collapsed]);
+
   // Read the SAME localStorage keys the SignalPanel writes to so the overview's
   // Jupiter $P&L / collateral / leverage match what the trader sees in the
   // main panel. Keys defined in components/signal-panel.tsx — keep in sync.
@@ -203,8 +215,25 @@ export function ActiveSignalsOverview({
       className="rounded-xl border border-zinc-800 bg-[#0a0a0a] overflow-hidden"
       data-testid="active-signals-overview"
     >
-      <div className="flex items-center justify-between px-4 py-2.5 border-b border-zinc-800 bg-zinc-900/30">
-        <div className="flex items-center gap-2.5">
+      <div
+        className={cn(
+          "flex items-center justify-between px-4 py-2.5 border-b border-zinc-800 bg-zinc-900/30",
+          collapsed && "border-b-0",
+        )}
+      >
+        <button
+          type="button"
+          onClick={() => setCollapsed((v) => !v)}
+          className="flex items-center gap-2.5 -my-1 -mx-2 px-2 py-1 rounded hover:bg-white/5 transition-colors"
+          aria-expanded={!collapsed}
+          aria-controls="active-signals-body"
+          data-testid="active-signals-toggle"
+        >
+          {collapsed ? (
+            <ChevronRight className="w-3.5 h-3.5 text-zinc-400" />
+          ) : (
+            <ChevronDown className="w-3.5 h-3.5 text-zinc-400" />
+          )}
           <h2
             className="text-xs font-bold tracking-[0.18em] text-zinc-100"
             style={{ fontFamily: "var(--app-font-display)" }}
@@ -214,11 +243,14 @@ export function ActiveSignalsOverview({
           <span className="text-[10px] font-mono text-zinc-500">
             {signals.length} live · {filled.length} filled · {pending.length} pending
           </span>
-        </div>
+        </button>
         <div className="flex items-center gap-3 text-[10px] font-mono text-zinc-500">
           <span className="hidden sm:inline">{lastFetched.toLocaleTimeString()}</span>
           <button
-            onClick={() => refetch()}
+            onClick={(e) => {
+              e.stopPropagation();
+              refetch();
+            }}
             disabled={isFetching}
             className="inline-flex items-center gap-1 px-2 py-1 rounded border border-zinc-700 hover:bg-white/5 disabled:opacity-50 transition-colors"
             data-testid="active-signals-refresh"
@@ -228,7 +260,8 @@ export function ActiveSignalsOverview({
         </div>
       </div>
 
-      <div className="p-3">
+      {!collapsed && (
+      <div id="active-signals-body" className="p-3">
         {/* Partial-feed-failure banner — distinguishes "no signals" from
             "data feed degraded" so a missing OANDA/OKX call can't masquerade
             as a quiet market. */}
@@ -368,6 +401,7 @@ export function ActiveSignalsOverview({
           </div>
         )}
       </div>
+      )}
     </section>
   );
 }
