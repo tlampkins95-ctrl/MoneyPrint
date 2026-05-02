@@ -1,4 +1,4 @@
-import { PriceChart } from "@/components/price-chart";
+import { TradingViewChart } from "@/components/trading-view-chart";
 import { SignalPanel } from "@/components/signal-panel";
 
 export default function Dashboard() {
@@ -28,7 +28,7 @@ export default function Dashboard() {
       {/* Main Content Area */}
       <main className="flex-1 p-2 md:p-3 flex flex-col lg:flex-row gap-2 md:gap-3 min-h-0">
         <div className="flex-1 lg:w-[65%] min-h-[400px] lg:min-h-0">
-          <PriceChart />
+          <TradingViewChart />
         </div>
         <div className="lg:w-[35%] w-full h-[480px] lg:h-auto min-h-0">
           <SignalPanel />
