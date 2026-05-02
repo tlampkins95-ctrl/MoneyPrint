@@ -1,0 +1,134 @@
+import type { CandleRaw } from "./yahoo-fetch";
+
+// OKX USDT-margined perpetual swaps. Public endpoints, no auth required.
+// Binance and Bybit geo-block US-based servers (Replit), OKX does not.
+// OKX is the third-largest perp venue with deep BTC/ETH liquidity, so the
+// price discovery is faithful to what most traders see.
+
+const BASE = "https://www.okx.com/api/v5";
+
+type OkxBar = "1m" | "15m" | "30m" | "1H" | "1D";
+
+interface PerpConfig {
+  bar: OkxBar;
+  // Total target bars to assemble from /market/candles (latest 300) plus
+  // any number of /market/history-candles pages (100/page).
+  targetBars: number;
+  isIntraday: boolean;
+}
+
+// Intraday timeframes: enough bars for ~weeks of context. Daily: ~4 years.
+// 1H gets a deeper sample so backtest stats stay meaningful.
+const PERP_TIMEFRAME_MAP: Record<string, PerpConfig> = {
+  "1m": { bar: "1m", targetBars: 300, isIntraday: true },
+  "15m": { bar: "15m", targetBars: 1500, isIntraday: true },
+  "30m": { bar: "30m", targetBars: 1500, isIntraday: true },
+  "1h": { bar: "1H", targetBars: 2500, isIntraday: true },
+  "1d": { bar: "1D", targetBars: 1500, isIntraday: false },
+};
+
+// OKX endpoint limits: /candles up to 300, /history-candles up to 100.
+const LATEST_LIMIT = 300;
+const HISTORY_LIMIT = 100;
+
+interface OkxResponse {
+  code: string;
+  msg: string;
+  // [openTime(ms,str), open, high, low, close, volume, volCcy, volCcyQuote, confirm]
+  data: string[][];
+}
+
+async function okxGet(path: string): Promise<string[][]> {
+  const response = await fetch(`${BASE}${path}`, {
+    headers: { "User-Agent": "Mozilla/5.0 (compatible; Forex-Screener/1.0)" },
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!response.ok) {
+    throw new Error(`OKX request failed: ${response.status}`);
+  }
+  const json = (await response.json()) as OkxResponse;
+  if (json.code !== "0") {
+    throw new Error(`OKX error ${json.code}: ${json.msg}`);
+  }
+  return json.data;
+}
+
+export async function fetchOkxPerpCandles(
+  instId: string,
+  timeframe: string,
+): Promise<CandleRaw[]> {
+  const cfg = PERP_TIMEFRAME_MAP[timeframe];
+  if (!cfg) throw new Error(`Unsupported perp timeframe: ${timeframe}`);
+
+  // Step 1: latest 300 (or fewer if target is smaller).
+  const latest = await okxGet(
+    `/market/candles?instId=${encodeURIComponent(instId)}&bar=${cfg.bar}&limit=${Math.min(
+      LATEST_LIMIT,
+      cfg.targetBars,
+    )}`,
+  );
+  // OKX returns newest-first. Track the oldest timestamp seen so we can page back.
+  const collected: string[][] = latest.slice();
+  let oldestTs =
+    collected.length > 0
+      ? Number(collected[collected.length - 1][0])
+      : Date.now();
+
+  // Step 2: paginate history-candles backwards until we hit targetBars or
+  // the API stops returning data.
+  let safety = 30; // hard cap on history pages
+  while (collected.length < cfg.targetBars && safety > 0) {
+    const remaining = cfg.targetBars - collected.length;
+    const limit = Math.min(HISTORY_LIMIT, remaining);
+    const page = await okxGet(
+      `/market/history-candles?instId=${encodeURIComponent(instId)}&bar=${cfg.bar}&limit=${limit}&after=${oldestTs}`,
+    );
+    if (page.length === 0) break;
+    collected.push(...page);
+    oldestTs = Number(page[page.length - 1][0]);
+    if (page.length < limit) break;
+    safety--;
+  }
+
+  // Convert + dedupe by openTime + sort ascending.
+  const byTime = new Map<number, CandleRaw>();
+  for (const row of collected) {
+    const ts = Number(row[0]);
+    const o = parseFloat(row[1]);
+    const h = parseFloat(row[2]);
+    const l = parseFloat(row[3]);
+    const c = parseFloat(row[4]);
+    const v = parseFloat(row[5]);
+    if (!isFinite(ts) || ![o, h, l, c].every((n) => isFinite(n))) continue;
+    const iso = new Date(ts).toISOString();
+    byTime.set(ts, {
+      date: cfg.isIntraday ? iso : iso.split("T")[0],
+      open: o,
+      high: h,
+      low: l,
+      close: c,
+      volume: isFinite(v) ? v : 0,
+    });
+  }
+  return Array.from(byTime.entries())
+    .sort((a, b) => a[0] - b[0])
+    .map(([, c]) => c);
+}
+
+export async function fetchOkxPerpPrice(
+  instId: string,
+): Promise<number | null> {
+  try {
+    const data = await okxGet(
+      `/market/ticker?instId=${encodeURIComponent(instId)}`,
+    );
+    // /market/ticker returns objects, not arrays — re-parse as any to read `last`.
+    const arr = data as unknown as Array<{ last?: string }>;
+    const last = arr[0]?.last;
+    if (typeof last !== "string") return null;
+    const price = parseFloat(last);
+    return isFinite(price) && price > 0 ? price : null;
+  } catch {
+    return null;
+  }
+}

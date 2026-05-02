@@ -1,5 +1,6 @@
 import { SYMBOLS, makeRounder, type Symbol } from "./symbols";
 import { type CandleRaw, type Timeframe } from "./yahoo-fetch";
+import { fetchOkxPerpPrice } from "./crypto-perp-fetch";
 
 // ─── Live spot price (per-symbol cache) ──────────────────────────────────────
 
@@ -44,6 +45,12 @@ async function fetchFromGoldApi(symbol: Symbol): Promise<number | null> {
   }
 }
 
+async function fetchFromOkxPerp(symbol: Symbol): Promise<number | null> {
+  const perp = SYMBOLS[symbol].okxPerp;
+  if (!perp) return null;
+  return fetchOkxPerpPrice(perp);
+}
+
 async function fetchFromCoinbase(symbol: Symbol): Promise<number | null> {
   const pair = SYMBOLS[symbol].coinbase;
   if (!pair) return null;
@@ -72,8 +79,10 @@ export async function fetchSpotPrice(symbol: Symbol): Promise<number | null> {
   if (cached && now - cached.timestamp < SPOT_CACHE_TTL_MS) {
     return cached.price;
   }
-  // For crypto, prefer Coinbase (fast, accurate, no scraping); then fall back.
+  // For crypto perps prefer OKX (matches the perp candles we chart),
+  // then Coinbase spot, then TV scrape, then GoldAPI for metals.
   const price =
+    (await fetchFromOkxPerp(symbol)) ??
     (await fetchFromCoinbase(symbol)) ??
     (await fetchFromTradingView(symbol)) ??
     (await fetchFromGoldApi(symbol));

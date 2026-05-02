@@ -16,6 +16,7 @@ export interface SymbolMeta {
   badge: string;
   decimals: number;
   prefix: string;
+  venue?: string;
 }
 
 export const SYMBOLS: Record<Symbol, SymbolMeta> = {
@@ -26,8 +27,8 @@ export const SYMBOLS: Record<Symbol, SymbolMeta> = {
   AUDUSD: { tv: "OANDA:AUDUSD",     short: "AUD/USD",  long: "Aussie",   badge: "AU",   decimals: 5, prefix: "" },
   USDJPY: { tv: "OANDA:USDJPY",     short: "USD/JPY",  long: "Yen",      badge: "¥",    decimals: 3, prefix: "" },
   GBPJPY: { tv: "OANDA:GBPJPY",     short: "GBP/JPY",  long: "Beast",    badge: "G¥",   decimals: 3, prefix: "" },
-  BTCUSD: { tv: "BITSTAMP:BTCUSD",  short: "BTC/USD",  long: "Bitcoin",  badge: "₿",    decimals: 1, prefix: "$" },
-  ETHUSD: { tv: "BITSTAMP:ETHUSD",  short: "ETH/USD",  long: "Ethereum", badge: "Ξ",    decimals: 2, prefix: "$" },
+  BTCUSD: { tv: "OKX:BTCUSDT.P", short: "BTC/USDT.P", long: "Bitcoin Perp",  badge: "₿", decimals: 1, prefix: "$", venue: "OKX PERP" },
+  ETHUSD: { tv: "OKX:ETHUSDT.P", short: "ETH/USDT.P", long: "Ethereum Perp", badge: "Ξ", decimals: 2, prefix: "$", venue: "OKX PERP" },
 };
 
 export const ALL_SYMBOLS: Symbol[] = Object.keys(SYMBOLS) as Symbol[];

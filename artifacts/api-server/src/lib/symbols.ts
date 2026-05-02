@@ -18,6 +18,8 @@ export interface SymbolMeta {
   prefix: string;
   goldApi?: "XAG" | "XAU";
   coinbase?: string;
+  okxPerp?: string;
+  venue?: string;
 }
 
 export const SYMBOLS: Record<Symbol, SymbolMeta> = {
@@ -81,21 +83,25 @@ export const SYMBOLS: Record<Symbol, SymbolMeta> = {
   },
   BTCUSD: {
     yahoo: "BTC-USD",
-    tvSymbol: "BITSTAMP:BTCUSD",
-    tvScrapePath: "/symbols/BTCUSD/?exchange=BITSTAMP",
-    label: "Bitcoin / USD",
+    tvSymbol: "OKX:BTCUSDT.P",
+    tvScrapePath: "/symbols/BTCUSDT.P/?exchange=OKX",
+    label: "Bitcoin Perp / USDT",
     decimals: 1,
     prefix: "$",
     coinbase: "BTC-USD",
+    okxPerp: "BTC-USDT-SWAP",
+    venue: "OKX PERP",
   },
   ETHUSD: {
     yahoo: "ETH-USD",
-    tvSymbol: "BITSTAMP:ETHUSD",
-    tvScrapePath: "/symbols/ETHUSD/?exchange=BITSTAMP",
-    label: "Ethereum / USD",
+    tvSymbol: "OKX:ETHUSDT.P",
+    tvScrapePath: "/symbols/ETHUSDT.P/?exchange=OKX",
+    label: "Ethereum Perp / USDT",
     decimals: 2,
     prefix: "$",
     coinbase: "ETH-USD",
+    okxPerp: "ETH-USDT-SWAP",
+    venue: "OKX PERP",
   },
 };
 

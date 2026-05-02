@@ -217,7 +217,7 @@ export function TradingViewChart({
           </span>
           <span className="text-zinc-600">·</span>
           <span className="text-zinc-500 uppercase tracking-widest">
-            {timeframe} · OANDA
+            {timeframe} · {meta.venue ?? "OANDA"}
           </span>
         </div>
         {levels && (

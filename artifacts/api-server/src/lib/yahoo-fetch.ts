@@ -1,4 +1,5 @@
 import { SYMBOLS, type Symbol } from "./symbols";
+import { fetchOkxPerpCandles } from "./crypto-perp-fetch";
 
 export type Timeframe = "1m" | "15m" | "30m" | "1h" | "1d";
 
@@ -52,6 +53,15 @@ export async function fetchCandlesForTimeframe(
   const existing = cache.get(key);
   if (existing && now - existing.timestamp < CACHE_TTL_MS[timeframe]) {
     return existing.candles;
+  }
+
+  // Crypto perps → OKX USDT-M swaps (true crypto price discovery; Binance &
+  // Bybit are geo-blocked from US-based servers, OKX is not).
+  const perpSymbol = SYMBOLS[symbol].okxPerp;
+  if (perpSymbol) {
+    const candles = await fetchOkxPerpCandles(perpSymbol, timeframe);
+    cache.set(key, { candles, timestamp: now });
+    return candles;
   }
 
   const cfg = TIMEFRAME_MAP[timeframe];
