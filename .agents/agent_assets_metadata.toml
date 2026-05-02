@@ -12,6 +12,30 @@ uri = "file://artifacts/xagusd-screener/public/logo.png"
 type = "image"
 title = "money print logo icon"
 
+[[generated]]
+id = "Lup6BVqnaHw3x4uDOCxhk"
+uri = "file://attached_assets/logo_options/v1_ingot_M.png"
+type = "image"
+title = "gold ingot M dollar mark"
+
+[[generated]]
+id = "hHymHBIe5bDc40aoI__TI"
+uri = "file://attached_assets/logo_options/v2_clean_dollar.png"
+type = "image"
+title = "minimalist gold dollar mark"
+
+[[generated]]
+id = "ObuufNbpTbQjNRoj18h_v"
+uri = "file://attached_assets/logo_options/v3_candle_dollar.png"
+type = "image"
+title = "green candle dollar fusion"
+
+[[generated]]
+id = "MFWwPD0L2S_-SX59Mvkuq"
+uri = "file://attached_assets/logo_options/v4_engraved_rosette.png"
+type = "image"
+title = "engraved rosette dollar"
+
 [[outputs]]
 id = "653l0inOrtU11OGyy3uH9"
 uri = "file://attached_assets/generated_images/forex_terminal_background.png"
@@ -23,3 +47,27 @@ id = "HrT9rjZIcaOsVCpNSuTC3"
 uri = "file://artifacts/xagusd-screener/public/logo.png"
 type = "image"
 title = "MONEY.PRINT — logo preview"
+
+[[outputs]]
+id = "1Ce75anSXTqaOuasszxoX"
+uri = "file://attached_assets/logo_options/v1_ingot_M.png"
+type = "image"
+title = "V1 — Gold ingot bar with M$ stamp"
+
+[[outputs]]
+id = "8V66dYbEjlrkDNyzDX9mz"
+uri = "file://attached_assets/logo_options/v2_clean_dollar.png"
+type = "image"
+title = "V2 — Minimalist gold $ monogram"
+
+[[outputs]]
+id = "bMCtj24kR3B5P2hzmGWau"
+uri = "file://attached_assets/logo_options/v3_candle_dollar.png"
+type = "image"
+title = "V3 — Green candle fused with $"
+
+[[outputs]]
+id = "XznoleratJ5i21fGXKt36"
+uri = "file://attached_assets/logo_options/v4_engraved_rosette.png"
+type = "image"
+title = "V4 — Banknote engraving rosette"
