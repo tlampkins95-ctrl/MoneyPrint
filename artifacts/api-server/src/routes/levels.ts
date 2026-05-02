@@ -207,7 +207,8 @@ function computeLevels(
 
   if (inBuyZone || (approachingBuy && trend !== "DOWNTREND")) {
     signal = "BUY";
-    entryPrice = round(currentPrice);
+    // If we're inside the zone, fill at market; if approaching, the trade is a limit order at the zone.
+    entryPrice = inBuyZone ? round(currentPrice) : round(pivots.s1);
     stopLoss = round(buyZoneLow - atr * 0.5);
     takeProfit1 = round(pivots.pivot);
     takeProfit2 = round(sellZoneLow);
@@ -216,7 +217,8 @@ function computeLevels(
       : `[${tfLabel}] Price is within ${fmt(currentPrice - buyZoneHigh)} of the buy zone (${fmt(buyZoneLow)}–${fmt(buyZoneHigh)}). Stage a limit order near S1 ${fmt(pivots.s1)}.`;
   } else if (inSellZone || (approachingSell && trend !== "UPTREND")) {
     signal = "SELL";
-    entryPrice = round(currentPrice);
+    // If we're inside the zone, fill at market; if approaching, the trade is a limit order at the zone.
+    entryPrice = inSellZone ? round(currentPrice) : round(pivots.r1);
     stopLoss = round(sellZoneHigh + atr * 0.5);
     takeProfit1 = round(pivots.pivot);
     takeProfit2 = round(buyZoneHigh);
