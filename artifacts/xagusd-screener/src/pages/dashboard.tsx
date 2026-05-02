@@ -56,19 +56,18 @@ export default function Dashboard() {
       {/* Top Navbar */}
       <header className="h-12 border-b border-border/60 bg-card/60 backdrop-blur-md flex items-center px-4 shrink-0 justify-between">
         <div className="flex items-center gap-3">
-          <div
-            className="h-7 w-7 rounded-lg bg-primary text-primary-foreground flex items-center justify-center font-black text-xs shadow-[0_0_16px_rgba(251,191,36,0.35)]"
-            style={{ fontFamily: "var(--app-font-display)" }}
-          >
-            Ag
-          </div>
+          <img
+            src={`${import.meta.env.BASE_URL}logo.png`}
+            alt="MONEY.PRINT"
+            className="h-7 w-7 rounded-lg shadow-[0_0_16px_rgba(251,191,36,0.35)] object-cover"
+          />
           <h1
             className="font-bold text-sm tracking-[0.18em] text-foreground hidden sm:flex items-baseline gap-1"
             style={{ fontFamily: "var(--app-font-display)" }}
           >
-            <span>FOREX</span>
+            <span>MONEY</span>
             <span className="text-primary">.</span>
-            <span className="text-muted-foreground font-medium">TERMINAL</span>
+            <span className="text-muted-foreground font-medium">PRINT</span>
           </h1>
         </div>
         <div className="flex items-center gap-3 text-xs font-mono">

@@ -6,8 +6,20 @@ uri = "file://attached_assets/generated_images/forex_terminal_background.png"
 type = "image"
 title = "forex terminal dark background"
 
+[[generated]]
+id = "kOThedJsNN6cyXoIWl8ry"
+uri = "file://artifacts/xagusd-screener/public/logo.png"
+type = "image"
+title = "money print logo icon"
+
 [[outputs]]
 id = "653l0inOrtU11OGyy3uH9"
 uri = "file://attached_assets/generated_images/forex_terminal_background.png"
 type = "image"
 title = "Forex Terminal — Dark Background"
+
+[[outputs]]
+id = "HrT9rjZIcaOsVCpNSuTC3"
+uri = "file://artifacts/xagusd-screener/public/logo.png"
+type = "image"
+title = "MONEY.PRINT — logo preview"
