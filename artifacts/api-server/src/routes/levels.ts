@@ -22,6 +22,32 @@ let cachedCandles: CandleRaw[] | null = null;
 let cacheTimestamp = 0;
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
+// Live spot price (separate cache — refreshed often for real-time display)
+let cachedSpotPrice: number | null = null;
+let spotCacheTimestamp = 0;
+const SPOT_CACHE_TTL_MS = 30 * 1000; // 30 seconds
+
+async function fetchSpotPrice(): Promise<number | null> {
+  const now = Date.now();
+  if (cachedSpotPrice !== null && now - spotCacheTimestamp < SPOT_CACHE_TTL_MS) {
+    return cachedSpotPrice;
+  }
+  try {
+    const response = await fetch("https://api.gold-api.com/price/XAG", {
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; XAGUSD-Screener/1.0)" },
+      signal: AbortSignal.timeout(4000),
+    });
+    if (!response.ok) return cachedSpotPrice; // fall back to last good
+    const json = await response.json() as { price: number };
+    if (typeof json.price !== "number" || !isFinite(json.price)) return cachedSpotPrice;
+    cachedSpotPrice = json.price;
+    spotCacheTimestamp = now;
+    return cachedSpotPrice;
+  } catch {
+    return cachedSpotPrice; // network failure → use last good or null
+  }
+}
+
 async function fetchPriceData(): Promise<CandleRaw[]> {
   const now = Date.now();
   if (cachedCandles && now - cacheTimestamp < CACHE_TTL_MS) {
@@ -137,11 +163,14 @@ function findSwingHighLow(candles: CandleRaw[], lookback = 60) {
 
 // ─── Core signal logic ───────────────────────────────────────────────────────
 
-function computeLevels(candles: CandleRaw[]) {
+function computeLevels(candles: CandleRaw[], spotPrice: number | null) {
   const last = candles[candles.length - 1];
   const prev = candles[candles.length - 2]; // previous session for pivots
 
-  const currentPrice = last.close;
+  // Prefer the live spot price (XAGUSD) over the futures last close (SI=F).
+  // Futures trade at a small premium/discount to spot — using spot keeps the
+  // displayed price aligned with what brokers show for OANDA:XAGUSD.
+  const currentPrice = spotPrice ?? last.close;
   const priceChange = round2(currentPrice - prev.close);
   const priceChangePct = round2((priceChange / prev.close) * 100);
 
@@ -303,8 +332,11 @@ function computeLevels(candles: CandleRaw[]) {
 
 router.get("/levels", async (req: Request, res: Response) => {
   try {
-    const candles = await fetchPriceData();
-    const data = GetLevelsResponse.parse(computeLevels(candles));
+    const [candles, spotPrice] = await Promise.all([
+      fetchPriceData(),
+      fetchSpotPrice(),
+    ]);
+    const data = GetLevelsResponse.parse(computeLevels(candles, spotPrice));
     res.json(data);
   } catch (err) {
     req.log.error({ err }, "Failed to compute levels");
