@@ -7,15 +7,34 @@ import {
 import { computeLevels, fetchSpotPrice } from "./signals";
 
 type SignalKind = "BUY" | "SELL" | "WAIT";
-type ZoneState = "IN_BUY" | "IN_SELL" | "OUT";
 
 interface TrackedState {
   signal: SignalKind;
-  zone: ZoneState;
+  lastAlertAt: number; // epoch ms of most recent alert for this symbol/tf
 }
 
-const TRACKED_TIMEFRAMES: Timeframe[] = ["15m", "30m", "1h", "1d"];
+// 15m dropped — too noisy at intraday cadence (zones get re-tagged every few
+// minutes near the pivot). 30m / 1h / 1d give meaningful, actionable alerts.
+const TRACKED_TIMEFRAMES: Timeframe[] = ["30m", "1h", "1d"];
 const POLL_INTERVAL_MS = 60_000;
+
+// Minimum gap between alerts for the same symbol/timeframe. Prevents
+// flip-flop spam when price hovers around a zone edge.
+const COOLDOWN_BY_TIMEFRAME: Record<Timeframe, number> = {
+  "1m": 10 * 60_000,
+  "15m": 30 * 60_000,
+  "30m": 60 * 60_000,
+  "1h": 3 * 60 * 60_000,
+  "1d": 24 * 60 * 60_000,
+};
+
+const TIMEFRAME_LABEL: Record<Timeframe, string> = {
+  "1m": "1-min",
+  "15m": "15-min",
+  "30m": "30-min",
+  "1h": "1-hour",
+  "1d": "Daily",
+};
 
 const stateMap = new Map<string, TrackedState>();
 
@@ -79,18 +98,6 @@ async function sendTelegramMessage(text: string): Promise<void> {
   }
 }
 
-function classifyZone(
-  price: number,
-  buyLow: number,
-  buyHigh: number,
-  sellLow: number,
-  sellHigh: number,
-): ZoneState {
-  if (price >= buyLow && price <= buyHigh) return "IN_BUY";
-  if (price >= sellLow && price <= sellHigh) return "IN_SELL";
-  return "OUT";
-}
-
 async function checkSymbol(
   symbol: Symbol,
   timeframe: Timeframe,
@@ -103,62 +110,91 @@ async function checkSymbol(
     if (candles.length < 2) return;
 
     const levels = computeLevels(candles, spot, timeframe, symbol);
-    const zone = classifyZone(
-      levels.currentPrice,
-      levels.buyZone.low,
-      levels.buyZone.high,
-      levels.sellZone.low,
-      levels.sellZone.high,
-    );
     const k = key(symbol, timeframe);
     const prev = stateMap.get(k);
-    const next: TrackedState = { signal: levels.signal, zone };
+    const now = Date.now();
 
     // Seed state on first observation — never alert on first run.
     if (!prev) {
-      stateMap.set(k, next);
+      stateMap.set(k, { signal: levels.signal, lastAlertAt: 0 });
       return;
     }
 
-    const signalChanged =
-      prev.signal !== next.signal && next.signal !== "WAIT";
-    const zoneEntered =
-      prev.zone !== next.zone && next.zone !== "OUT";
+    // We only alert when the signal *transitions into* BUY or SELL. Bare
+    // zone re-entries are dropped because the signal logic already requires
+    // zone + trend confirmation before flipping to BUY/SELL.
+    const transitioned =
+      prev.signal !== levels.signal &&
+      (levels.signal === "BUY" || levels.signal === "SELL");
 
-    if (signalChanged || zoneEntered) {
-      const tag = next.signal === "BUY" ? "🟢 BUY" : next.signal === "SELL" ? "🔴 SELL" : "⏸ WAIT";
-      const reasonHeader = signalChanged
-        ? `<b>${tag} signal — ${escapeHtml(SYMBOLS[symbol].label)}</b>`
-        : `<b>📍 Price entered ${next.zone === "IN_BUY" ? "BUY" : "SELL"} zone — ${escapeHtml(SYMBOLS[symbol].label)}</b>`;
+    const cooldownMs = COOLDOWN_BY_TIMEFRAME[timeframe];
+    const cooldownActive = now - prev.lastAlertAt < cooldownMs;
+
+    if (transitioned && !cooldownActive) {
+      const sideEmoji = levels.signal === "BUY" ? "🟢" : "🔴";
+      const sideWord = levels.signal === "BUY" ? "BUY" : "SELL";
+      const tfLabel = TIMEFRAME_LABEL[timeframe];
+
+      const risk = Math.abs(levels.entryPrice - levels.stopLoss);
+      const tp1R = risk > 0 ? Math.abs(levels.takeProfit1 - levels.entryPrice) / risk : 0;
+      const tp2R = risk > 0 ? Math.abs(levels.takeProfit2 - levels.entryPrice) / risk : 0;
 
       const lines = [
-        reasonHeader,
-        `<i>${escapeHtml(timeframe.toUpperCase())} · ${fmt(symbol, levels.currentPrice)}</i>`,
+        `${sideEmoji} <b>${sideWord} ${escapeHtml(SYMBOLS[symbol].label)}</b>`,
+        `<i>${tfLabel} · now ${fmt(symbol, levels.currentPrice)}</i>`,
         "",
-        `Entry: <code>${fmt(symbol, levels.entryPrice)}</code>`,
-        `SL:    <code>${fmt(symbol, levels.stopLoss)}</code>`,
-        `TP1:   <code>${fmt(symbol, levels.takeProfit1)}</code>`,
-        `TP2:   <code>${fmt(symbol, levels.takeProfit2)}</code>`,
-        `R:R:   <code>1:${levels.riskRewardRatio.toFixed(2)}</code>`,
+        `🎯 Entry  <b>${fmt(symbol, levels.entryPrice)}</b>`,
+        `🛑 Stop   <b>${fmt(symbol, levels.stopLoss)}</b>`,
+        `✅ TP1    <b>${fmt(symbol, levels.takeProfit1)}</b>  <i>(+${tp1R.toFixed(1)}R)</i>`,
+        `🏆 TP2    <b>${fmt(symbol, levels.takeProfit2)}</b>  <i>(+${tp2R.toFixed(1)}R)</i>`,
         "",
-        `Buy zone:  <code>${fmt(symbol, levels.buyZone.low)}–${fmt(symbol, levels.buyZone.high)}</code>`,
-        `Sell zone: <code>${fmt(symbol, levels.sellZone.low)}–${fmt(symbol, levels.sellZone.high)}</code>`,
         `Trend: <b>${levels.trend}</b> (${levels.trendStrength})`,
-        "",
-        escapeHtml(levels.signalReason),
       ];
+
+      if (levels.positionSizing) {
+        const ps = levels.positionSizing;
+        const sizeLine =
+          ps.leverage !== undefined
+            ? `Size: <b>${ps.positionSize} ${ps.positionSizeUnit}</b> · <b>${ps.leverage}x</b> lev · $${ps.notional.toFixed(0)} notional`
+            : ps.lots
+              ? `Size: <b>${ps.lots.mini.toFixed(2)} mini lots</b> (${ps.lots.micro.toFixed(1)} micro) · $${ps.notional.toFixed(0)} notional`
+              : `Size: <b>${ps.positionSize} ${ps.positionSizeUnit}</b> · $${ps.notional.toFixed(0)} notional`;
+        lines.push(`Risk: <b>$${ps.riskAmount.toFixed(2)}</b> on $${ps.accountSize} acct (${ps.riskPct.toFixed(1)}%)`);
+        lines.push(sizeLine);
+      }
+
+      lines.push("", escapeHtml(levels.signalReason));
+
       const link = buildAppLink(symbol, timeframe);
       if (link) {
         lines.push("", `<a href="${link}">📈 Open chart →</a>`);
       }
+
       await sendTelegramMessage(lines.join("\n"));
       logger.info(
-        { symbol, timeframe, signal: next.signal, zone: next.zone, prev },
+        { symbol, timeframe, from: prev.signal, to: levels.signal },
         "Telegram alert sent",
+      );
+      stateMap.set(k, { signal: levels.signal, lastAlertAt: now });
+      return;
+    }
+
+    if (transitioned && cooldownActive) {
+      logger.debug(
+        {
+          symbol,
+          timeframe,
+          from: prev.signal,
+          to: levels.signal,
+          remainingMs: cooldownMs - (now - prev.lastAlertAt),
+        },
+        "Telegram alert suppressed (cooldown)",
       );
     }
 
-    stateMap.set(k, next);
+    // Always update the tracked signal so next transition fires correctly,
+    // but preserve the previous lastAlertAt so the cooldown still ticks.
+    stateMap.set(k, { signal: levels.signal, lastAlertAt: prev.lastAlertAt });
   } catch (err) {
     logger.warn({ err, symbol, timeframe }, "Notifier check failed");
   }
