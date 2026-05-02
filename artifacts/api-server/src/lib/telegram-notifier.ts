@@ -14,7 +14,7 @@ interface TrackedState {
   zone: ZoneState;
 }
 
-const TRACKED_TIMEFRAMES: Timeframe[] = ["1h", "1d"];
+const TRACKED_TIMEFRAMES: Timeframe[] = ["15m", "30m", "1h", "1d"];
 const POLL_INTERVAL_MS = 60_000;
 
 const stateMap = new Map<string, TrackedState>();
