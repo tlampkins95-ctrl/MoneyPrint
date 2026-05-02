@@ -100,8 +100,11 @@ export function TradingViewChart({
       borderDownColor: "#e53e3e",
       wickUpColor: "#00c950",
       wickDownColor: "#e53e3e",
-      priceLineColor: "#ffffff",
-      priceLineWidth: 1,
+      // Live price line — the dominant reference on the chart.
+      priceLineColor: "#22d3ee",
+      priceLineWidth: 3,
+      priceLineStyle: LineStyle.Solid,
+      lastValueVisible: true,
       priceFormat: {
         type: "price",
         precision: SYMBOLS[symbol].decimals,
@@ -176,23 +179,24 @@ export function TradingViewChart({
     };
 
     // Buy zone (emerald) — dashed band
-    add(levels.buyZone.high, "rgba(0,201,80,0.55)", "Buy ▲", LineStyle.Dashed, 1);
-    add(levels.buyZone.low, "rgba(0,201,80,0.55)", "Buy ▼", LineStyle.Dashed, 1);
+    add(levels.buyZone.high, "rgba(0,201,80,0.45)", "Buy ▲", LineStyle.Dashed, 1);
+    add(levels.buyZone.low, "rgba(0,201,80,0.45)", "Buy ▼", LineStyle.Dashed, 1);
 
     // Sell zone (red) — dashed band
-    add(levels.sellZone.high, "rgba(229,62,62,0.55)", "Sell ▲", LineStyle.Dashed, 1);
-    add(levels.sellZone.low, "rgba(229,62,62,0.55)", "Sell ▼", LineStyle.Dashed, 1);
+    add(levels.sellZone.high, "rgba(229,62,62,0.45)", "Sell ▲", LineStyle.Dashed, 1);
+    add(levels.sellZone.low, "rgba(229,62,62,0.45)", "Sell ▼", LineStyle.Dashed, 1);
 
-    // Active trade (only when there's a real signal)
+    // Active trade (only when there's a real signal). Amber Entry so it doesn't
+    // compete with the cyan live-price line; all reference lines kept thin.
     if (isBuy || isSell) {
-      add(levels.entryPrice, "#fafafa", `Entry ${fmtPrice(symbol, levels.entryPrice)}`, LineStyle.Solid, 2);
-      add(levels.stopLoss, "#e53e3e", `SL ${fmtPrice(symbol, levels.stopLoss)}`, LineStyle.Solid, 2);
-      add(levels.takeProfit1, "#4ade80", `TP1 ${fmtPrice(symbol, levels.takeProfit1)}`, LineStyle.Solid, 2);
-      add(levels.takeProfit2, "#86efac", `TP2 ${fmtPrice(symbol, levels.takeProfit2)}`, LineStyle.Dotted, 2);
+      add(levels.entryPrice, "#f59e0b", `Entry ${fmtPrice(symbol, levels.entryPrice)}`, LineStyle.Solid, 1);
+      add(levels.stopLoss, "rgba(229,62,62,0.85)", `SL ${fmtPrice(symbol, levels.stopLoss)}`, LineStyle.Solid, 1);
+      add(levels.takeProfit1, "rgba(74,222,128,0.85)", `TP1 ${fmtPrice(symbol, levels.takeProfit1)}`, LineStyle.Solid, 1);
+      add(levels.takeProfit2, "rgba(134,239,172,0.7)", `TP2 ${fmtPrice(symbol, levels.takeProfit2)}`, LineStyle.Dotted, 1);
     }
 
     // Pivot
-    add(levels.pivot, "rgba(251,191,36,0.6)", `Pivot ${fmtPrice(symbol, levels.pivot)}`, LineStyle.Dotted, 1);
+    add(levels.pivot, "rgba(251,191,36,0.5)", `Pivot ${fmtPrice(symbol, levels.pivot)}`, LineStyle.Dotted, 1);
   }, [levels, symbol]);
 
   const meta = SYMBOLS[symbol];
