@@ -114,6 +114,51 @@ paths:
               schema:
                 $ref: "#/components/schemas/BacktestResult"
 
+  /active-signals:
+    get:
+      operationId: getActiveSignals
+      tags: [signals]
+      summary: All currently-active BUY/SELL signals across symbols × timeframes
+      description: Recomputes every tracked symbol × timeframe and returns the BUY/SELL signals as a single overview. Each entry includes the timeframe alongside the standard LevelsData payload so the client can render and deep-link without extra calls. Sizing inputs (accountSize, riskPct, minCollateral, maxLeverage) flow through to every entry's positionSizing block — pass the trader's actual settings so the overview's $P&L matches the main signal panel.
+      parameters:
+        - in: query
+          name: accountSize
+          schema:
+            type: number
+            minimum: 1
+            default: 500
+          description: Trading account size in USD used to compute position sizing for every entry
+        - in: query
+          name: riskPct
+          schema:
+            type: number
+            minimum: 0.01
+            maximum: 100
+            default: 1
+          description: Percent of account risked per trade (1 = 1%)
+        - in: query
+          name: minCollateral
+          schema:
+            type: number
+            minimum: 0.01
+            default: 10
+          description: Minimum collateral the exchange will accept per position (USD). Defaults to Jupiter perps minimum of $10.
+        - in: query
+          name: maxLeverage
+          schema:
+            type: number
+            minimum: 1
+            maximum: 200
+            default: 50
+          description: Maximum leverage the trader is willing to use. Defaults to 50x for Jupiter perps.
+      responses:
+        "200":
+          description: Active signals overview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActiveSignalsResponse"
+
   /price-history:
     get:
       operationId: getPriceHistory
@@ -232,6 +277,10 @@ components:
         signalReason:
           type: string
           description: Plain-language explanation of why this signal was generated
+        tradeState:
+          type: string
+          enum: [WAIT, PENDING, FILLED_PROFIT, FILLED_DRAWDOWN, FILLED_TP1, FILLED_TP2, FILLED_SL]
+          description: Machine-readable trade lifecycle state. WAIT = no setup. PENDING = limit staged but not yet tagged. FILLED_DRAWDOWN/PROFIT = position open between entry and SL/TP1. FILLED_TP1/TP2/SL = price has reached that level (TP2/SL trigger invalidation on the next tick). Always prefer this over parsing signalReason text.
         entryPrice:
           type: number
           description: Ideal entry price
@@ -277,6 +326,7 @@ components:
         - priceChangePct
         - signal
         - signalReason
+        - tradeState
         - entryPrice
         - stopLoss
         - takeProfit1
@@ -387,6 +437,54 @@ components:
         - pnlAtTP1
         - pnlAtTP2
         - belowMinimum
+
+    ActiveSignalEntry:
+      type: object
+      description: One active BUY/SELL signal in the overview. Wraps a LevelsData payload with the timeframe so the client can route on click.
+      properties:
+        symbol:
+          type: string
+          enum: ["XAGUSD", "XAUUSD", "EURUSD", "GBPUSD", "AUDUSD", "USDJPY", "GBPJPY", "BTCUSD", "ETHUSD"]
+        timeframe:
+          type: string
+          enum: ["15m", "30m", "1h", "1d"]
+        levels:
+          $ref: "#/components/schemas/LevelsData"
+      required: [symbol, timeframe, levels]
+
+    ActiveSignalsCoverage:
+      type: object
+      description: Per-request data-feed health. Lets the UI distinguish "no signals" (succeeded == total, signals empty) from "data feed degraded" (failed > 0).
+      properties:
+        total:
+          type: integer
+          description: Total symbol × timeframe combos attempted
+        succeeded:
+          type: integer
+          description: Combos that returned a usable result (BUY, SELL, or WAIT)
+        failed:
+          type: integer
+          description: Combos that errored or had insufficient data
+        failedSymbols:
+          type: array
+          items:
+            type: string
+          description: Distinct symbols with at least one failed combo
+      required: [total, succeeded, failed, failedSymbols]
+
+    ActiveSignalsResponse:
+      type: object
+      properties:
+        signals:
+          type: array
+          items:
+            $ref: "#/components/schemas/ActiveSignalEntry"
+          description: Every currently-active BUY/SELL signal. Empty array means no actionable signals right now.
+        coverage:
+          $ref: "#/components/schemas/ActiveSignalsCoverage"
+        lastUpdated:
+          type: string
+      required: [signals, coverage, lastUpdated]
 
     BacktestTrade:
       type: object

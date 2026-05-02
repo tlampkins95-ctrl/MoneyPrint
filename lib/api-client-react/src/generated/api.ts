@@ -14,7 +14,9 @@ import type {
 } from "@tanstack/react-query";
 
 import type {
+  ActiveSignalsResponse,
   BacktestResult,
+  GetActiveSignalsParams,
   GetBacktestParams,
   GetLevelsParams,
   GetPriceHistoryParams,
@@ -289,6 +291,104 @@ export function useGetBacktest<
   },
 ): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetBacktestQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Recomputes every tracked symbol × timeframe and returns the BUY/SELL signals as a single overview. Each entry includes the timeframe alongside the standard LevelsData payload so the client can render and deep-link without extra calls. Sizing inputs (accountSize, riskPct, minCollateral, maxLeverage) flow through to every entry's positionSizing block — pass the trader's actual settings so the overview's $P&L matches the main signal panel.
+ * @summary All currently-active BUY/SELL signals across symbols × timeframes
+ */
+export const getGetActiveSignalsUrl = (params?: GetActiveSignalsParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/active-signals?${stringifiedParams}`
+    : `/api/active-signals`;
+};
+
+export const getActiveSignals = async (
+  params?: GetActiveSignalsParams,
+  options?: RequestInit,
+): Promise<ActiveSignalsResponse> => {
+  return customFetch<ActiveSignalsResponse>(getGetActiveSignalsUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetActiveSignalsQueryKey = (
+  params?: GetActiveSignalsParams,
+) => {
+  return [`/api/active-signals`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetActiveSignalsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getActiveSignals>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetActiveSignalsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getActiveSignals>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetActiveSignalsQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getActiveSignals>>
+  > = ({ signal }) => getActiveSignals(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getActiveSignals>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetActiveSignalsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getActiveSignals>>
+>;
+export type GetActiveSignalsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary All currently-active BUY/SELL signals across symbols × timeframes
+ */
+
+export function useGetActiveSignals<
+  TData = Awaited<ReturnType<typeof getActiveSignals>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetActiveSignalsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getActiveSignals>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetActiveSignalsQueryOptions(params, options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

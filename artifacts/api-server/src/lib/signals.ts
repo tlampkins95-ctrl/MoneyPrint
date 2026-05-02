@@ -622,6 +622,14 @@ export function computeLevels(
     .filter((l) => l.price > 0)
     .sort((a, b) => b.price - a.price);
 
+  // Default tradeState for a fresh (no active snapshot) result. WAIT signals
+  // are WAIT; new BUY/SELL is PENDING by default — computeLevelsStable upgrades
+  // this to a triggered state if the snapshot fired with price already at/past
+  // entry. Cast widens the literal so the inferred Levels.tradeState is the
+  // full TradeState union (otherwise TS narrows it to "WAIT" | "PENDING" and
+  // rejects FILLED_* assignments downstream).
+  const tradeState = (signal === "WAIT" ? "WAIT" : "PENDING") as TradeState;
+
   return {
     symbol,
     currentPrice: round(currentPrice),
@@ -629,6 +637,7 @@ export function computeLevels(
     priceChangePct,
     signal,
     signalReason,
+    tradeState,
     entryPrice,
     stopLoss,
     takeProfit1,
@@ -835,6 +844,36 @@ function wasEntryTagged(trade: ActiveTrade, candles: CandleRaw[]): boolean {
 // away from the zone, "Price is within $0.02 of the buy zone" becomes a lie.
 // This recomputes the human-readable explanation every tick so the dashboard
 // honestly reflects the trade's current state.
+// Typed trade state for UIs and downstream consumers. Avoids the fragile
+// pattern of regex-parsing describeFrozenTrade's prose to know whether a
+// trade is pending vs filled vs in profit. Keep this in sync with the
+// `tradeState` enum in lib/api-spec/openapi.yaml (LevelsData.tradeState).
+export type TradeState =
+  | "WAIT"
+  | "PENDING"
+  | "FILLED_PROFIT"
+  | "FILLED_DRAWDOWN"
+  | "FILLED_TP1"
+  | "FILLED_TP2"
+  | "FILLED_SL";
+
+// Pure classifier — no text, just the typed state. describeFrozenTrade
+// continues to own the human-readable explanation; this helper owns the
+// machine-readable label.
+export function classifyTradeState(trade: ActiveTrade, currentPrice: number): TradeState {
+  if (!trade.triggered) return "PENDING";
+  const isBuy = trade.signal === "BUY";
+  const beyondTp2 = isBuy ? currentPrice >= trade.takeProfit2 : currentPrice <= trade.takeProfit2;
+  const beyondTp1 = isBuy ? currentPrice >= trade.takeProfit1 : currentPrice <= trade.takeProfit1;
+  const beyondSl = isBuy ? currentPrice <= trade.stopLoss : currentPrice >= trade.stopLoss;
+  const inProfit = isBuy ? currentPrice > trade.entryPrice : currentPrice < trade.entryPrice;
+  if (beyondTp2) return "FILLED_TP2";
+  if (beyondTp1) return "FILLED_TP1";
+  if (beyondSl) return "FILLED_SL";
+  if (inProfit) return "FILLED_PROFIT";
+  return "FILLED_DRAWDOWN";
+}
+
 function describeFrozenTrade(
   trade: ActiveTrade,
   currentPrice: number,
@@ -994,6 +1033,9 @@ export function computeLevelsStable(
       // Recompute the explanation against current price — the frozen text is
       // a lie the moment price walks away from the original zone.
       signalReason: describeFrozenTrade(stillActive, fresh.currentPrice, timeframe, symbol),
+      // Typed mirror of the same classification — consumers should branch on
+      // this, not parse the prose above.
+      tradeState: classifyTradeState(stillActive, fresh.currentPrice),
       entryPrice: stillActive.entryPrice,
       stopLoss: stillActive.stopLoss,
       takeProfit1: stillActive.takeProfit1,
@@ -1034,7 +1076,7 @@ export function computeLevelsStable(
     const openedCandleStartTs = lastCandle ? Date.parse(lastCandle.date) : Date.now();
     const openedCandleLow = lastCandle ? lastCandle.low : Infinity;
     const openedCandleHigh = lastCandle ? lastCandle.high : -Infinity;
-    activeTrades.set(k, {
+    const newTrade: ActiveTrade = {
       signal: fresh.signal,
       signalReason: fresh.signalReason,
       entryPrice: fresh.entryPrice,
@@ -1055,8 +1097,15 @@ export function computeLevelsStable(
       openedCandleStartTs: Number.isNaN(openedCandleStartTs) ? Date.now() : openedCandleStartTs,
       openedCandleLow,
       openedCandleHigh,
-    });
+    };
+    activeTrades.set(k, newTrade);
     persistActiveTrades();
+    // Upgrade tradeState if the snapshot fired pre-triggered (price already
+    // at/past entry). The default "PENDING" set by computeLevels would lie
+    // about a brand-new filled trade for one tick otherwise.
+    if (triggered) {
+      return { ...fresh, tradeState: classifyTradeState(newTrade, fresh.currentPrice) };
+    }
   }
 
   return fresh;

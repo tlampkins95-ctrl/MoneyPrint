@@ -4,13 +4,20 @@ import {
   GetLevelsQueryParams,
   GetPriceHistoryResponse,
   GetPriceHistoryQueryParams,
+  GetActiveSignalsResponse,
+  GetActiveSignalsQueryParams,
 } from "@workspace/api-zod";
 import {
   fetchCandlesForTimeframe,
   type Timeframe,
 } from "../lib/yahoo-fetch";
-import { SYMBOLS, makeRounder, type Symbol } from "../lib/symbols";
+import { SYMBOLS, makeRounder, ALL_SYMBOLS, type Symbol } from "../lib/symbols";
 import { computeLevelsStable, fetchSpotPrice } from "../lib/signals";
+
+// Timeframes scanned for the all-signals overview. Mirrors the dashboard's
+// timeframe selector so the overview shows every signal a trader could be
+// monitoring (Telegram only alerts on 30m/1h/1d, but 15m matters for entries).
+const OVERVIEW_TIMEFRAMES: Timeframe[] = ["15m", "30m", "1h", "1d"];
 
 const router: IRouter = Router();
 
@@ -113,6 +120,91 @@ router.get("/price-history", async (req: Request, res: Response) => {
   } catch (err) {
     req.log.error({ err }, "Failed to fetch price history");
     res.status(500).json({ error: "Failed to fetch price history" });
+  }
+});
+
+// Overview of every currently-active BUY/SELL signal across all tracked
+// symbols × timeframes. Recomputes each combo via computeLevelsStable so
+// the response reflects fresh current price + dynamic state (PENDING vs
+// filled-in-profit/drawdown/TP1) rather than stale frozen text.
+router.get("/active-signals", async (req: Request, res: Response) => {
+  try {
+    // Same sizing inputs as /levels — flow them through so the overview's
+    // Jupiter $col×lev / SL/TP1/TP2 dollar projections match what the
+    // signal panel shows for the same symbol.
+    const params = GetActiveSignalsQueryParams.parse(req.query);
+    const { accountSize, riskPct, minCollateral, maxLeverage } = params;
+
+    // Dedupe spot fetches: each symbol's spot is the same regardless of
+    // timeframe, so issue ONE upstream call per symbol (was 4× before, which
+    // caused thundering-herd pressure on OANDA/OKX before the cache populated).
+    const spotPromises = new Map<Symbol, Promise<number | null>>();
+    for (const symbol of ALL_SYMBOLS) {
+      spotPromises.set(symbol, fetchSpotPrice(symbol));
+    }
+
+    const combos: Array<{ symbol: Symbol; timeframe: Timeframe }> = [];
+    for (const symbol of ALL_SYMBOLS) {
+      for (const timeframe of OVERVIEW_TIMEFRAMES) {
+        combos.push({ symbol, timeframe });
+      }
+    }
+
+    type ComboResult =
+      | { ok: true; symbol: Symbol; timeframe: Timeframe; levels: ReturnType<typeof computeLevelsStable> }
+      | { ok: false; symbol: Symbol; timeframe: Timeframe };
+
+    const results: ComboResult[] = await Promise.all(
+      combos.map(async ({ symbol, timeframe }): Promise<ComboResult> => {
+        try {
+          const [candles, spot] = await Promise.all([
+            fetchCandlesForTimeframe(symbol, timeframe),
+            spotPromises.get(symbol)!,
+          ]);
+          if (candles.length < 2) return { ok: false, symbol, timeframe };
+          const levels = computeLevelsStable(
+            candles,
+            spot,
+            timeframe,
+            symbol,
+            accountSize,
+            riskPct / 100,
+            minCollateral,
+            maxLeverage,
+          );
+          return { ok: true, symbol, timeframe, levels };
+        } catch (err) {
+          // Per-combo failures must not blank the whole overview, but they
+          // ARE surfaced via the coverage block so the UI can distinguish
+          // "no signals" from "data feed degraded".
+          req.log.warn({ err, symbol, timeframe }, "active-signals combo failed");
+          return { ok: false, symbol, timeframe };
+        }
+      }),
+    );
+
+    const succeeded = results.filter((r): r is Extract<ComboResult, { ok: true }> => r.ok);
+    const failed = results.filter((r): r is Extract<ComboResult, { ok: false }> => !r.ok);
+    const failedSymbols = Array.from(new Set(failed.map((r) => r.symbol)));
+
+    const signals = succeeded
+      .filter((r) => r.levels.signal === "BUY" || r.levels.signal === "SELL")
+      .map((r) => ({ symbol: r.symbol, timeframe: r.timeframe, levels: r.levels }));
+
+    const data = GetActiveSignalsResponse.parse({
+      signals,
+      coverage: {
+        total: combos.length,
+        succeeded: succeeded.length,
+        failed: failed.length,
+        failedSymbols,
+      },
+      lastUpdated: new Date().toISOString(),
+    });
+    res.json(data);
+  } catch (err) {
+    req.log.error({ err }, "Failed to compute active signals");
+    res.status(500).json({ error: "Failed to compute active signals" });
   }
 });
 

@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.2.0
  */
 import type { LevelsDataSignal } from "./levelsDataSignal";
+import type { LevelsDataTradeState } from "./levelsDataTradeState";
 import type { LevelsDataTrend } from "./levelsDataTrend";
 import type { PositionSizing } from "./positionSizing";
 import type { PriceLevel } from "./priceLevel";
@@ -20,6 +21,8 @@ export interface LevelsData {
   signal: LevelsDataSignal;
   /** Plain-language explanation of why this signal was generated */
   signalReason: string;
+  /** Machine-readable trade lifecycle state. WAIT = no setup. PENDING = limit staged but not yet tagged. FILLED_DRAWDOWN/PROFIT = position open between entry and SL/TP1. FILLED_TP1/TP2/SL = price has reached that level (TP2/SL trigger invalidation on the next tick). Always prefer this over parsing signalReason text. */
+  tradeState: LevelsDataTradeState;
   /** Ideal entry price */
   entryPrice: number;
   /** Recommended stop loss */

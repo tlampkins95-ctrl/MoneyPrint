@@ -61,6 +61,22 @@ export const LevelsDataSignal = {
 } as const;
 
 /**
+ * Machine-readable trade lifecycle state. WAIT = no setup. PENDING = limit staged but not yet tagged. FILLED_DRAWDOWN/PROFIT = position open between entry and SL/TP1. FILLED_TP1/TP2/SL = price has reached that level (TP2/SL trigger invalidation on the next tick). Always prefer this over parsing signalReason text.
+ */
+export type LevelsDataTradeState =
+  (typeof LevelsDataTradeState)[keyof typeof LevelsDataTradeState];
+
+export const LevelsDataTradeState = {
+  WAIT: "WAIT",
+  PENDING: "PENDING",
+  FILLED_PROFIT: "FILLED_PROFIT",
+  FILLED_DRAWDOWN: "FILLED_DRAWDOWN",
+  FILLED_TP1: "FILLED_TP1",
+  FILLED_TP2: "FILLED_TP2",
+  FILLED_SL: "FILLED_SL",
+} as const;
+
+/**
  * Current market structure
  */
 export type LevelsDataTrend =
@@ -143,6 +159,8 @@ export interface LevelsData {
   signal: LevelsDataSignal;
   /** Plain-language explanation of why this signal was generated */
   signalReason: string;
+  /** Machine-readable trade lifecycle state. WAIT = no setup. PENDING = limit staged but not yet tagged. FILLED_DRAWDOWN/PROFIT = position open between entry and SL/TP1. FILLED_TP1/TP2/SL = price has reached that level (TP2/SL trigger invalidation on the next tick). Always prefer this over parsing signalReason text. */
+  tradeState: LevelsDataTradeState;
   /** Ideal entry price */
   entryPrice: number;
   /** Recommended stop loss */
@@ -165,6 +183,61 @@ export interface LevelsData {
   trendStrength: number;
   lastUpdated: string;
   positionSizing?: PositionSizing;
+}
+
+export type ActiveSignalEntrySymbol =
+  (typeof ActiveSignalEntrySymbol)[keyof typeof ActiveSignalEntrySymbol];
+
+export const ActiveSignalEntrySymbol = {
+  XAGUSD: "XAGUSD",
+  XAUUSD: "XAUUSD",
+  EURUSD: "EURUSD",
+  GBPUSD: "GBPUSD",
+  AUDUSD: "AUDUSD",
+  USDJPY: "USDJPY",
+  GBPJPY: "GBPJPY",
+  BTCUSD: "BTCUSD",
+  ETHUSD: "ETHUSD",
+} as const;
+
+export type ActiveSignalEntryTimeframe =
+  (typeof ActiveSignalEntryTimeframe)[keyof typeof ActiveSignalEntryTimeframe];
+
+export const ActiveSignalEntryTimeframe = {
+  "15m": "15m",
+  "30m": "30m",
+  "1h": "1h",
+  "1d": "1d",
+} as const;
+
+/**
+ * One active BUY/SELL signal in the overview. Wraps a LevelsData payload with the timeframe so the client can route on click.
+ */
+export interface ActiveSignalEntry {
+  symbol: ActiveSignalEntrySymbol;
+  timeframe: ActiveSignalEntryTimeframe;
+  levels: LevelsData;
+}
+
+/**
+ * Per-request data-feed health. Lets the UI distinguish "no signals" (succeeded == total, signals empty) from "data feed degraded" (failed > 0).
+ */
+export interface ActiveSignalsCoverage {
+  /** Total symbol × timeframe combos attempted */
+  total: number;
+  /** Combos that returned a usable result (BUY, SELL, or WAIT) */
+  succeeded: number;
+  /** Combos that errored or had insufficient data */
+  failed: number;
+  /** Distinct symbols with at least one failed combo */
+  failedSymbols: string[];
+}
+
+export interface ActiveSignalsResponse {
+  /** Every currently-active BUY/SELL signal. Empty array means no actionable signals right now. */
+  signals: ActiveSignalEntry[];
+  coverage: ActiveSignalsCoverage;
+  lastUpdated: string;
 }
 
 export type BacktestTradeDirection =
@@ -325,6 +398,31 @@ export const GetBacktestTimeframe = {
   "1h": "1h",
   "1d": "1d",
 } as const;
+
+export type GetActiveSignalsParams = {
+  /**
+   * Trading account size in USD used to compute position sizing for every entry
+   * @minimum 1
+   */
+  accountSize?: number;
+  /**
+   * Percent of account risked per trade (1 = 1%)
+   * @minimum 0.01
+   * @maximum 100
+   */
+  riskPct?: number;
+  /**
+   * Minimum collateral the exchange will accept per position (USD). Defaults to Jupiter perps minimum of $10.
+   * @minimum 0.01
+   */
+  minCollateral?: number;
+  /**
+   * Maximum leverage the trader is willing to use. Defaults to 50x for Jupiter perps.
+   * @minimum 1
+   * @maximum 200
+   */
+  maxLeverage?: number;
+};
 
 export type GetPriceHistoryParams = {
   /**

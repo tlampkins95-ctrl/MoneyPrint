@@ -7,11 +7,17 @@
  */
 
 export * from "./achievablePosition";
+export * from "./activeSignalEntry";
+export * from "./activeSignalEntrySymbol";
+export * from "./activeSignalEntryTimeframe";
+export * from "./activeSignalsCoverage";
+export * from "./activeSignalsResponse";
 export * from "./backtestResult";
 export * from "./backtestTrade";
 export * from "./backtestTradeDirection";
 export * from "./backtestTradeOutcome";
 export * from "./candle";
+export * from "./getActiveSignalsParams";
 export * from "./getBacktestParams";
 export * from "./getBacktestSymbol";
 export * from "./getBacktestTimeframe";
@@ -24,6 +30,7 @@ export * from "./getPriceHistoryTimeframe";
 export * from "./healthStatus";
 export * from "./levelsData";
 export * from "./levelsDataSignal";
+export * from "./levelsDataTradeState";
 export * from "./levelsDataTrend";
 export * from "./positionSizing";
 export * from "./positionSizingLots";

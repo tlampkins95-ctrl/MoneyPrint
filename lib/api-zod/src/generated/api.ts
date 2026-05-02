@@ -90,6 +90,19 @@ export const GetLevelsResponse = zod.object({
   signalReason: zod
     .string()
     .describe("Plain-language explanation of why this signal was generated"),
+  tradeState: zod
+    .enum([
+      "WAIT",
+      "PENDING",
+      "FILLED_PROFIT",
+      "FILLED_DRAWDOWN",
+      "FILLED_TP1",
+      "FILLED_TP2",
+      "FILLED_SL",
+    ])
+    .describe(
+      "Machine-readable trade lifecycle state. WAIT = no setup. PENDING = limit staged but not yet tagged. FILLED_DRAWDOWN\/PROFIT = position open between entry and SL\/TP1. FILLED_TP1\/TP2\/SL = price has reached that level (TP2\/SL trigger invalidation on the next tick). Always prefer this over parsing signalReason text.",
+    ),
   entryPrice: zod.number().describe("Ideal entry price"),
   stopLoss: zod.number().describe("Recommended stop loss"),
   takeProfit1: zod.number().describe("First take profit target"),
@@ -279,6 +292,262 @@ export const GetBacktestResponse = zod.object({
       }),
     )
     .describe("Most recent trades (capped to last 50 for response size)"),
+  lastUpdated: zod.string(),
+});
+
+/**
+ * Recomputes every tracked symbol × timeframe and returns the BUY/SELL signals as a single overview. Each entry includes the timeframe alongside the standard LevelsData payload so the client can render and deep-link without extra calls. Sizing inputs (accountSize, riskPct, minCollateral, maxLeverage) flow through to every entry's positionSizing block — pass the trader's actual settings so the overview's $P&L matches the main signal panel.
+ * @summary All currently-active BUY/SELL signals across symbols × timeframes
+ */
+export const getActiveSignalsQueryAccountSizeDefault = 500;
+
+export const getActiveSignalsQueryRiskPctDefault = 1;
+export const getActiveSignalsQueryRiskPctMin = 0.01;
+export const getActiveSignalsQueryRiskPctMax = 100;
+
+export const getActiveSignalsQueryMinCollateralDefault = 10;
+export const getActiveSignalsQueryMinCollateralMin = 0.01;
+
+export const getActiveSignalsQueryMaxLeverageDefault = 50;
+export const getActiveSignalsQueryMaxLeverageMax = 200;
+
+export const GetActiveSignalsQueryParams = zod.object({
+  accountSize: zod.coerce
+    .number()
+    .min(1)
+    .default(getActiveSignalsQueryAccountSizeDefault)
+    .describe(
+      "Trading account size in USD used to compute position sizing for every entry",
+    ),
+  riskPct: zod.coerce
+    .number()
+    .min(getActiveSignalsQueryRiskPctMin)
+    .max(getActiveSignalsQueryRiskPctMax)
+    .default(getActiveSignalsQueryRiskPctDefault)
+    .describe("Percent of account risked per trade (1 = 1%)"),
+  minCollateral: zod.coerce
+    .number()
+    .min(getActiveSignalsQueryMinCollateralMin)
+    .default(getActiveSignalsQueryMinCollateralDefault)
+    .describe(
+      "Minimum collateral the exchange will accept per position (USD). Defaults to Jupiter perps minimum of $10.",
+    ),
+  maxLeverage: zod.coerce
+    .number()
+    .min(1)
+    .max(getActiveSignalsQueryMaxLeverageMax)
+    .default(getActiveSignalsQueryMaxLeverageDefault)
+    .describe(
+      "Maximum leverage the trader is willing to use. Defaults to 50x for Jupiter perps.",
+    ),
+});
+
+export const GetActiveSignalsResponse = zod.object({
+  signals: zod
+    .array(
+      zod
+        .object({
+          symbol: zod.enum([
+            "XAGUSD",
+            "XAUUSD",
+            "EURUSD",
+            "GBPUSD",
+            "AUDUSD",
+            "USDJPY",
+            "GBPJPY",
+            "BTCUSD",
+            "ETHUSD",
+          ]),
+          timeframe: zod.enum(["15m", "30m", "1h", "1d"]),
+          levels: zod.object({
+            symbol: zod.string(),
+            currentPrice: zod.number(),
+            priceChange: zod.number(),
+            priceChangePct: zod.number(),
+            signal: zod
+              .enum(["BUY", "SELL", "WAIT"])
+              .describe("Single clear trade signal"),
+            signalReason: zod
+              .string()
+              .describe(
+                "Plain-language explanation of why this signal was generated",
+              ),
+            tradeState: zod
+              .enum([
+                "WAIT",
+                "PENDING",
+                "FILLED_PROFIT",
+                "FILLED_DRAWDOWN",
+                "FILLED_TP1",
+                "FILLED_TP2",
+                "FILLED_SL",
+              ])
+              .describe(
+                "Machine-readable trade lifecycle state. WAIT = no setup. PENDING = limit staged but not yet tagged. FILLED_DRAWDOWN\/PROFIT = position open between entry and SL\/TP1. FILLED_TP1\/TP2\/SL = price has reached that level (TP2\/SL trigger invalidation on the next tick). Always prefer this over parsing signalReason text.",
+              ),
+            entryPrice: zod.number().describe("Ideal entry price"),
+            stopLoss: zod.number().describe("Recommended stop loss"),
+            takeProfit1: zod.number().describe("First take profit target"),
+            takeProfit2: zod.number().describe("Second take profit target"),
+            riskRewardRatio: zod
+              .number()
+              .describe("Risk\/reward ratio for the trade"),
+            buyZone: zod.object({
+              low: zod.number(),
+              high: zod.number(),
+              label: zod.string(),
+            }),
+            sellZone: zod.object({
+              low: zod.number(),
+              high: zod.number(),
+              label: zod.string(),
+            }),
+            levels: zod
+              .array(
+                zod.object({
+                  label: zod
+                    .string()
+                    .describe(
+                      'e.g. \"R3\", \"S1\", \"Fib 61.8%\", \"Swing High\"',
+                    ),
+                  price: zod.number(),
+                  type: zod.enum(["resistance", "support", "pivot"]),
+                }),
+              )
+              .describe("All key support and resistance levels"),
+            pivot: zod.number().describe("Daily pivot point"),
+            trend: zod
+              .enum(["UPTREND", "DOWNTREND", "RANGING"])
+              .describe("Current market structure"),
+            trendStrength: zod.number().describe("0-100 strength score"),
+            lastUpdated: zod.string(),
+            positionSizing: zod
+              .object({
+                accountSize: zod
+                  .number()
+                  .describe("Account size in USD used for sizing"),
+                riskAmount: zod
+                  .number()
+                  .describe("Dollar amount risked per trade if stop is hit"),
+                riskPct: zod
+                  .number()
+                  .describe("Risk percent of account (e.g. 1.0 = 1%)"),
+                positionSize: zod
+                  .number()
+                  .describe(
+                    "Position size in base units (coins, oz, base currency)",
+                  ),
+                positionSizeUnit: zod
+                  .string()
+                  .describe(
+                    "Unit label for positionSize (BTC, ETH, oz, EUR, etc.)",
+                  ),
+                notional: zod
+                  .number()
+                  .describe("Approximate USD notional value of the position"),
+                leverage: zod
+                  .number()
+                  .optional()
+                  .describe(
+                    "Suggested minimum leverage multiplier (perps only)",
+                  ),
+                leverageNote: zod
+                  .string()
+                  .optional()
+                  .describe("Warning text when required leverage is high"),
+                lots: zod
+                  .object({
+                    standard: zod.number(),
+                    mini: zod.number(),
+                    micro: zod.number(),
+                  })
+                  .optional()
+                  .describe("Lot breakdown for forex \/ metals"),
+                achievable: zod
+                  .object({
+                    positionSize: zod
+                      .number()
+                      .describe(
+                        "Actual position size in base units after applying exchange constraints",
+                      ),
+                    notional: zod
+                      .number()
+                      .describe("Actual notional value in USD"),
+                    collateral: zod
+                      .number()
+                      .describe(
+                        "Recommended collateral to deposit (USD). At least minCollateral.",
+                      ),
+                    leverage: zod
+                      .number()
+                      .describe(
+                        "Leverage to set on the exchange so notional = collateral × leverage",
+                      ),
+                    actualRiskAmount: zod
+                      .number()
+                      .describe(
+                        "Actual dollar loss if SL is hit (may differ from intended riskAmount when minimum forces over-sizing)",
+                      ),
+                    actualRiskPct: zod
+                      .number()
+                      .describe("actualRiskAmount as a percent of account"),
+                    pnlAtSL: zod
+                      .number()
+                      .describe(
+                        "Signed dollar P&L if stop loss hits (always negative)",
+                      ),
+                    pnlAtTP1: zod
+                      .number()
+                      .describe("Signed dollar P&L if TP1 hits (positive)"),
+                    pnlAtTP2: zod
+                      .number()
+                      .describe("Signed dollar P&L if TP2 hits (positive)"),
+                    belowMinimum: zod
+                      .boolean()
+                      .describe(
+                        "True when ideal notional was below the exchange minimum and position was forced over-sized",
+                      ),
+                    warning: zod
+                      .string()
+                      .optional()
+                      .describe(
+                        "Human-readable warning when constraints affected the trade",
+                      ),
+                  })
+                  .optional()
+                  .describe(
+                    "Position scaled to honour exchange minimums (e.g. Jupiter $10 minimum collateral). Shows what the trader can ACTUALLY take and the real dollar P&L at each level.",
+                  ),
+              })
+              .optional()
+              .describe(
+                "Suggested position size for a $500 starting account at 1% risk per trade.",
+              ),
+          }),
+        })
+        .describe(
+          "One active BUY\/SELL signal in the overview. Wraps a LevelsData payload with the timeframe so the client can route on click.",
+        ),
+    )
+    .describe(
+      "Every currently-active BUY\/SELL signal. Empty array means no actionable signals right now.",
+    ),
+  coverage: zod
+    .object({
+      total: zod.number().describe("Total symbol × timeframe combos attempted"),
+      succeeded: zod
+        .number()
+        .describe("Combos that returned a usable result (BUY, SELL, or WAIT)"),
+      failed: zod
+        .number()
+        .describe("Combos that errored or had insufficient data"),
+      failedSymbols: zod
+        .array(zod.string())
+        .describe("Distinct symbols with at least one failed combo"),
+    })
+    .describe(
+      'Per-request data-feed health. Lets the UI distinguish \"no signals\" (succeeded == total, signals empty) from \"data feed degraded\" (failed > 0).',
+    ),
   lastUpdated: zod.string(),
 });
 
