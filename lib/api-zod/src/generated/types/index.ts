@@ -43,5 +43,6 @@ export * from "./pushSubscribeResponse";
 export * from "./pushSubscriptionKeys";
 export * from "./pushSubscriptionPayload";
 export * from "./pushUnsubscribeRequest";
+export * from "./spotTokenSizing";
 export * from "./tradeZone";
 export * from "./vapidPublicKey";

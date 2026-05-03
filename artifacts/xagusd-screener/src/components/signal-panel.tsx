@@ -119,17 +119,22 @@ export function SignalPanel({
   const meta = SYMBOLS[symbol];
 
   // Venue routing: BTC/ETH trade on Phemex USDT perps ($collateral × leverage),
-  // everything else (XAU/XAG/forex pairs) trades on MetaTrader 5 (lot-based).
-  // The sizing block emits two parallel projection shapes:
-  //   • achievable — PHEMEX exchange-floor rounded values
-  //   • mt5        — lot-based USD P&L for the chosen lots
+  // XAU/XAG/forex pairs trade on MetaTrader 5 (lot-based),
+  // SKYAIUSDT and other Coinbase spot tokens use simple token sizing.
+  // The sizing block emits parallel projection shapes per venue:
+  //   • achievable   — PHEMEX exchange-floor rounded values
+  //   • mt5          — lot-based USD P&L for the chosen lots
+  //   • spotToken    — whole-token count, notional, risk (no leverage)
   // Read whichever matches the venue so the TradeRow $ figures and the
   // EXACT TRADE TO PLACE panel both reflect the actual venue the trader uses.
-  const venue: "PHEMEX" | "MT5" = data.positionSizing?.venue ?? "PHEMEX";
+  const venue: "PHEMEX" | "MT5" | "COINBASE_SPOT" = data.positionSizing?.venue ?? "PHEMEX";
   const isMT5 = venue === "MT5";
+  const isCoinbaseSpot = venue === "COINBASE_SPOT";
   const pnls = isMT5
     ? data.positionSizing?.mt5
-    : data.positionSizing?.achievable;
+    : isCoinbaseSpot
+      ? data.positionSizing?.spotToken
+      : data.positionSizing?.achievable;
 
   // Inverted hero: instead of a bright signal-colored background with dark text,
   // we render a near-black box and let the signal word itself glow in colour.
@@ -387,6 +392,26 @@ export function SignalPanel({
                           </button>
                         )}
                     </>
+                  ) : isCoinbaseSpot ? (
+                    <>
+                      {/* Spot venue: only risk % matters — no leverage, no lots. */}
+                      <span className="text-zinc-600">·</span>
+                      <input
+                        type="number"
+                        inputMode="decimal"
+                        min={0.01}
+                        max={100}
+                        step={0.25}
+                        value={riskPct}
+                        onChange={(e) => {
+                          const v = Number(e.target.value);
+                          if (Number.isFinite(v) && v > 0) setRiskPct(v);
+                        }}
+                        className="w-12 bg-zinc-900 border border-zinc-700 rounded px-1.5 py-0.5 text-right tabular-nums text-zinc-100 focus:outline-none focus:border-amber-500/60"
+                        aria-label="Risk percent of account"
+                      />
+                      <span>% risk</span>
+                    </>
                   ) : (
                     <>
                       <span className="text-zinc-600">·</span>
@@ -440,7 +465,9 @@ export function SignalPanel({
                   <span className="font-bold text-sm tabular-nums shrink-0 text-amber-300">
                     {isMT5 && data.positionSizing.mt5
                       ? `$${Math.abs(data.positionSizing.mt5.pnlAtSL).toFixed(2)} (${data.positionSizing.mt5.riskPctOfAccount.toFixed(2)}% acct)`
-                      : `$${data.positionSizing.riskAmount.toFixed(2)}`}
+                      : isCoinbaseSpot && data.positionSizing.spotToken
+                        ? `$${data.positionSizing.spotToken.riskAmount.toFixed(2)} (${data.positionSizing.spotToken.riskPct.toFixed(2)}% acct)`
+                        : `$${data.positionSizing.riskAmount.toFixed(2)}`}
                   </span>
                 </div>
                 {isMT5 && data.positionSizing.mt5 ? (
@@ -461,6 +488,20 @@ export function SignalPanel({
                     <Row
                       label="Contract size"
                       value={`1 lot = ${data.positionSizing.mt5.contractSize.toLocaleString()} ${data.positionSizing.positionSizeUnit}`}
+                      labelClass="text-zinc-500"
+                    />
+                  </>
+                ) : isCoinbaseSpot && data.positionSizing.spotToken ? (
+                  <>
+                    {/* Coinbase spot: whole-token count, notional, no leverage */}
+                    <Row
+                      label="Buy"
+                      value={`${data.positionSizing.spotToken.tokenCount.toLocaleString()} ${data.positionSizing.spotToken.tokenSymbol}`}
+                      valueClass="text-zinc-100 font-bold"
+                    />
+                    <Row
+                      label="Notional value"
+                      value={`$${formatNotional(data.positionSizing.spotToken.notional)}`}
                       labelClass="text-zinc-500"
                     />
                   </>
@@ -674,6 +715,70 @@ export function SignalPanel({
                       </p>
                     </div>
                   )}
+                </div>
+              ) : isCoinbaseSpot && data.positionSizing.spotToken ? (
+                <div className="mt-3 rounded-lg overflow-hidden border-2 border-sky-500/40 bg-gradient-to-br from-sky-950/20 to-zinc-900">
+                  <div className="px-3 py-1.5 bg-sky-500/10 border-b border-sky-500/30 flex items-center gap-2">
+                    <span className="text-[10px] text-sky-300 font-sans font-bold tracking-widest">
+                      EXACT TRADE TO PLACE · COINBASE
+                    </span>
+                    <span className="ml-auto text-[9px] text-zinc-500 font-mono">
+                      {data.positionSizing.spotToken.tokenSymbol}/USDT · spot
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-px bg-zinc-800 text-center">
+                    <div className="bg-[#0a0a0a]/50 px-2 py-2">
+                      <div className="text-[8px] text-zinc-500 font-sans font-semibold tracking-widest">
+                        BUY
+                      </div>
+                      <div className="text-base font-bold text-sky-200 tabular-nums mt-0.5">
+                        {data.positionSizing.spotToken.tokenCount.toLocaleString()} {data.positionSizing.spotToken.tokenSymbol}
+                      </div>
+                    </div>
+                    <div className="bg-[#0a0a0a]/50 px-2 py-2">
+                      <div className="text-[8px] text-zinc-500 font-sans font-semibold tracking-widest">
+                        NOTIONAL
+                      </div>
+                      <div className="text-base font-bold text-sky-200 tabular-nums mt-0.5">
+                        ${formatNotional(data.positionSizing.spotToken.notional)}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-px bg-zinc-800 text-center border-t border-zinc-800">
+                    <div className="bg-red-950/20 px-2 py-2">
+                      <div className="text-[8px] text-red-400/70 font-sans font-semibold tracking-widest">
+                        IF SL HIT
+                      </div>
+                      <div className="text-sm font-bold text-red-300 tabular-nums mt-0.5">
+                        −${Math.abs(data.positionSizing.spotToken.pnlAtSL).toFixed(2)}
+                      </div>
+                      <div className="text-[8px] text-red-400/60 mt-0.5">
+                        −{data.positionSizing.spotToken.riskPct.toFixed(2)}% acct
+                      </div>
+                    </div>
+                    <div className="bg-emerald-950/20 px-2 py-2">
+                      <div className="text-[8px] text-emerald-400/70 font-sans font-semibold tracking-widest">
+                        IF TP1 HIT
+                      </div>
+                      <div className="text-sm font-bold text-emerald-300 tabular-nums mt-0.5">
+                        +${data.positionSizing.spotToken.pnlAtTP1.toFixed(2)}
+                      </div>
+                      <div className="text-[8px] text-emerald-400/60 mt-0.5">
+                        +{((data.positionSizing.spotToken.pnlAtTP1 / data.positionSizing.accountSize) * 100).toFixed(2)}% acct
+                      </div>
+                    </div>
+                    <div className="bg-emerald-900/30 px-2 py-2">
+                      <div className="text-[8px] text-emerald-300/80 font-sans font-semibold tracking-widest">
+                        IF TP2 HIT
+                      </div>
+                      <div className="text-sm font-bold text-emerald-200 tabular-nums mt-0.5">
+                        +${data.positionSizing.spotToken.pnlAtTP2.toFixed(2)}
+                      </div>
+                      <div className="text-[8px] text-emerald-300/70 mt-0.5">
+                        +{((data.positionSizing.spotToken.pnlAtTP2 / data.positionSizing.accountSize) * 100).toFixed(2)}% acct
+                      </div>
+                    </div>
+                  </div>
                 </div>
               ) : null}
             </div>

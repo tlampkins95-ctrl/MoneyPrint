@@ -322,8 +322,19 @@ interface AchievablePosition {
   warning?: string;
 }
 
+interface SpotTokenSizing {
+  tokenCount: number;
+  tokenSymbol: string;
+  notional: number;
+  riskAmount: number;
+  riskPct: number;
+  pnlAtSL: number;
+  pnlAtTP1: number;
+  pnlAtTP2: number;
+}
+
 interface PositionSizing {
-  venue: "PHEMEX" | "MT5";
+  venue: "PHEMEX" | "MT5" | "COINBASE_SPOT";
   accountSize: number;
   riskAmount: number;
   riskPct: number;
@@ -335,6 +346,7 @@ interface PositionSizing {
   lots?: { standard: number; mini: number; micro: number };
   achievable?: AchievablePosition;
   mt5?: MT5Sizing;
+  spotToken?: SpotTokenSizing;
 }
 
 // Compute the "achievable" position given exchange constraints.
@@ -582,6 +594,28 @@ function computePositionSizing(
     };
   }
 
+  // ─── Spot tokens (Coinbase spot — no leverage, whole-token sizing) ───
+  // `meta.coinbase` is the canonical marker for a Coinbase spot symbol (set to
+  // the Coinbase product ID, e.g. "SKYAI-USD"). The negative guards ensure a
+  // future symbol that is both on Coinbase AND has a perp/gold feed still
+  // routes to its primary venue. Any symbol with `meta.coinbase` and none of
+  // those overriding markers is sized as a no-leverage spot buy.
+  if (meta.coinbase && !meta.phemexPerp && !meta.goldApi) {
+    const spotToken = computeSpotTokenSizing(
+      symbol, entry, stopLoss, takeProfit1, takeProfit2, accountSize, riskPct,
+    );
+    return {
+      venue: "COINBASE_SPOT",
+      accountSize: r(accountSize),
+      riskAmount: r(riskAmount),
+      riskPct: r(riskPct * 100, 2),
+      positionSize: spotToken.tokenCount,
+      positionSizeUnit: spotToken.tokenSymbol,
+      notional: spotToken.notional,
+      spotToken,
+    };
+  }
+
   // ─── Forex — venue: MT5 ───
   // For BASE/QUOTE pairs, position size is N units of BASE.
   // Loss in QUOTE on SL hit = N × slDist. Convert to USD:
@@ -622,6 +656,43 @@ function computePositionSizing(
       micro: r(std * 100, 2),
     },
     mt5: computeMT5Sizing(symbol, mt5Lots, entry, stopLoss, takeProfit1, takeProfit2, accountSize, riskPct),
+  };
+}
+
+// ─── Spot token sizing (Coinbase spot — no leverage) ─────────────────────────
+// Fires for any symbol that has no okxPerp, phemexPerp, goldApi, or forex
+// characteristics. Position size = floor(riskAmount / |entry − stopLoss|)
+// expressed in whole tokens.
+function computeSpotTokenSizing(
+  symbol: Symbol,
+  entry: number,
+  stopLoss: number,
+  takeProfit1: number,
+  takeProfit2: number,
+  accountSize: number,
+  riskPct: number,
+): SpotTokenSizing {
+  const r = (n: number, d = 2) => Math.round(n * 10 ** d) / 10 ** d;
+  const slDist = Math.abs(entry - stopLoss);
+  const tp1Dist = Math.abs(takeProfit1 - entry);
+  const tp2Dist = Math.abs(takeProfit2 - entry);
+  const riskAmount = accountSize * riskPct;
+  // Floor to whole tokens — spot has no fractional contract concept.
+  // If riskAmount/slDist < 1 the result is 0 (position too small to take).
+  const tokenCount = Math.floor(riskAmount / slDist);
+  const notional = tokenCount * entry;
+  const actualRisk = tokenCount * slDist;
+  // Derive ticker label: strip trailing "USDT" or "USD" from the symbol key.
+  const tokenSymbol = symbol.replace(/USDT$|USD$/, "");
+  return {
+    tokenCount,
+    tokenSymbol,
+    notional: r(notional),
+    riskAmount: r(actualRisk),
+    riskPct: r((actualRisk / accountSize) * 100, 2),
+    pnlAtSL: r(-actualRisk),
+    pnlAtTP1: r(tokenCount * tp1Dist),
+    pnlAtTP2: r(tokenCount * tp2Dist),
   };
 }
 

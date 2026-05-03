@@ -151,9 +151,9 @@ export const GetLevelsResponse = zod.object({
   positionSizing: zod
     .object({
       venue: zod
-        .enum(["PHEMEX", "MT5"])
+        .enum(["PHEMEX", "MT5", "COINBASE_SPOT"])
         .describe(
-          "Which trading venue this symbol uses. PHEMEX = Phemex USDT-margined perps (BTC\/ETH, collateral × leverage, up to 100×). MT5 = MetaTrader 5 (forex\/metals, lot-based sizing).",
+          "Which trading venue this symbol uses. PHEMEX = Phemex USDT-margined perps (BTC\/ETH, collateral × leverage, up to 100×). MT5 = MetaTrader 5 (forex\/metals, lot-based sizing). COINBASE_SPOT = Coinbase spot (no leverage, whole-token sizing).",
         ),
       accountSize: zod.number().describe("Account size in USD used for sizing"),
       riskAmount: zod
@@ -290,10 +290,43 @@ export const GetLevelsResponse = zod.object({
         .describe(
           "MetaTrader 5 lot-based sizing for forex and metals. The trader chooses a fixed lot size (default 0.01 = 1 micro lot); the dollar P&L at SL\/TP1\/TP2 is derived from the pair's contract size and quote-currency conversion. For X\/USD pairs this is exact; for USDJPY it uses the live entry price; for GBPJPY it approximates via an assumed USDJPY rate.",
         ),
+      spotToken: zod
+        .object({
+          tokenCount: zod.number().describe("Number of whole tokens to buy"),
+          tokenSymbol: zod
+            .string()
+            .describe('Token ticker label (e.g. \"SKYAI\")'),
+          notional: zod
+            .number()
+            .describe(
+              "USD notional value of the position (tokenCount × entry)",
+            ),
+          riskAmount: zod
+            .number()
+            .describe(
+              "Actual dollar risk on SL hit (tokenCount × |entry − stopLoss|)",
+            ),
+          riskPct: zod
+            .number()
+            .describe("riskAmount as a percent of accountSize"),
+          pnlAtSL: zod
+            .number()
+            .describe("Signed dollar P&L if stop loss hits (always negative)"),
+          pnlAtTP1: zod
+            .number()
+            .describe("Signed dollar P&L if TP1 hits (positive)"),
+          pnlAtTP2: zod
+            .number()
+            .describe("Signed dollar P&L if TP2 hits (positive)"),
+        })
+        .optional()
+        .describe(
+          "Spot token sizing for Coinbase spot instruments (no leverage). Token count = riskAmount ÷ |entry − stopLoss|, rounded down to whole tokens.",
+        ),
     })
     .optional()
     .describe(
-      "Suggested position size for the trader's account. The `venue` field decides which downstream block is authoritative — PHEMEX (crypto USDT-perps) renders `achievable`, MT5 (forex\/metals) renders `mt5`.",
+      "Suggested position size for the trader's account. The `venue` field decides which downstream block is authoritative — PHEMEX (crypto USDT-perps) renders `achievable`, MT5 (forex\/metals) renders `mt5`, COINBASE_SPOT (spot tokens) renders `spotToken`.",
     ),
 });
 
@@ -515,9 +548,9 @@ export const GetActiveSignalsResponse = zod.object({
             positionSizing: zod
               .object({
                 venue: zod
-                  .enum(["PHEMEX", "MT5"])
+                  .enum(["PHEMEX", "MT5", "COINBASE_SPOT"])
                   .describe(
-                    "Which trading venue this symbol uses. PHEMEX = Phemex USDT-margined perps (BTC\/ETH, collateral × leverage, up to 100×). MT5 = MetaTrader 5 (forex\/metals, lot-based sizing).",
+                    "Which trading venue this symbol uses. PHEMEX = Phemex USDT-margined perps (BTC\/ETH, collateral × leverage, up to 100×). MT5 = MetaTrader 5 (forex\/metals, lot-based sizing). COINBASE_SPOT = Coinbase spot (no leverage, whole-token sizing).",
                   ),
                 accountSize: zod
                   .number()
@@ -674,10 +707,47 @@ export const GetActiveSignalsResponse = zod.object({
                   .describe(
                     "MetaTrader 5 lot-based sizing for forex and metals. The trader chooses a fixed lot size (default 0.01 = 1 micro lot); the dollar P&L at SL\/TP1\/TP2 is derived from the pair's contract size and quote-currency conversion. For X\/USD pairs this is exact; for USDJPY it uses the live entry price; for GBPJPY it approximates via an assumed USDJPY rate.",
                   ),
+                spotToken: zod
+                  .object({
+                    tokenCount: zod
+                      .number()
+                      .describe("Number of whole tokens to buy"),
+                    tokenSymbol: zod
+                      .string()
+                      .describe('Token ticker label (e.g. \"SKYAI\")'),
+                    notional: zod
+                      .number()
+                      .describe(
+                        "USD notional value of the position (tokenCount × entry)",
+                      ),
+                    riskAmount: zod
+                      .number()
+                      .describe(
+                        "Actual dollar risk on SL hit (tokenCount × |entry − stopLoss|)",
+                      ),
+                    riskPct: zod
+                      .number()
+                      .describe("riskAmount as a percent of accountSize"),
+                    pnlAtSL: zod
+                      .number()
+                      .describe(
+                        "Signed dollar P&L if stop loss hits (always negative)",
+                      ),
+                    pnlAtTP1: zod
+                      .number()
+                      .describe("Signed dollar P&L if TP1 hits (positive)"),
+                    pnlAtTP2: zod
+                      .number()
+                      .describe("Signed dollar P&L if TP2 hits (positive)"),
+                  })
+                  .optional()
+                  .describe(
+                    "Spot token sizing for Coinbase spot instruments (no leverage). Token count = riskAmount ÷ |entry − stopLoss|, rounded down to whole tokens.",
+                  ),
               })
               .optional()
               .describe(
-                "Suggested position size for the trader's account. The `venue` field decides which downstream block is authoritative — PHEMEX (crypto USDT-perps) renders `achievable`, MT5 (forex\/metals) renders `mt5`.",
+                "Suggested position size for the trader's account. The `venue` field decides which downstream block is authoritative — PHEMEX (crypto USDT-perps) renders `achievable`, MT5 (forex\/metals) renders `mt5`, COINBASE_SPOT (spot tokens) renders `spotToken`.",
               ),
           }),
         })

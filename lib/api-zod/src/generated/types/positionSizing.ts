@@ -9,12 +9,13 @@ import type { AchievablePosition } from "./achievablePosition";
 import type { MT5Sizing } from "./mT5Sizing";
 import type { PositionSizingLots } from "./positionSizingLots";
 import type { PositionSizingVenue } from "./positionSizingVenue";
+import type { SpotTokenSizing } from "./spotTokenSizing";
 
 /**
- * Suggested position size for the trader's account. The `venue` field decides which downstream block is authoritative — PHEMEX (crypto USDT-perps) renders `achievable`, MT5 (forex/metals) renders `mt5`.
+ * Suggested position size for the trader's account. The `venue` field decides which downstream block is authoritative — PHEMEX (crypto USDT-perps) renders `achievable`, MT5 (forex/metals) renders `mt5`, COINBASE_SPOT (spot tokens) renders `spotToken`.
  */
 export interface PositionSizing {
-  /** Which trading venue this symbol uses. PHEMEX = Phemex USDT-margined perps (BTC/ETH, collateral × leverage, up to 100×). MT5 = MetaTrader 5 (forex/metals, lot-based sizing). */
+  /** Which trading venue this symbol uses. PHEMEX = Phemex USDT-margined perps (BTC/ETH, collateral × leverage, up to 100×). MT5 = MetaTrader 5 (forex/metals, lot-based sizing). COINBASE_SPOT = Coinbase spot (no leverage, whole-token sizing). */
   venue: PositionSizingVenue;
   /** Account size in USD used for sizing */
   accountSize: number;
@@ -36,4 +37,5 @@ export interface PositionSizing {
   lots?: PositionSizingLots;
   achievable?: AchievablePosition;
   mt5?: MT5Sizing;
+  spotToken?: SpotTokenSizing;
 }

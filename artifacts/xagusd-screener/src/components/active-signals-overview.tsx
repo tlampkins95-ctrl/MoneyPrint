@@ -64,17 +64,20 @@ interface RowProps {
   takeProfit2: number;
   riskRewardRatio: number;
   // Venue-tagged P&L: pnls are sourced from the venue's projection block on
-  // the server (achievable for PHEMEX, mt5 for MT5) so the dollar figures here
-  // always match what the SignalPanel shows for the same symbol/timeframe.
-  venue: "PHEMEX" | "MT5";
+  // the server (achievable for PHEMEX, mt5 for MT5, spotToken for COINBASE_SPOT)
+  // so the dollar figures here always match what the SignalPanel shows.
+  venue: "PHEMEX" | "MT5" | "COINBASE_SPOT";
   pnlAtSL: number | null;
   pnlAtTP1: number | null;
   pnlAtTP2: number | null;
-  // PHEMEX-only fields (null for MT5 venue)
+  // PHEMEX-only fields (null for other venues)
   collateral: number | null;
   leverage: number | null;
-  // MT5-only fields (null for PHEMEX venue)
+  // MT5-only fields (null for other venues)
   mt5Lots: number | null;
+  // COINBASE_SPOT-only fields (null for other venues)
+  spotTokenCount: number | null;
+  spotTokenSymbol: string | null;
   onClick: () => void;
   highlighted: boolean;
 }
@@ -84,11 +87,12 @@ interface RowProps {
 // new venue/field gets added, only this helper changes — no risk of the three
 // blocks drifting apart.
 function toRowSizing(ps: {
-  venue?: "PHEMEX" | "MT5";
+  venue?: "PHEMEX" | "MT5" | "COINBASE_SPOT";
   achievable?: { pnlAtSL: number; pnlAtTP1: number; pnlAtTP2: number; collateral: number; leverage: number } | null;
   mt5?: { pnlAtSL: number; pnlAtTP1: number; pnlAtTP2: number; lots: number } | null;
+  spotToken?: { pnlAtSL: number; pnlAtTP1: number; pnlAtTP2: number; tokenCount: number; tokenSymbol: string } | null;
 } | undefined | null) {
-  const venue: "PHEMEX" | "MT5" = ps?.venue ?? "PHEMEX";
+  const venue: "PHEMEX" | "MT5" | "COINBASE_SPOT" = ps?.venue ?? "PHEMEX";
   if (venue === "MT5") {
     const m = ps?.mt5;
     return {
@@ -99,6 +103,22 @@ function toRowSizing(ps: {
       collateral: null,
       leverage: null,
       mt5Lots: m?.lots ?? null,
+      spotTokenCount: null,
+      spotTokenSymbol: null,
+    };
+  }
+  if (venue === "COINBASE_SPOT") {
+    const st = ps?.spotToken;
+    return {
+      venue,
+      pnlAtSL: st?.pnlAtSL ?? null,
+      pnlAtTP1: st?.pnlAtTP1 ?? null,
+      pnlAtTP2: st?.pnlAtTP2 ?? null,
+      collateral: null,
+      leverage: null,
+      mt5Lots: null,
+      spotTokenCount: st?.tokenCount ?? null,
+      spotTokenSymbol: st?.tokenSymbol ?? null,
     };
   }
   const a = ps?.achievable;
@@ -110,6 +130,8 @@ function toRowSizing(ps: {
     collateral: a?.collateral ?? null,
     leverage: a?.leverage ?? null,
     mt5Lots: null,
+    spotTokenCount: null,
+    spotTokenSymbol: null,
   };
 }
 
@@ -181,14 +203,20 @@ function SignalRow(p: RowProps) {
       </div>
 
       {/* Per-venue $PnL projection — ground-truth dollar outcomes per leg.
-          PHEMEX shows $col×lev, MT5 shows the lot size — never mix them, since
-          each badge is a promise about which exchange the dollars came from. */}
+          PHEMEX shows $col×lev, MT5 shows the lot size, COINBASE_SPOT shows
+          the token count — never mix them, since each badge is a promise about
+          which exchange the dollars came from. */}
       {p.pnlAtSL !== null && p.pnlAtTP1 !== null && p.pnlAtTP2 !== null && (
         <div className="flex items-center gap-2 pl-2 text-[10px] font-mono">
           {p.venue === "MT5" && p.mt5Lots !== null ? (
             <>
               <span className="text-zinc-500">MT5</span>
               <span className="text-zinc-300">{p.mt5Lots.toFixed(2)} lot</span>
+            </>
+          ) : p.venue === "COINBASE_SPOT" && p.spotTokenCount !== null && p.spotTokenSymbol !== null ? (
+            <>
+              <span className="text-zinc-500">COINBASE</span>
+              <span className="text-sky-300">{p.spotTokenCount.toLocaleString()} {p.spotTokenSymbol}</span>
             </>
           ) : p.collateral !== null && p.leverage !== null ? (
             <>

@@ -117,7 +117,7 @@ export const LevelsDataTrend = {
 } as const;
 
 /**
- * Which trading venue this symbol uses. PHEMEX = Phemex USDT-margined perps (BTC/ETH, collateral × leverage, up to 100×). MT5 = MetaTrader 5 (forex/metals, lot-based sizing).
+ * Which trading venue this symbol uses. PHEMEX = Phemex USDT-margined perps (BTC/ETH, collateral × leverage, up to 100×). MT5 = MetaTrader 5 (forex/metals, lot-based sizing). COINBASE_SPOT = Coinbase spot (no leverage, whole-token sizing).
  */
 export type PositionSizingVenue =
   (typeof PositionSizingVenue)[keyof typeof PositionSizingVenue];
@@ -125,6 +125,7 @@ export type PositionSizingVenue =
 export const PositionSizingVenue = {
   PHEMEX: "PHEMEX",
   MT5: "MT5",
+  COINBASE_SPOT: "COINBASE_SPOT",
 } as const;
 
 /**
@@ -184,6 +185,28 @@ export interface MT5Sizing {
 }
 
 /**
+ * Spot token sizing for Coinbase spot instruments (no leverage). Token count = riskAmount ÷ |entry − stopLoss|, rounded down to whole tokens.
+ */
+export interface SpotTokenSizing {
+  /** Number of whole tokens to buy */
+  tokenCount: number;
+  /** Token ticker label (e.g. "SKYAI") */
+  tokenSymbol: string;
+  /** USD notional value of the position (tokenCount × entry) */
+  notional: number;
+  /** Actual dollar risk on SL hit (tokenCount × |entry − stopLoss|) */
+  riskAmount: number;
+  /** riskAmount as a percent of accountSize */
+  riskPct: number;
+  /** Signed dollar P&L if stop loss hits (always negative) */
+  pnlAtSL: number;
+  /** Signed dollar P&L if TP1 hits (positive) */
+  pnlAtTP1: number;
+  /** Signed dollar P&L if TP2 hits (positive) */
+  pnlAtTP2: number;
+}
+
+/**
  * Lot breakdown for forex / metals
  */
 export type PositionSizingLots = {
@@ -193,10 +216,10 @@ export type PositionSizingLots = {
 };
 
 /**
- * Suggested position size for the trader's account. The `venue` field decides which downstream block is authoritative — PHEMEX (crypto USDT-perps) renders `achievable`, MT5 (forex/metals) renders `mt5`.
+ * Suggested position size for the trader's account. The `venue` field decides which downstream block is authoritative — PHEMEX (crypto USDT-perps) renders `achievable`, MT5 (forex/metals) renders `mt5`, COINBASE_SPOT (spot tokens) renders `spotToken`.
  */
 export interface PositionSizing {
-  /** Which trading venue this symbol uses. PHEMEX = Phemex USDT-margined perps (BTC/ETH, collateral × leverage, up to 100×). MT5 = MetaTrader 5 (forex/metals, lot-based sizing). */
+  /** Which trading venue this symbol uses. PHEMEX = Phemex USDT-margined perps (BTC/ETH, collateral × leverage, up to 100×). MT5 = MetaTrader 5 (forex/metals, lot-based sizing). COINBASE_SPOT = Coinbase spot (no leverage, whole-token sizing). */
   venue: PositionSizingVenue;
   /** Account size in USD used for sizing */
   accountSize: number;
@@ -218,6 +241,7 @@ export interface PositionSizing {
   lots?: PositionSizingLots;
   achievable?: AchievablePosition;
   mt5?: MT5Sizing;
+  spotToken?: SpotTokenSizing;
 }
 
 export interface LevelsData {

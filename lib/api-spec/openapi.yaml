@@ -469,12 +469,12 @@ components:
 
     PositionSizing:
       type: object
-      description: Suggested position size for the trader's account. The `venue` field decides which downstream block is authoritative — PHEMEX (crypto USDT-perps) renders `achievable`, MT5 (forex/metals) renders `mt5`.
+      description: Suggested position size for the trader's account. The `venue` field decides which downstream block is authoritative — PHEMEX (crypto USDT-perps) renders `achievable`, MT5 (forex/metals) renders `mt5`, COINBASE_SPOT (spot tokens) renders `spotToken`.
       properties:
         venue:
           type: string
-          enum: [PHEMEX, MT5]
-          description: Which trading venue this symbol uses. PHEMEX = Phemex USDT-margined perps (BTC/ETH, collateral × leverage, up to 100×). MT5 = MetaTrader 5 (forex/metals, lot-based sizing).
+          enum: [PHEMEX, MT5, COINBASE_SPOT]
+          description: Which trading venue this symbol uses. PHEMEX = Phemex USDT-margined perps (BTC/ETH, collateral × leverage, up to 100×). MT5 = MetaTrader 5 (forex/metals, lot-based sizing). COINBASE_SPOT = Coinbase spot (no leverage, whole-token sizing).
         accountSize:
           type: number
           description: Account size in USD used for sizing
@@ -514,6 +514,8 @@ components:
           $ref: "#/components/schemas/AchievablePosition"
         mt5:
           $ref: "#/components/schemas/MT5Sizing"
+        spotToken:
+          $ref: "#/components/schemas/SpotTokenSizing"
       required:
         - venue
         - accountSize
@@ -522,6 +524,44 @@ components:
         - positionSize
         - positionSizeUnit
         - notional
+
+    SpotTokenSizing:
+      type: object
+      description: Spot token sizing for Coinbase spot instruments (no leverage). Token count = riskAmount ÷ |entry − stopLoss|, rounded down to whole tokens.
+      properties:
+        tokenCount:
+          type: integer
+          description: Number of whole tokens to buy
+        tokenSymbol:
+          type: string
+          description: Token ticker label (e.g. "SKYAI")
+        notional:
+          type: number
+          description: USD notional value of the position (tokenCount × entry)
+        riskAmount:
+          type: number
+          description: Actual dollar risk on SL hit (tokenCount × |entry − stopLoss|)
+        riskPct:
+          type: number
+          description: riskAmount as a percent of accountSize
+        pnlAtSL:
+          type: number
+          description: Signed dollar P&L if stop loss hits (always negative)
+        pnlAtTP1:
+          type: number
+          description: Signed dollar P&L if TP1 hits (positive)
+        pnlAtTP2:
+          type: number
+          description: Signed dollar P&L if TP2 hits (positive)
+      required:
+        - tokenCount
+        - tokenSymbol
+        - notional
+        - riskAmount
+        - riskPct
+        - pnlAtSL
+        - pnlAtTP1
+        - pnlAtTP2
 
     MT5Sizing:
       type: object
