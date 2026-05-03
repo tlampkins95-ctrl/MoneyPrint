@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { SYMBOLS, makeRounder, type Symbol } from "./symbols";
 import { type CandleRaw, type Timeframe } from "./yahoo-fetch";
-import { fetchOkxPerpPrice } from "./crypto-perp-fetch";
+import { fetchOkxPerpPrice, fetchPhemexPerpPrice } from "./crypto-perp-fetch";
 import { fetchPythPrice } from "./pyth-fetch";
 
 // ─── Live spot price (per-symbol cache) ──────────────────────────────────────
@@ -54,6 +54,12 @@ async function fetchFromOkxPerp(symbol: Symbol): Promise<number | null> {
   return fetchOkxPerpPrice(perp);
 }
 
+async function fetchFromPhemexPerp(symbol: Symbol): Promise<number | null> {
+  const perp = SYMBOLS[symbol].phemexPerp;
+  if (!perp) return null;
+  return fetchPhemexPerpPrice(perp);
+}
+
 async function fetchFromPyth(symbol: Symbol): Promise<number | null> {
   const feedId = SYMBOLS[symbol].pythFeedId;
   if (!feedId) return null;
@@ -88,11 +94,13 @@ export async function fetchSpotPrice(symbol: Symbol): Promise<number | null> {
   if (cached && now - cached.timestamp < SPOT_CACHE_TTL_MS) {
     return cached.price;
   }
-  // For crypto: Pyth Hermes first — same oracle that drives jup.ag's chart and
-  // perps marks, so the Now-price line and the chart agree to the cent. Fall
-  // back to OKX → Coinbase → TV scrape if Hermes is unreachable. For metals,
-  // GoldAPI is the only relevant source.
+  // For crypto: Phemex USDT-perp mark first — same number TradingView's
+  // PHEMEX:BTCUSDT chart prints, so the Now-price line and the chart agree
+  // to the cent (perp basis vs spot oracles can drift $40+ on BTC). Fall
+  // back to Pyth oracle → OKX perp → Coinbase spot → TV scrape if Phemex is
+  // unreachable. For metals, GoldAPI is the only relevant source.
   const price =
+    (await fetchFromPhemexPerp(symbol)) ??
     (await fetchFromPyth(symbol)) ??
     (await fetchFromOkxPerp(symbol)) ??
     (await fetchFromCoinbase(symbol)) ??

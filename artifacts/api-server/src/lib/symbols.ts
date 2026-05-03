@@ -19,6 +19,10 @@ export interface SymbolMeta {
   goldApi?: "XAG" | "XAU";
   coinbase?: string;
   okxPerp?: string;
+  // Phemex USDT-margined perp symbol (e.g. "BTCUSDT"). When present, Phemex
+  // is the primary spot source so the Now-price line agrees with the
+  // PHEMEX:BTCUSDT chart's mark print.
+  phemexPerp?: string;
   // Pyth Hermes price-feed IDs (mainnet). Used as the primary spot source for
   // crypto so the Now-price line agrees with jup.ag's chart and oracle marks.
   pythFeedId?: string;
@@ -96,6 +100,7 @@ export const SYMBOLS: Record<Symbol, SymbolMeta> = {
     prefix: "$",
     coinbase: "BTC-USD",
     okxPerp: "BTC-USDT-SWAP",
+    phemexPerp: "BTCUSDT",
     pythFeedId: "e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
     venue: "PHEMEX · USDT perp",
   },
@@ -108,6 +113,7 @@ export const SYMBOLS: Record<Symbol, SymbolMeta> = {
     prefix: "$",
     coinbase: "ETH-USD",
     okxPerp: "ETH-USDT-SWAP",
+    phemexPerp: "ETHUSDT",
     pythFeedId: "ff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace",
     venue: "PHEMEX · USDT perp",
   },

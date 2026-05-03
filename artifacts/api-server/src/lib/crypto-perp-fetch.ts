@@ -158,3 +158,46 @@ export async function fetchOkxPerpPrice(
     return null;
   }
 }
+
+// Phemex USDT-margined perp mark price. We pick `markRp` (mark, not last)
+// because the mark is the same number TradingView's PHEMEX:BTCUSDT chart
+// displays in the price scale and the same number Phemex uses for liq /
+// funding — keeps the Now-price line and the chart in lockstep, even when
+// the order-book last drifts a few ticks. v3 endpoint returns "real" prices
+// (Rp suffix) — no integer scaling needed.
+interface PhemexTickerResponse {
+  error: unknown;
+  id: number;
+  result?: {
+    symbol?: string;
+    markRp?: string;
+    lastRp?: string;
+  };
+}
+
+export async function fetchPhemexPerpPrice(
+  symbol: string,
+): Promise<number | null> {
+  try {
+    const response = await fetch(
+      `https://api.phemex.com/md/v3/ticker/24hr?symbol=${encodeURIComponent(symbol)}`,
+      {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (compatible; Forex-Screener/1.0)",
+        },
+        signal: AbortSignal.timeout(4000),
+      },
+    );
+    if (!response.ok) return null;
+    const json = (await response.json()) as PhemexTickerResponse;
+    if (json.error) return null;
+    // Prefer mark (matches TradingView's PHEMEX:BTCUSDT print). Fall back to
+    // last if mark is missing — the two are within a tick on liquid pairs.
+    const raw = json.result?.markRp ?? json.result?.lastRp;
+    if (typeof raw !== "string") return null;
+    const price = parseFloat(raw);
+    return isFinite(price) && price > 0 ? price : null;
+  } catch {
+    return null;
+  }
+}
