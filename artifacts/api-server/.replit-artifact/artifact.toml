@@ -27,14 +27,8 @@ args = ["node", "--enable-source-maps", "artifacts/api-server/dist/index.mjs"]
 [services.production.run.env]
 PORT = "8080"
 NODE_ENV = "production"
-# Production stays silent on Telegram by default — dev is already firing
-# alerts and autoscale would scale-to-zero anyway, killing the in-process
-# notifier loop. Flip to "true" once the deploy target switches to a
-# Reserved VM that should own 24/7 alerts.
-ENABLE_TELEGRAM_NOTIFIER = "false"
-# Same rationale as Telegram: autoscale prod scales-to-zero and the in-process
-# notifier loop dies. Flip to "true" once a Reserved VM owns 24/7 alerts.
-ENABLE_WEB_PUSH = "false"
+ENABLE_TELEGRAM_NOTIFIER = "true"
+ENABLE_WEB_PUSH = "true"
 
 [services.production.health.startup]
 path = "/api/healthz"
