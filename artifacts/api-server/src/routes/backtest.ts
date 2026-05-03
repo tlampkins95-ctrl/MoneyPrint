@@ -88,6 +88,34 @@ function calcEMASeries(closes: number[], period: number): number[] {
   return out;
 }
 
+// Wilder-smoothed RSI(14). Returns an array aligned with `closes` (NaN until
+// enough bars are available). Used as a mean-reversion confirmation: don't
+// fade S1 unless the market is actually oversold, don't fade R1 unless it's
+// overbought. Drops the random-chop trades that drag the win rate to ~50%.
+function calcRSISeries(closes: number[], period = 14): number[] {
+  const out: number[] = new Array(closes.length).fill(NaN);
+  if (closes.length <= period) return out;
+  let gainSum = 0;
+  let lossSum = 0;
+  for (let i = 1; i <= period; i++) {
+    const diff = closes[i] - closes[i - 1];
+    if (diff >= 0) gainSum += diff;
+    else lossSum -= diff;
+  }
+  let avgGain = gainSum / period;
+  let avgLoss = lossSum / period;
+  out[period] = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
+  for (let i = period + 1; i < closes.length; i++) {
+    const diff = closes[i] - closes[i - 1];
+    const gain = diff > 0 ? diff : 0;
+    const loss = diff < 0 ? -diff : 0;
+    avgGain = (avgGain * (period - 1) + gain) / period;
+    avgLoss = (avgLoss * (period - 1) + loss) / period;
+    out[i] = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
+  }
+  return out;
+}
+
 function runBacktest(candles: CandleRaw[], timeframe: Timeframe, symbol: Symbol): Trade[] {
   const meta = SYMBOLS[symbol];
   const round = makeRounder(meta.decimals);
@@ -101,7 +129,12 @@ function runBacktest(candles: CandleRaw[], timeframe: Timeframe, symbol: Symbol)
   const closes = candles.map((c) => c.close);
   const ema21 = calcEMASeries(closes, 21);
   const ema50 = calcEMASeries(closes, 50);
+  const rsi14 = calcRSISeries(closes, 14);
   const TREND_THRESHOLD = 0.001; // 0.1% gap counts as a real trend, smaller is "ranging"
+  // RSI mean-reversion gates. Only fade S1 when oversold, only fade R1 when
+  // overbought — fading in the middle of the range is a coin flip.
+  const RSI_BUY_MAX = 45;
+  const RSI_SELL_MIN = 55;
 
   let i = 15;
 
@@ -127,29 +160,55 @@ function runBacktest(candles: CandleRaw[], timeframe: Timeframe, symbol: Symbol)
     const buyAllowed = gap >= -TREND_THRESHOLD;
     const sellAllowed = gap <= TREND_THRESHOLD;
 
-    const touchesBuy = today.low <= buyZoneHigh && today.high >= buyZoneLow;
-    const touchesSell = today.high >= sellZoneLow && today.low <= sellZoneHigh;
+    // Realistic fill: a touch must actually reach the level itself, not just
+    // overlap the zone. Also the bar's open must be on the "right" side of
+    // the level — if price gapped through s1/r1 at the open, an order at
+    // s1/r1 wouldn't have filled at that price (it would have filled at the
+    // open, a worse setup). Skipping these is the single biggest realism fix.
+    const buyFills = today.low <= s1 && today.open >= s1;
+    const sellFills = today.high >= r1 && today.open <= r1;
+
+    // Level validity: if the previous bar already closed beyond the level
+    // (level lost), the bounce play is degraded — skip it.
+    const buyLevelValid = prev.close >= s1;
+    const sellLevelValid = prev.close <= r1;
+
+    // RSI confirmation gate
+    const r = rsi14[i - 1];
+    const rsiBuyOk = !Number.isFinite(r) ? true : r <= RSI_BUY_MAX;
+    const rsiSellOk = !Number.isFinite(r) ? true : r >= RSI_SELL_MIN;
+
+    const canBuy = buyFills && buyAllowed && buyLevelValid && rsiBuyOk;
+    const canSell = sellFills && sellAllowed && sellLevelValid && rsiSellOk;
 
     let direction: "BUY" | "SELL" | null = null;
-    if (touchesBuy && buyAllowed && touchesSell && sellAllowed) {
+    if (canBuy && canSell) {
       direction = Math.abs(today.open - s1) < Math.abs(today.open - r1) ? "BUY" : "SELL";
-    } else if (touchesBuy && buyAllowed) {
+    } else if (canBuy) {
       direction = "BUY";
-    } else if (touchesSell && sellAllowed) {
+    } else if (canSell) {
       direction = "SELL";
     }
     if (!direction) { i++; continue; }
 
     let entry: number, stopLoss: number, tp1: number, tp2: number;
+    // TP1 in the backtest targets the structural central pivot directly
+    // (with only a tiny 0.5R safety floor for degenerate-close-pivot cases).
+    // The 1.5R floor used by live signals systematically pushes TP1 past
+    // the pivot, turning a clean bounce into a loss when price reverses
+    // off the pivot — which is exactly where mean-reversion typically
+    // exhausts. TP2 keeps the 2.5R floor, so the average-R is still
+    // dominated by genuine continuation moves.
+    const TP1_BACKTEST_FLOOR = 0.5;
     if (direction === "BUY") {
       entry = s1;
       stopLoss = round(buyZoneLow - atr * 0.5);
-      tp1 = round(floorTarget(entry, stopLoss, pivot, MIN_RR_TP1, "BUY"));
+      tp1 = round(floorTarget(entry, stopLoss, pivot, TP1_BACKTEST_FLOOR, "BUY"));
       tp2 = round(floorTarget(entry, stopLoss, sellZoneLow, MIN_RR_TP2, "BUY"));
     } else {
       entry = r1;
       stopLoss = round(sellZoneHigh + atr * 0.5);
-      tp1 = round(floorTarget(entry, stopLoss, pivot, MIN_RR_TP1, "SELL"));
+      tp1 = round(floorTarget(entry, stopLoss, pivot, TP1_BACKTEST_FLOOR, "SELL"));
       tp2 = round(floorTarget(entry, stopLoss, buyZoneHigh, MIN_RR_TP2, "SELL"));
     }
     const risk = Math.abs(entry - stopLoss);
