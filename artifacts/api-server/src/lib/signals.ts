@@ -60,6 +60,30 @@ async function fetchFromPhemexPerp(symbol: Symbol): Promise<number | null> {
   return fetchPhemexPerpPrice(perp);
 }
 
+async function fetchFromPhemexSpot(symbol: Symbol): Promise<number | null> {
+  const meta = SYMBOLS[symbol];
+  const spotSym = meta.phemexSpot;
+  const scale = meta.phemexSpotPriceScale;
+  if (!spotSym || !scale) return null;
+  try {
+    const response = await fetch(
+      `https://api.phemex.com/md/spot/ticker/24hr?symbol=${spotSym}`,
+      {
+        headers: { "User-Agent": "Mozilla/5.0 (compatible; Forex-Screener/1.0)" },
+        signal: AbortSignal.timeout(4000),
+      },
+    );
+    if (!response.ok) return null;
+    const json = (await response.json()) as { result?: { lastEp?: number } };
+    const ep = json.result?.lastEp;
+    if (typeof ep !== "number" || !isFinite(ep) || ep <= 0) return null;
+    const price = ep / Math.pow(10, scale);
+    return price > 0 ? price : null;
+  } catch {
+    return null;
+  }
+}
+
 async function fetchFromPyth(symbol: Symbol): Promise<number | null> {
   const feedId = SYMBOLS[symbol].pythFeedId;
   if (!feedId) return null;
@@ -94,12 +118,13 @@ export async function fetchSpotPrice(symbol: Symbol): Promise<number | null> {
   if (cached && now - cached.timestamp < SPOT_CACHE_TTL_MS) {
     return cached.price;
   }
-  // For crypto: Phemex USDT-perp mark first — same number TradingView's
-  // PHEMEX:BTCUSDT chart prints, so the Now-price line and the chart agree
-  // to the cent (perp basis vs spot oracles can drift $40+ on BTC). Fall
-  // back to Pyth oracle → OKX perp → Coinbase spot → TV scrape if Phemex is
-  // unreachable. For metals, GoldAPI is the only relevant source.
+  // Price cascade (most authoritative first):
+  //  • Phemex spot  — primary for spot tokens (e.g. SKYAI), matches chart exactly
+  //  • Phemex perp  — primary for USDT perps (BTC/ETH), matches PHEMEX:BTCUSDT chart
+  //  • Pyth oracle  → OKX perp → Coinbase spot → TradingView scrape (fallbacks)
+  //  • GoldAPI      — only relevant source for metals (XAG/XAU)
   const price =
+    (await fetchFromPhemexSpot(symbol)) ??
     (await fetchFromPhemexPerp(symbol)) ??
     (await fetchFromPyth(symbol)) ??
     (await fetchFromOkxPerp(symbol)) ??

@@ -32,6 +32,13 @@ export interface SymbolMeta {
   // Phemex contract qty increment. Orders are rounded DOWN to this step
   // (you can't place 0.0017 BTC, only 0.001 or 0.002).
   phemexQtyStep?: number;
+  // Phemex SPOT symbol (prefixed with lowercase 's', e.g. "sSKYAIUSDT").
+  // When present, the live price is fetched from Phemex's spot ticker so the
+  // Now-price line in the screener agrees with the PHEMEX spot chart to the cent.
+  phemexSpot?: string;
+  // Price scale for the Phemex spot ticker Ep fields (10^priceScale divides Ep).
+  // Phemex returns lastEp as an integer; divide by 10^phemexSpotPriceScale for USD.
+  phemexSpotPriceScale?: number;
   // Pyth Hermes price-feed IDs (mainnet). Used as the primary spot source for
   // crypto so the Now-price line agrees with jup.ag's chart and oracle marks.
   pythFeedId?: string;
@@ -132,12 +139,14 @@ export const SYMBOLS: Record<Symbol, SymbolMeta> = {
   },
   SKYAIUSDT: {
     yahoo: "SKYAI-USD",
-    tvSymbol: "COINBASE:SKYAIUSD",
-    tvScrapePath: "/symbols/SKYAIUSD/?exchange=COINBASE",
-    label: "SKYAI / USDT (Coinbase)",
+    tvSymbol: "PHEMEX:SKYAIUSDT",
+    tvScrapePath: "/symbols/SKYAIUSDT/?exchange=PHEMEX",
+    label: "SKYAI / USDT (Phemex spot)",
     decimals: 4,
     prefix: "$",
     coinbase: "SKYAI-USD",
+    phemexSpot: "sSKYAIUSDT",
+    phemexSpotPriceScale: 8,
     venue: "Phemex · spot",
   },
 };
