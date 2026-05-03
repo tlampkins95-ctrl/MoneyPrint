@@ -134,9 +134,10 @@ export const SYMBOLS: Record<Symbol, SymbolMeta> = {
     yahoo: "SKYAI-USD",
     tvSymbol: "COINBASE:SKYAIUSD",
     tvScrapePath: "/symbols/SKYAIUSD/?exchange=COINBASE",
-    label: "SKYAI / USD (Coinbase)",
+    label: "SKYAI / USDT (Coinbase)",
     decimals: 4,
     prefix: "$",
+    coinbase: "SKYAI-USD",
     venue: "Coinbase · spot",
   },
 };
