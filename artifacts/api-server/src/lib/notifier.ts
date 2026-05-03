@@ -4,7 +4,7 @@ import {
   fetchCandlesForTimeframe,
   type Timeframe,
 } from "./yahoo-fetch";
-import { computeLevelsStable, fetchSpotPrice } from "./signals";
+import { computeLevelsStable, fetchSpotPrice, getActiveTrade } from "./signals";
 import {
   buildAlertContext,
   sendTelegramAlert,
@@ -90,7 +90,21 @@ async function checkSymbol(
     const cooldownMs = COOLDOWN_BY_TIMEFRAME[timeframe];
     const cooldownActive = now - prev.lastAlertAt < cooldownMs;
 
-    if (transitioned && !cooldownActive) {
+    // De-dup against the active-trade store: if a trade is already open in
+    // the same direction for this (symbol, timeframe), the user is already
+    // positioned and a fresh BUY/SELL alert is just noise. The level-signal
+    // classifier can oscillate BUY→WAIT→BUY when price briefly exits its
+    // zone (e.g. the start of a pump), and without this guard the second
+    // BUY transition would re-alert even though the original trade is still
+    // mathematically open. WAIT does not invalidate the active trade by
+    // design, so checking the store is the source of truth for "am I
+    // already in this?".
+    const activeTrade = getActiveTrade(symbol, timeframe);
+    const alreadyInSameDirection =
+      activeTrade?.signal === levels.signal &&
+      (levels.signal === "BUY" || levels.signal === "SELL");
+
+    if (transitioned && !cooldownActive && !alreadyInSameDirection) {
       const tfLabel = TIMEFRAME_LABEL[timeframe];
       const link = buildAppLink(symbol, timeframe);
       const ctx = buildAlertContext(symbol, timeframe, tfLabel, levels, link);
@@ -145,6 +159,20 @@ async function checkSymbol(
           remainingMs: cooldownMs - (now - prev.lastAlertAt),
         },
         "Signal alert suppressed (cooldown)",
+      );
+    }
+
+    if (transitioned && alreadyInSameDirection) {
+      logger.debug(
+        {
+          symbol,
+          timeframe,
+          from: prev.signal,
+          to: levels.signal,
+          activeEntry: activeTrade?.entryPrice,
+          activeOpenedAt: activeTrade?.openedAt,
+        },
+        "Signal alert suppressed (already in active trade same direction)",
       );
     }
 
