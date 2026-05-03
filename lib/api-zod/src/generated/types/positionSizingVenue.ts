@@ -7,12 +7,12 @@
  */
 
 /**
- * Which trading venue this symbol uses. JUP = Jupiter perps (BTC/ETH, collateral × leverage). MT5 = MetaTrader 5 (forex/metals, lot-based sizing).
+ * Which trading venue this symbol uses. PHEMEX = Phemex USDT-margined perps (BTC/ETH, collateral × leverage, up to 100×). MT5 = MetaTrader 5 (forex/metals, lot-based sizing).
  */
 export type PositionSizingVenue =
   (typeof PositionSizingVenue)[keyof typeof PositionSizingVenue];
 
 export const PositionSizingVenue = {
-  JUP: "JUP",
+  PHEMEX: "PHEMEX",
   MT5: "MT5",
 } as const;

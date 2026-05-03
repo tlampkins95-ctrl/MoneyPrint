@@ -64,16 +64,16 @@ interface RowProps {
   takeProfit2: number;
   riskRewardRatio: number;
   // Venue-tagged P&L: pnls are sourced from the venue's projection block on
-  // the server (achievable for JUP, mt5 for MT5) so the dollar figures here
+  // the server (achievable for PHEMEX, mt5 for MT5) so the dollar figures here
   // always match what the SignalPanel shows for the same symbol/timeframe.
-  venue: "JUP" | "MT5";
+  venue: "PHEMEX" | "MT5";
   pnlAtSL: number | null;
   pnlAtTP1: number | null;
   pnlAtTP2: number | null;
-  // JUP-only fields (null for MT5 venue)
+  // PHEMEX-only fields (null for MT5 venue)
   collateral: number | null;
   leverage: number | null;
-  // MT5-only fields (null for JUP venue)
+  // MT5-only fields (null for PHEMEX venue)
   mt5Lots: number | null;
   onClick: () => void;
   highlighted: boolean;
@@ -84,11 +84,11 @@ interface RowProps {
 // new venue/field gets added, only this helper changes — no risk of the three
 // blocks drifting apart.
 function toRowSizing(ps: {
-  venue?: "JUP" | "MT5";
+  venue?: "PHEMEX" | "MT5";
   achievable?: { pnlAtSL: number; pnlAtTP1: number; pnlAtTP2: number; collateral: number; leverage: number } | null;
   mt5?: { pnlAtSL: number; pnlAtTP1: number; pnlAtTP2: number; lots: number } | null;
 } | undefined | null) {
-  const venue: "JUP" | "MT5" = ps?.venue ?? "JUP";
+  const venue: "PHEMEX" | "MT5" = ps?.venue ?? "PHEMEX";
   if (venue === "MT5") {
     const m = ps?.mt5;
     return {
@@ -181,7 +181,7 @@ function SignalRow(p: RowProps) {
       </div>
 
       {/* Per-venue $PnL projection — ground-truth dollar outcomes per leg.
-          JUP shows $col×lev, MT5 shows the lot size — never mix them, since
+          PHEMEX shows $col×lev, MT5 shows the lot size — never mix them, since
           each badge is a promise about which exchange the dollars came from. */}
       {p.pnlAtSL !== null && p.pnlAtTP1 !== null && p.pnlAtTP2 !== null && (
         <div className="flex items-center gap-2 pl-2 text-[10px] font-mono">
@@ -192,7 +192,7 @@ function SignalRow(p: RowProps) {
             </>
           ) : p.collateral !== null && p.leverage !== null ? (
             <>
-              <span className="text-zinc-500">JUP</span>
+              <span className="text-zinc-500">PHEMEX</span>
               <span className="text-zinc-300">${p.collateral.toFixed(0)}×{p.leverage.toFixed(0)}</span>
             </>
           ) : null}
@@ -233,14 +233,14 @@ export function ActiveSignalsOverview({
   }, [collapsed]);
 
   // Read the SAME localStorage keys the SignalPanel writes to so the overview's
-  // Jupiter $P&L / collateral / leverage match what the trader sees in the
+  // Phemex $P&L / collateral / leverage match what the trader sees in the
   // main panel. Keys defined in components/signal-panel.tsx — keep in sync.
   const accountSize = readNumber("screener.accountSize", 500);
   const riskPct = readNumber("screener.riskPct", 1);
-  const minCollateral = readNumber("screener.minCollateral", 10);
-  const maxLeverage = readNumber("screener.maxLeverage", 50);
+  const minCollateral = readNumber("screener.minCollateral", 1);
+  const maxLeverage = readNumber("screener.maxLeverage", 100);
   // MT5 lot size for forex/metals projections — paired with the SignalPanel's
-  // mt5Lots input. BTC/ETH ignore this and stay on the JUP $col×lev model.
+  // mt5Lots input. BTC/ETH ignore this and stay on the PHEMEX $col×lev model.
   const mt5Lots = readNumber("screener.mt5Lots", 0.01);
 
   const params = { accountSize, riskPct, minCollateral, maxLeverage, mt5Lots };

@@ -11,14 +11,14 @@ import type { PositionSizingLots } from "./positionSizingLots";
 import type { PositionSizingVenue } from "./positionSizingVenue";
 
 /**
- * Suggested position size for the trader's account. The `venue` field decides which downstream block is authoritative — JUP (crypto perps) renders `achievable`, MT5 (forex/metals) renders `mt5`.
+ * Suggested position size for the trader's account. The `venue` field decides which downstream block is authoritative — PHEMEX (crypto USDT-perps) renders `achievable`, MT5 (forex/metals) renders `mt5`.
  */
 export interface PositionSizing {
-  /** Which trading venue this symbol uses. JUP = Jupiter perps (BTC/ETH, collateral × leverage). MT5 = MetaTrader 5 (forex/metals, lot-based sizing). */
+  /** Which trading venue this symbol uses. PHEMEX = Phemex USDT-margined perps (BTC/ETH, collateral × leverage, up to 100×). MT5 = MetaTrader 5 (forex/metals, lot-based sizing). */
   venue: PositionSizingVenue;
   /** Account size in USD used for sizing */
   accountSize: number;
-  /** Dollar amount risked per trade if stop is hit (JUP venue's risk-budget; on MT5 venue this is the *would-be* budget, not the actual lot-based risk — read mt5.pnlAtSL for the actual loss) */
+  /** Dollar amount risked per trade if stop is hit (PHEMEX venue's risk-budget; on MT5 venue this is the *would-be* budget, not the actual lot-based risk — read mt5.pnlAtSL for the actual loss) */
   riskAmount: number;
   /** Risk percent of account (e.g. 1.0 = 1%) */
   riskPct: number;

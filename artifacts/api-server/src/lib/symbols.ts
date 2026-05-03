@@ -86,27 +86,30 @@ export const SYMBOLS: Record<Symbol, SymbolMeta> = {
   },
   BTCUSD: {
     yahoo: "BTC-USD",
-    tvSymbol: "PYTH:BTCUSD",
-    tvScrapePath: "/symbols/BTCUSD/?exchange=PYTH",
-    label: "Bitcoin / USD (Pyth)",
+    // Chart now points at Phemex's USDT-margined perp (BTCUSDT). The label
+    // still says "BTCUSD" to keep URLs and saved bookmarks stable, but the
+    // tvSymbol/tvScrapePath and the position-sizing block are Phemex's.
+    tvSymbol: "PHEMEX:BTCUSDT",
+    tvScrapePath: "/symbols/BTCUSDT/?exchange=PHEMEX",
+    label: "Bitcoin / USDT (Phemex)",
     decimals: 1,
     prefix: "$",
     coinbase: "BTC-USD",
     okxPerp: "BTC-USDT-SWAP",
     pythFeedId: "e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
-    venue: "PYTH · jup.ag",
+    venue: "PHEMEX · USDT perp",
   },
   ETHUSD: {
     yahoo: "ETH-USD",
-    tvSymbol: "PYTH:ETHUSD",
-    tvScrapePath: "/symbols/ETHUSD/?exchange=PYTH",
-    label: "Ethereum / USD (Pyth)",
+    tvSymbol: "PHEMEX:ETHUSDT",
+    tvScrapePath: "/symbols/ETHUSDT/?exchange=PHEMEX",
+    label: "Ethereum / USDT (Phemex)",
     decimals: 2,
     prefix: "$",
     coinbase: "ETH-USD",
     okxPerp: "ETH-USDT-SWAP",
     pythFeedId: "ff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace",
-    venue: "PYTH · jup.ag",
+    venue: "PHEMEX · USDT perp",
   },
 };
 

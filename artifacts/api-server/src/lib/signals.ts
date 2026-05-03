@@ -181,12 +181,16 @@ export const MIN_RR_TP1 = 1.5;
 export const MIN_RR_TP2 = 2.5;
 
 // ─── Position sizing ─────────────────────────────────────────────────────────
-// Defaults assume a $500 starting account, 1% risk per trade, Jupiter perps
-// minimums ($10 min collateral, 50x leverage cap), and MT5 micro lots (0.01).
+// Defaults assume a $500 starting account, 1% risk per trade, Phemex USDT
+// perps envelope ($1 min collateral floor, 100× leverage cap), and MT5 micro
+// lots (0.01).
 export const DEFAULT_ACCOUNT_SIZE = 500;
 export const DEFAULT_RISK_PCT = 0.01;
-export const DEFAULT_MIN_COLLATERAL = 10;
-export const DEFAULT_MAX_LEVERAGE = 50;
+// Phemex USDT-perps have no fixed minimum collateral and allow up to 100×.
+// Pick a $1 floor so the "achievable" block stays sane for tiny trades but
+// effectively never triggers OVER-SIZED on Phemex (was $10 on Jupiter).
+export const DEFAULT_MIN_COLLATERAL = 1;
+export const DEFAULT_MAX_LEVERAGE = 100;
 export const DEFAULT_MT5_LOTS = 0.01;
 
 // ─── MT5 lot sizing helpers ──────────────────────────────────────────────────
@@ -311,7 +315,7 @@ interface AchievablePosition {
 }
 
 interface PositionSizing {
-  venue: "JUP" | "MT5";
+  venue: "PHEMEX" | "MT5";
   accountSize: number;
   riskAmount: number;
   riskPct: number;
@@ -429,18 +433,19 @@ function computePositionSizing(
   const meta = SYMBOLS[symbol];
   const r = (n: number, d = 2) => Math.round(n * 10 ** d) / 10 ** d;
 
-  // ─── Crypto perps (BTC, ETH) — venue: JUP ───
+  // ─── Crypto perps (BTC, ETH) — venue: PHEMEX (USDT-margined linear perps) ───
   if (meta.okxPerp) {
     const positionSize = riskAmount / slDist; // coin units
     const notional = positionSize * entry;
     const leverage = Math.max(1, Math.ceil(notional / accountSize));
     let leverageNote: string | undefined;
-    if (leverage > 25) leverageNote = "Required leverage > 25x — exceeds most exchange caps. Skip this setup or use a larger account.";
-    else if (leverage > 15) leverageNote = "High leverage — verify your exchange's max and watch for liquidation slippage.";
+    // Phemex USDT-perps cap at 100× — bands tuned for that envelope.
+    if (leverage > 50) leverageNote = "Required leverage > 50x — high liquidation risk on volatile prints. Consider a larger account.";
+    else if (leverage > 25) leverageNote = "High leverage — keep meaningful free margin to absorb wicks.";
     else if (leverage > 10) leverageNote = "Moderate-high leverage — keep extra margin in reserve.";
     const unit = symbol === "BTCUSD" ? "BTC" : "ETH";
     return {
-      venue: "JUP",
+      venue: "PHEMEX",
       accountSize: r(accountSize),
       riskAmount: r(riskAmount),
       riskPct: r(riskPct * 100, 2),
@@ -623,10 +628,13 @@ export function computeLevels(
 
   if ((inBuyZone || approachingBuy) && buyAllowed) {
     signal = "BUY";
-    // Anchor entry to the planned limit price at S1 — the trader stages an
-    // order there regardless of where price drifted within the zone, so the
-    // R/R math is deterministic instead of jittering with the live print.
-    entryPrice = round(pivots.s1);
+    // Anchor entry to the planned limit price at S1, but never above the live
+    // print — if price has already dipped at/below S1 the limit would sit
+    // ABOVE market and only fill on a bounce, immediately putting the trade
+    // in drawdown if it reverses (the original "BUY entry above price" bug).
+    // Clamping to currentPrice turns those cases into a market-style entry at
+    // the better fill, while pullback approaches from above still stage at S1.
+    entryPrice = round(Math.min(pivots.s1, currentPrice));
     stopLoss = round(buyZoneLow - atr * 0.5);
     takeProfit1 = round(floorTarget(entryPrice, stopLoss, pivots.pivot, MIN_RR_TP1, "BUY"));
     takeProfit2 = round(floorTarget(entryPrice, stopLoss, sellZoneLow, MIN_RR_TP2, "BUY"));
@@ -635,7 +643,11 @@ export function computeLevels(
       : `[${tfLabel}] Price is within ${fmt(currentPrice - buyZoneHigh)} of the buy zone (${fmt(buyZoneLow)}–${fmt(buyZoneHigh)}). Stage a limit order near S1 ${fmt(pivots.s1)}.`;
   } else if ((inSellZone || approachingSell) && sellAllowed) {
     signal = "SELL";
-    entryPrice = round(pivots.r1);
+    // Mirror of BUY clamp: never set the SELL entry below the live print, or
+    // the limit would sit at a worse price than market and only fill on a
+    // pullback up. Clamp to currentPrice on rallies-into-zone, keep R1 on
+    // approaches from below.
+    entryPrice = round(Math.max(pivots.r1, currentPrice));
     stopLoss = round(sellZoneHigh + atr * 0.5);
     takeProfit1 = round(floorTarget(entryPrice, stopLoss, pivots.pivot, MIN_RR_TP1, "SELL"));
     takeProfit2 = round(floorTarget(entryPrice, stopLoss, buyZoneHigh, MIN_RR_TP2, "SELL"));

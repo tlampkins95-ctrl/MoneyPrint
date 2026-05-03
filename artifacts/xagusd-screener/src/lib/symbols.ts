@@ -27,8 +27,8 @@ export const SYMBOLS: Record<Symbol, SymbolMeta> = {
   AUDUSD: { tv: "OANDA:AUDUSD",     short: "AUD/USD",  long: "Aussie",   badge: "AU",   decimals: 5, prefix: "" },
   USDJPY: { tv: "OANDA:USDJPY",     short: "USD/JPY",  long: "Yen",      badge: "¥",    decimals: 3, prefix: "" },
   GBPJPY: { tv: "OANDA:GBPJPY",     short: "GBP/JPY",  long: "Beast",    badge: "G¥",   decimals: 3, prefix: "" },
-  BTCUSD: { tv: "PYTH:BTCUSD", short: "BTC/USD", long: "Bitcoin (Pyth)",  badge: "₿", decimals: 1, prefix: "$", venue: "PYTH · jup.ag" },
-  ETHUSD: { tv: "PYTH:ETHUSD", short: "ETH/USD", long: "Ethereum (Pyth)", badge: "Ξ", decimals: 2, prefix: "$", venue: "PYTH · jup.ag" },
+  BTCUSD: { tv: "PHEMEX:BTCUSDT", short: "BTC/USD", long: "Bitcoin (Phemex)",  badge: "₿", decimals: 1, prefix: "$", venue: "PHEMEX · USDT perp" },
+  ETHUSD: { tv: "PHEMEX:ETHUSDT", short: "ETH/USD", long: "Ethereum (Phemex)", badge: "Ξ", decimals: 2, prefix: "$", venue: "PHEMEX · USDT perp" },
 };
 
 export const ALL_SYMBOLS: Symbol[] = Object.keys(SYMBOLS) as Symbol[];

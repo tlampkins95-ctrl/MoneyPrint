@@ -10,7 +10,7 @@ const ACCOUNT_KEY = "screener.accountSize";
 const RISK_KEY = "screener.riskPct";
 const MIN_COL_KEY = "screener.minCollateral";
 const MAX_LEV_KEY = "screener.maxLeverage";
-// MT5 lot size for forex/metals (BTC/ETH still use Jupiter collateral × leverage).
+// MT5 lot size for forex/metals (BTC/ETH use Phemex USDT-perp collateral × leverage).
 // 0.01 lot = 1 micro lot, the standard "starter" size on most MT5 brokers.
 const MT5_LOTS_KEY = "screener.mt5Lots";
 
@@ -39,8 +39,9 @@ export function SignalPanel({
   const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
   const [accountSize, setAccountSize] = useState<number>(() => readNumber(ACCOUNT_KEY, 500));
   const [riskPct, setRiskPct] = useState<number>(() => readNumber(RISK_KEY, 1));
-  const [minCollateral, setMinCollateral] = useState<number>(() => readNumber(MIN_COL_KEY, 10));
-  const [maxLeverage, setMaxLeverage] = useState<number>(() => readNumber(MAX_LEV_KEY, 50));
+  // Phemex USDT-perp envelope: $1 floor (effectively no minimum), 100× cap.
+  const [minCollateral, setMinCollateral] = useState<number>(() => readNumber(MIN_COL_KEY, 1));
+  const [maxLeverage, setMaxLeverage] = useState<number>(() => readNumber(MAX_LEV_KEY, 100));
   const [mt5Lots, setMt5Lots] = useState<number>(() => readNumber(MT5_LOTS_KEY, 0.01));
   // The lots input is backed by a string buffer so the user can freely type
   // intermediate values like "0." or "0.0" without our >= 0.01 guard
@@ -120,14 +121,14 @@ export function SignalPanel({
   const isPositive = data.priceChange >= 0;
   const meta = SYMBOLS[symbol];
 
-  // Venue routing: BTC/ETH trade on Jupiter perps ($collateral × leverage),
+  // Venue routing: BTC/ETH trade on Phemex USDT perps ($collateral × leverage),
   // everything else (XAU/XAG/forex pairs) trades on MetaTrader 5 (lot-based).
   // The sizing block emits two parallel projection shapes:
-  //   • achievable — JUP exchange-floor rounded values
+  //   • achievable — PHEMEX exchange-floor rounded values
   //   • mt5        — lot-based USD P&L for the chosen lots
   // Read whichever matches the venue so the TradeRow $ figures and the
   // EXACT TRADE TO PLACE panel both reflect the actual venue the trader uses.
-  const venue: "JUP" | "MT5" = data.positionSizing?.venue ?? "JUP";
+  const venue: "PHEMEX" | "MT5" = data.positionSizing?.venue ?? "PHEMEX";
   const isMT5 = venue === "MT5";
   const pnls = isMT5
     ? data.positionSizing?.mt5
@@ -346,7 +347,7 @@ export function SignalPanel({
                   {isMT5 ? (
                     <>
                       {/* MT5 venue: only the lot size matters — risk %, min collateral
-                          and max leverage are JUP-specific concepts. */}
+                          and max leverage are PHEMEX-specific concepts. */}
                       <span className="text-zinc-700 ml-1">|</span>
                       <span title="MT5 lot size (0.01 = 1 micro lot)">lots</span>
                       <input
@@ -408,7 +409,7 @@ export function SignalPanel({
                       />
                       <span>% risk</span>
                       <span className="text-zinc-700 ml-1">|</span>
-                      <span title="Exchange minimum collateral (Jupiter = $10)">min&nbsp;$</span>
+                      <span title="Exchange minimum collateral (Phemex USDT-perps have no real floor — $1 keeps the math sane)">min&nbsp;$</span>
                       <input
                         type="number"
                         inputMode="decimal"
@@ -459,7 +460,7 @@ export function SignalPanel({
                   <>
                     {/* MT5: show the contract sizing the trader actually places.
                         Notional / position size derive from chosen lots, not a
-                        risk budget — riskPct is a JUP concept here. */}
+                        risk budget — riskPct is a PHEMEX concept here. */}
                     <Row
                       label="Position size"
                       value={`${formatPositionSize(data.positionSizing.mt5.positionSize, data.positionSizing.positionSizeUnit)} ${data.positionSizing.positionSizeUnit}`}
@@ -529,7 +530,7 @@ export function SignalPanel({
               </div>
 
               {/* ── EXACT EXCHANGE SETUP ─────────────────────────────────── */}
-              {/* Two parallel renderings: JUP (BTC/ETH) shows COLLATERAL/LEVERAGE/POSITION,
+              {/* Two parallel renderings: PHEMEX (BTC/ETH) shows COLLATERAL/LEVERAGE/POSITION,
                   MT5 (forex/metals) shows LOTS/POSITION/NOTIONAL. The IF SL/TP1/TP2
                   P&L row is identical in shape but always sources from the venue's
                   projection block (mt5 vs achievable) so the dollars never lie about
@@ -610,7 +611,7 @@ export function SignalPanel({
                 <div className="mt-3 rounded-lg overflow-hidden border-2 border-amber-500/40 bg-gradient-to-br from-amber-950/20 to-zinc-900">
                   <div className="px-3 py-1.5 bg-amber-500/10 border-b border-amber-500/30 flex items-center gap-2">
                     <span className="text-[10px] text-amber-300 font-sans font-bold tracking-widest">
-                      EXACT TRADE TO PLACE · JUP
+                      EXACT TRADE TO PLACE · PHEMEX
                     </span>
                     {data.positionSizing.achievable.belowMinimum && (
                       <span className="ml-auto text-[9px] text-amber-400 font-bold tracking-wider px-1.5 py-0.5 rounded bg-amber-500/20 border border-amber-500/40">
