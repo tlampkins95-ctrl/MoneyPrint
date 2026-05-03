@@ -426,10 +426,11 @@ function computeAchievable(
     leverage = 1;
     warning = `Cannot compute achievable position — ideal notional is zero.`;
   } else if (belowMinimum && usePhemexFloor) {
-    // Phemex over-sized: take the forced 1-contract notional at maxLev so
-    // collateral reflects the realistic exchange usage (tiny $).
-    collateral = actualNotional / safeMaxLev;
-    leverage = safeMaxLev;
+    // Phemex over-sized: forced to 1 contract, and Phemex's exchange
+    // collateral floor is `entry × minQty` (the full notional of one min
+    // contract — ~$78 for BTC, ~$30 for ETH). At that floor leverage is 1×.
+    collateral = entry * minQty!;
+    leverage = 1;
     const overPct = Math.round((scaleFactor - 1) * 100);
     warning =
       `Ideal position smaller than Phemex contract minimum ` +
@@ -446,13 +447,21 @@ function computeAchievable(
     }
     warning = parts.join(" ");
   } else if (usePhemexFloor) {
-    // CASE A (Phemex): qty already satisfies the contract minimum, so the
-    // ONLY constraint is the user's leverage cap. Phemex has no exchange
-    // $-collateral floor, so we always take maxLev and accept whatever
-    // (often tiny) collateral that produces — anything else would force
-    // the trader to over-collateralize a perfectly legal trade.
-    collateral = actualNotional / safeMaxLev;
-    leverage = safeMaxLev;
+    // CASE A/B (Phemex): Phemex's exchange-enforced collateral floor is
+    // `entry × minQty` — the notional of one minimum contract (~$78 for
+    // BTC at $78k, ~$30 for ETH at $3k). Use maxLev unless that would
+    // dip below the floor, in which case pin collateral to the floor and
+    // back-solve leverage. This matches what Phemex actually requires
+    // when you place the order.
+    const phemexMinCol = entry * minQty!;
+    const requiredCollateralAtMaxLev = actualNotional / safeMaxLev;
+    if (requiredCollateralAtMaxLev >= phemexMinCol) {
+      collateral = requiredCollateralAtMaxLev;
+      leverage = safeMaxLev;
+    } else {
+      collateral = phemexMinCol;
+      leverage = actualNotional / phemexMinCol;
+    }
     if (collateral > accountSize) {
       warning = `Required collateral $${collateral.toFixed(2)} exceeds account $${accountSize}.`;
     }
