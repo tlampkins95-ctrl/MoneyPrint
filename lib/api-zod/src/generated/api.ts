@@ -151,9 +151,9 @@ export const GetLevelsResponse = zod.object({
   positionSizing: zod
     .object({
       venue: zod
-        .enum(["PHEMEX", "MT5", "COINBASE_SPOT"])
+        .enum(["PHEMEX", "MT5", "PHEMEX_SPOT"])
         .describe(
-          "Which trading venue this symbol uses. PHEMEX = Phemex USDT-margined perps (BTC\/ETH, collateral × leverage, up to 100×). MT5 = MetaTrader 5 (forex\/metals, lot-based sizing). COINBASE_SPOT = Coinbase spot (no leverage, whole-token sizing).",
+          "Which trading venue this symbol uses. PHEMEX = Phemex USDT-margined perps (BTC\/ETH, collateral × leverage, up to 100×). MT5 = MetaTrader 5 (forex\/metals, lot-based sizing). PHEMEX_SPOT = Phemex spot (no leverage, whole-token sizing).",
         ),
       accountSize: zod.number().describe("Account size in USD used for sizing"),
       riskAmount: zod
@@ -326,7 +326,7 @@ export const GetLevelsResponse = zod.object({
     })
     .optional()
     .describe(
-      "Suggested position size for the trader's account. The `venue` field decides which downstream block is authoritative — PHEMEX (crypto USDT-perps) renders `achievable`, MT5 (forex\/metals) renders `mt5`, COINBASE_SPOT (spot tokens) renders `spotToken`.",
+      "Suggested position size for the trader's account. The `venue` field decides which downstream block is authoritative — PHEMEX (crypto USDT-perps) renders `achievable`, MT5 (forex\/metals) renders `mt5`, PHEMEX_SPOT (spot tokens) renders `spotToken`.",
     ),
 });
 
@@ -548,9 +548,9 @@ export const GetActiveSignalsResponse = zod.object({
             positionSizing: zod
               .object({
                 venue: zod
-                  .enum(["PHEMEX", "MT5", "COINBASE_SPOT"])
+                  .enum(["PHEMEX", "MT5", "PHEMEX_SPOT"])
                   .describe(
-                    "Which trading venue this symbol uses. PHEMEX = Phemex USDT-margined perps (BTC\/ETH, collateral × leverage, up to 100×). MT5 = MetaTrader 5 (forex\/metals, lot-based sizing). COINBASE_SPOT = Coinbase spot (no leverage, whole-token sizing).",
+                    "Which trading venue this symbol uses. PHEMEX = Phemex USDT-margined perps (BTC\/ETH, collateral × leverage, up to 100×). MT5 = MetaTrader 5 (forex\/metals, lot-based sizing). PHEMEX_SPOT = Phemex spot (no leverage, whole-token sizing).",
                   ),
                 accountSize: zod
                   .number()
@@ -747,7 +747,7 @@ export const GetActiveSignalsResponse = zod.object({
               })
               .optional()
               .describe(
-                "Suggested position size for the trader's account. The `venue` field decides which downstream block is authoritative — PHEMEX (crypto USDT-perps) renders `achievable`, MT5 (forex\/metals) renders `mt5`, COINBASE_SPOT (spot tokens) renders `spotToken`.",
+                "Suggested position size for the trader's account. The `venue` field decides which downstream block is authoritative — PHEMEX (crypto USDT-perps) renders `achievable`, MT5 (forex\/metals) renders `mt5`, PHEMEX_SPOT (spot tokens) renders `spotToken`.",
               ),
           }),
         })

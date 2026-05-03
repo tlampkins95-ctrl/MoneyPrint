@@ -7,7 +7,7 @@
  */
 
 /**
- * Which trading venue this symbol uses. PHEMEX = Phemex USDT-margined perps (BTC/ETH, collateral × leverage, up to 100×). MT5 = MetaTrader 5 (forex/metals, lot-based sizing). COINBASE_SPOT = Coinbase spot (no leverage, whole-token sizing).
+ * Which trading venue this symbol uses. PHEMEX = Phemex USDT-margined perps (BTC/ETH, collateral × leverage, up to 100×). MT5 = MetaTrader 5 (forex/metals, lot-based sizing). PHEMEX_SPOT = Phemex spot (no leverage, whole-token sizing).
  */
 export type PositionSizingVenue =
   (typeof PositionSizingVenue)[keyof typeof PositionSizingVenue];
@@ -15,5 +15,5 @@ export type PositionSizingVenue =
 export const PositionSizingVenue = {
   PHEMEX: "PHEMEX",
   MT5: "MT5",
-  COINBASE_SPOT: "COINBASE_SPOT",
+  PHEMEX_SPOT: "PHEMEX_SPOT",
 } as const;

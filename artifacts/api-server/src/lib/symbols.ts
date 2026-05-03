@@ -138,7 +138,7 @@ export const SYMBOLS: Record<Symbol, SymbolMeta> = {
     decimals: 4,
     prefix: "$",
     coinbase: "SKYAI-USD",
-    venue: "Coinbase · spot",
+    venue: "Phemex · spot",
   },
 };
 

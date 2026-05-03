@@ -127,9 +127,9 @@ export function SignalPanel({
   //   • spotToken    — whole-token count, notional, risk (no leverage)
   // Read whichever matches the venue so the TradeRow $ figures and the
   // EXACT TRADE TO PLACE panel both reflect the actual venue the trader uses.
-  const venue: "PHEMEX" | "MT5" | "COINBASE_SPOT" = data.positionSizing?.venue ?? "PHEMEX";
+  const venue: "PHEMEX" | "MT5" | "PHEMEX_SPOT" = data.positionSizing?.venue ?? "PHEMEX";
   const isMT5 = venue === "MT5";
-  const isCoinbaseSpot = venue === "COINBASE_SPOT";
+  const isCoinbaseSpot = venue === "PHEMEX_SPOT";
   const pnls = isMT5
     ? data.positionSizing?.mt5
     : isCoinbaseSpot
@@ -720,7 +720,7 @@ export function SignalPanel({
                 <div className="mt-3 rounded-lg overflow-hidden border-2 border-sky-500/40 bg-gradient-to-br from-sky-950/20 to-zinc-900">
                   <div className="px-3 py-1.5 bg-sky-500/10 border-b border-sky-500/30 flex items-center gap-2">
                     <span className="text-[10px] text-sky-300 font-sans font-bold tracking-widest">
-                      EXACT TRADE TO PLACE · COINBASE
+                      EXACT TRADE TO PLACE · PHEMEX
                     </span>
                     <span className="ml-auto text-[9px] text-zinc-500 font-mono">
                       {data.positionSizing.spotToken.tokenSymbol}/USDT · spot

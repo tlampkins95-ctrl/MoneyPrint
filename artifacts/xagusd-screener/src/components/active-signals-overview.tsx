@@ -66,7 +66,7 @@ interface RowProps {
   // Venue-tagged P&L: pnls are sourced from the venue's projection block on
   // the server (achievable for PHEMEX, mt5 for MT5, spotToken for COINBASE_SPOT)
   // so the dollar figures here always match what the SignalPanel shows.
-  venue: "PHEMEX" | "MT5" | "COINBASE_SPOT";
+  venue: "PHEMEX" | "MT5" | "PHEMEX_SPOT";
   pnlAtSL: number | null;
   pnlAtTP1: number | null;
   pnlAtTP2: number | null;
@@ -75,7 +75,7 @@ interface RowProps {
   leverage: number | null;
   // MT5-only fields (null for other venues)
   mt5Lots: number | null;
-  // COINBASE_SPOT-only fields (null for other venues)
+  // PHEMEX_SPOT-only fields (null for other venues)
   spotTokenCount: number | null;
   spotTokenSymbol: string | null;
   onClick: () => void;
@@ -87,12 +87,12 @@ interface RowProps {
 // new venue/field gets added, only this helper changes — no risk of the three
 // blocks drifting apart.
 function toRowSizing(ps: {
-  venue?: "PHEMEX" | "MT5" | "COINBASE_SPOT";
+  venue?: "PHEMEX" | "MT5" | "PHEMEX_SPOT";
   achievable?: { pnlAtSL: number; pnlAtTP1: number; pnlAtTP2: number; collateral: number; leverage: number } | null;
   mt5?: { pnlAtSL: number; pnlAtTP1: number; pnlAtTP2: number; lots: number } | null;
   spotToken?: { pnlAtSL: number; pnlAtTP1: number; pnlAtTP2: number; tokenCount: number; tokenSymbol: string } | null;
 } | undefined | null) {
-  const venue: "PHEMEX" | "MT5" | "COINBASE_SPOT" = ps?.venue ?? "PHEMEX";
+  const venue: "PHEMEX" | "MT5" | "PHEMEX_SPOT" = ps?.venue ?? "PHEMEX";
   if (venue === "MT5") {
     const m = ps?.mt5;
     return {
@@ -107,7 +107,7 @@ function toRowSizing(ps: {
       spotTokenSymbol: null,
     };
   }
-  if (venue === "COINBASE_SPOT") {
+  if (venue === "PHEMEX_SPOT") {
     const st = ps?.spotToken;
     return {
       venue,
@@ -203,7 +203,7 @@ function SignalRow(p: RowProps) {
       </div>
 
       {/* Per-venue $PnL projection — ground-truth dollar outcomes per leg.
-          PHEMEX shows $col×lev, MT5 shows the lot size, COINBASE_SPOT shows
+          PHEMEX shows $col×lev, MT5 shows the lot size, PHEMEX_SPOT shows
           the token count — never mix them, since each badge is a promise about
           which exchange the dollars came from. */}
       {p.pnlAtSL !== null && p.pnlAtTP1 !== null && p.pnlAtTP2 !== null && (
@@ -213,9 +213,9 @@ function SignalRow(p: RowProps) {
               <span className="text-zinc-500">MT5</span>
               <span className="text-zinc-300">{p.mt5Lots.toFixed(2)} lot</span>
             </>
-          ) : p.venue === "COINBASE_SPOT" && p.spotTokenCount !== null && p.spotTokenSymbol !== null ? (
+          ) : p.venue === "PHEMEX_SPOT" && p.spotTokenCount !== null && p.spotTokenSymbol !== null ? (
             <>
-              <span className="text-zinc-500">COINBASE</span>
+              <span className="text-zinc-500">PHEMEX</span>
               <span className="text-sky-300">{p.spotTokenCount.toLocaleString()} {p.spotTokenSymbol}</span>
             </>
           ) : p.collateral !== null && p.leverage !== null ? (

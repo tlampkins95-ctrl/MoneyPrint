@@ -334,7 +334,7 @@ interface SpotTokenSizing {
 }
 
 interface PositionSizing {
-  venue: "PHEMEX" | "MT5" | "COINBASE_SPOT";
+  venue: "PHEMEX" | "MT5" | "PHEMEX_SPOT";
   accountSize: number;
   riskAmount: number;
   riskPct: number;
@@ -594,18 +594,18 @@ function computePositionSizing(
     };
   }
 
-  // ─── Spot tokens (Coinbase spot — no leverage, whole-token sizing) ───
-  // `meta.coinbase` is the canonical marker for a Coinbase spot symbol (set to
-  // the Coinbase product ID, e.g. "SKYAI-USD"). The negative guards ensure a
-  // future symbol that is both on Coinbase AND has a perp/gold feed still
-  // routes to its primary venue. Any symbol with `meta.coinbase` and none of
-  // those overriding markers is sized as a no-leverage spot buy.
+  // ─── Spot tokens (Phemex spot — no leverage, whole-token sizing) ───
+  // `meta.coinbase` is the canonical marker for a spot-priced symbol whose
+  // chart data comes from Coinbase. The user trades on Phemex spot. The
+  // negative guards ensure a future symbol that also has a perp/gold feed
+  // still routes to its primary venue. Any symbol with `meta.coinbase` and
+  // none of those overriding markers is sized as a no-leverage spot buy.
   if (meta.coinbase && !meta.phemexPerp && !meta.goldApi) {
     const spotToken = computeSpotTokenSizing(
       symbol, entry, stopLoss, takeProfit1, takeProfit2, accountSize, riskPct,
     );
     return {
-      venue: "COINBASE_SPOT",
+      venue: "PHEMEX_SPOT",
       accountSize: r(accountSize),
       riskAmount: r(riskAmount),
       riskPct: r(riskPct * 100, 2),
