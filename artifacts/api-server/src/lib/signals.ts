@@ -445,8 +445,19 @@ function computeAchievable(
       parts.push(`Min collateral $${minCollateral} exceeds account $${accountSize}.`);
     }
     warning = parts.join(" ");
+  } else if (usePhemexFloor) {
+    // CASE A (Phemex): qty already satisfies the contract minimum, so the
+    // ONLY constraint is the user's leverage cap. Phemex has no exchange
+    // $-collateral floor, so we always take maxLev and accept whatever
+    // (often tiny) collateral that produces — anything else would force
+    // the trader to over-collateralize a perfectly legal trade.
+    collateral = actualNotional / safeMaxLev;
+    leverage = safeMaxLev;
+    if (collateral > accountSize) {
+      warning = `Required collateral $${collateral.toFixed(2)} exceeds account $${accountSize}.`;
+    }
   } else {
-    // CASE A/B: ideal (or stepped-down ideal) is achievable.
+    // CASE A/B (legacy $-floor venues): respect minCollateral as a floor.
     const requiredCollateralAtMaxLev = actualNotional / safeMaxLev;
     if (requiredCollateralAtMaxLev >= minCollateral) {
       collateral = requiredCollateralAtMaxLev;

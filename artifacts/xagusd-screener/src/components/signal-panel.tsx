@@ -8,7 +8,6 @@ import { SYMBOLS, fmtPrice, fmtPriceCompact, type Symbol } from "@/lib/symbols";
 
 const ACCOUNT_KEY = "screener.accountSize";
 const RISK_KEY = "screener.riskPct";
-const MIN_COL_KEY = "screener.minCollateral";
 const MAX_LEV_KEY = "screener.maxLeverage";
 // MT5 lot size for forex/metals (BTC/ETH use Phemex USDT-perp collateral × leverage).
 // 0.01 lot = 1 micro lot, the standard "starter" size on most MT5 brokers.
@@ -39,8 +38,9 @@ export function SignalPanel({
   const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
   const [accountSize, setAccountSize] = useState<number>(() => readNumber(ACCOUNT_KEY, 500));
   const [riskPct, setRiskPct] = useState<number>(() => readNumber(RISK_KEY, 1));
-  // Phemex USDT-perp envelope: $1 floor (effectively no minimum), 100× cap.
-  const [minCollateral, setMinCollateral] = useState<number>(() => readNumber(MIN_COL_KEY, 1));
+  // Phemex's binding minimum is the contract qty (0.001 BTC, 0.01 ETH),
+  // enforced server-side from symbol meta — there is no $-collateral floor
+  // on Phemex USDT-perps, so the only user-facing knob here is the lev cap.
   const [maxLeverage, setMaxLeverage] = useState<number>(() => readNumber(MAX_LEV_KEY, 100));
   const [mt5Lots, setMt5Lots] = useState<number>(() => readNumber(MT5_LOTS_KEY, 0.01));
   // The lots input is backed by a string buffer so the user can freely type
@@ -59,16 +59,13 @@ export function SignalPanel({
     window.localStorage.setItem(RISK_KEY, String(riskPct));
   }, [riskPct]);
   useEffect(() => {
-    window.localStorage.setItem(MIN_COL_KEY, String(minCollateral));
-  }, [minCollateral]);
-  useEffect(() => {
     window.localStorage.setItem(MAX_LEV_KEY, String(maxLeverage));
   }, [maxLeverage]);
   useEffect(() => {
     window.localStorage.setItem(MT5_LOTS_KEY, String(mt5Lots));
   }, [mt5Lots]);
 
-  const params = { symbol, timeframe, accountSize, riskPct, minCollateral, maxLeverage, mt5Lots };
+  const params = { symbol, timeframe, accountSize, riskPct, maxLeverage, mt5Lots };
   const { data, isLoading, isError, error, refetch, isFetching } = useGetLevels(
     params,
     {
@@ -409,21 +406,11 @@ export function SignalPanel({
                       />
                       <span>% risk</span>
                       <span className="text-zinc-700 ml-1">|</span>
-                      <span title="Exchange minimum collateral (Phemex USDT-perps have no real floor — $1 keeps the math sane)">min&nbsp;$</span>
-                      <input
-                        type="number"
-                        inputMode="decimal"
-                        min={0.01}
-                        step={1}
-                        value={minCollateral}
-                        onChange={(e) => {
-                          const v = Number(e.target.value);
-                          if (Number.isFinite(v) && v > 0) setMinCollateral(v);
-                        }}
-                        className="w-12 bg-zinc-900 border border-zinc-700 rounded px-1.5 py-0.5 text-right tabular-nums text-zinc-100 focus:outline-none focus:border-amber-500/60"
-                        aria-label="Minimum collateral in USD"
-                      />
-                      <span className="text-zinc-600">·</span>
+                      {/* Phemex has no $-collateral floor — the binding minimum
+                          is the contract qty (0.001 BTC, 0.01 ETH), enforced
+                          server-side. So we drop the "min $" knob and just
+                          show the leverage cap. Collateral is whatever the
+                          notional / maxLev produces. */}
                       <span title="Max leverage you'll use">max</span>
                       <input
                         type="number"

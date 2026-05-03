@@ -237,13 +237,12 @@ export function ActiveSignalsOverview({
   // main panel. Keys defined in components/signal-panel.tsx — keep in sync.
   const accountSize = readNumber("screener.accountSize", 500);
   const riskPct = readNumber("screener.riskPct", 1);
-  const minCollateral = readNumber("screener.minCollateral", 1);
   const maxLeverage = readNumber("screener.maxLeverage", 100);
   // MT5 lot size for forex/metals projections — paired with the SignalPanel's
   // mt5Lots input. BTC/ETH ignore this and stay on the PHEMEX $col×lev model.
   const mt5Lots = readNumber("screener.mt5Lots", 0.01);
 
-  const params = { accountSize, riskPct, minCollateral, maxLeverage, mt5Lots };
+  const params = { accountSize, riskPct, maxLeverage, mt5Lots };
   const { data, isLoading, isError, refetch, isFetching } = useGetActiveSignals(params, {
     query: {
       queryKey: getGetActiveSignalsQueryKey(params),
