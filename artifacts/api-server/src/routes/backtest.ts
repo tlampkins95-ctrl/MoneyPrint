@@ -204,24 +204,36 @@ function runBacktest(candles: CandleRaw[], timeframe: Timeframe, symbol: Symbol)
     const sellZoneHigh = round(r1 + halfWidth);
     const atr = calcATR(candles, i - 1, 14);
 
-    // Trend stack from EMAs at i-1 (no lookahead). The 21/50 spread filters
-    // short-term direction; the 200 EMA acts as the long-term regime gate
-    // (price above 200 = bull regime, below = bear regime). A counter-regime
-    // bounce only earns its way through when the 200 isn't yet warm (early
-    // bars in the series), so the gate fails open then.
+    // Trend gate from EMAs at i-1 (no lookahead).
+    //
+    // The 200 EMA is the primary regime filter (close ≥ 200 = bull regime,
+    // close ≤ 200 = bear regime) — this is the dominant institutional trend
+    // bias and it does NOT clash with the mean-reversion setup, because
+    // it's a statement about price location, not short-term EMA stack.
+    //
+    // The 21/50 spread is intentionally NOT AND-ed with the 200 EMA gate.
+    // A bounce-at-S1 in an uptrend almost always coincides with EMA21
+    // dipping below EMA50 (that IS the pullback) — AND-ing them filters
+    // out the cleanest setups. So 21/50 is used only as a fallback regime
+    // proxy on the early portion of the series before EMA200 has 200 bars
+    // of history. On the daily timeframe we skip the 200 gate entirely
+    // because the available daily history is barely long enough to warm
+    // it up, leaving almost no tradable bars.
     const e21 = ema21[i - 1] ?? 0;
     const e50 = ema50[i - 1] ?? 0;
     const e200 = ema200[i - 1];
-    const gap = e50 > 0 ? (e21 - e50) / e50 : 0;
-    const shortTermBuyOk = gap >= -TREND_THRESHOLD;
-    const shortTermSellOk = gap <= TREND_THRESHOLD;
-    // Need ≥200 bars for the 200 EMA to be meaningful; before then it's
-    // still SMA-seeded and we let it pass.
     const ema200Warm = i - 1 >= 200 && Number.isFinite(e200) && e200 > 0;
-    const longTermBuyOk = !ema200Warm ? true : prev.close >= e200;
-    const longTermSellOk = !ema200Warm ? true : prev.close <= e200;
-    const buyAllowed = shortTermBuyOk && longTermBuyOk;
-    const sellAllowed = shortTermSellOk && longTermSellOk;
+    const useEma200 = ema200Warm && timeframe !== "1d";
+    let buyAllowed: boolean;
+    let sellAllowed: boolean;
+    if (useEma200) {
+      buyAllowed = prev.close >= e200;
+      sellAllowed = prev.close <= e200;
+    } else {
+      const gap = e50 > 0 ? (e21 - e50) / e50 : 0;
+      buyAllowed = gap >= -TREND_THRESHOLD;
+      sellAllowed = gap <= TREND_THRESHOLD;
+    }
 
     // Realistic fill: a touch must actually reach the level itself, not just
     // overlap the zone. Also the bar's open must be on the "right" side of
