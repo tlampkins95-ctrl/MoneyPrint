@@ -179,6 +179,7 @@ function runBacktest(candles: CandleRaw[], timeframe: Timeframe, symbol: Symbol)
   const closes = candles.map((c) => c.close);
   const ema21 = calcEMASeries(closes, 21);
   const ema50 = calcEMASeries(closes, 50);
+  const ema200 = calcEMASeries(closes, 200);
   const rsi14 = calcRSISeries(closes, 14);
   const macdHist = calcMACDHist(closes, 12, 26, 9);
   const TREND_THRESHOLD = 0.001; // 0.1% gap counts as a real trend, smaller is "ranging"
@@ -203,13 +204,24 @@ function runBacktest(candles: CandleRaw[], timeframe: Timeframe, symbol: Symbol)
     const sellZoneHigh = round(r1 + halfWidth);
     const atr = calcATR(candles, i - 1, 14);
 
-    // Trend bias from EMAs at i-1 (no lookahead). RANGING = both directions
-    // allowed; UPTREND = longs only; DOWNTREND = shorts only.
+    // Trend stack from EMAs at i-1 (no lookahead). The 21/50 spread filters
+    // short-term direction; the 200 EMA acts as the long-term regime gate
+    // (price above 200 = bull regime, below = bear regime). A counter-regime
+    // bounce only earns its way through when the 200 isn't yet warm (early
+    // bars in the series), so the gate fails open then.
     const e21 = ema21[i - 1] ?? 0;
     const e50 = ema50[i - 1] ?? 0;
+    const e200 = ema200[i - 1];
     const gap = e50 > 0 ? (e21 - e50) / e50 : 0;
-    const buyAllowed = gap >= -TREND_THRESHOLD;
-    const sellAllowed = gap <= TREND_THRESHOLD;
+    const shortTermBuyOk = gap >= -TREND_THRESHOLD;
+    const shortTermSellOk = gap <= TREND_THRESHOLD;
+    // Need ≥200 bars for the 200 EMA to be meaningful; before then it's
+    // still SMA-seeded and we let it pass.
+    const ema200Warm = i - 1 >= 200 && Number.isFinite(e200) && e200 > 0;
+    const longTermBuyOk = !ema200Warm ? true : prev.close >= e200;
+    const longTermSellOk = !ema200Warm ? true : prev.close <= e200;
+    const buyAllowed = shortTermBuyOk && longTermBuyOk;
+    const sellAllowed = shortTermSellOk && longTermSellOk;
 
     // Realistic fill: a touch must actually reach the level itself, not just
     // overlap the zone. Also the bar's open must be on the "right" side of
