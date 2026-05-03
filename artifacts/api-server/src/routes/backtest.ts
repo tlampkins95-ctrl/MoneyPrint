@@ -88,6 +88,56 @@ function calcEMASeries(closes: number[], period: number): number[] {
   return out;
 }
 
+// MACD(12, 26, 9) histogram series. Used as a momentum-turn confirmation:
+// only fade S1 once the bear pressure is cooling (histogram ticking up),
+// only fade R1 once bull pressure is cooling (histogram ticking down). The
+// macdLine/signal crossover is too lagging at the timeframes we trade — the
+// histogram derivative leads it by a couple bars and is the right signal
+// for a bounce trader. Returns an array of histogram values aligned with
+// `closes` (NaN until enough bars are available).
+function calcMACDHist(closes: number[], fast = 12, slow = 26, signal = 9): number[] {
+  const out: number[] = new Array(closes.length).fill(NaN);
+  if (closes.length < slow + signal) return out;
+  const fastEma = calcEMASeries(closes, fast);
+  const slowEma = calcEMASeries(closes, slow);
+  const macdLine = closes.map((_, i) => fastEma[i] - slowEma[i]);
+  const sigLine = calcEMASeries(macdLine, signal);
+  for (let i = 0; i < closes.length; i++) {
+    out[i] = macdLine[i] - sigLine[i];
+  }
+  return out;
+}
+
+// Swing high / swing low over the last `lookback` bars ending at `endIdx`
+// (no lookahead). Used to anchor Fibonacci retracement levels.
+function calcSwing(candles: CandleRaw[], endIdx: number, lookback = 60) {
+  const start = Math.max(0, endIdx - lookback + 1);
+  let hi = -Infinity, lo = Infinity;
+  for (let i = start; i <= endIdx; i++) {
+    if (candles[i].high > hi) hi = candles[i].high;
+    if (candles[i].low < lo) lo = candles[i].low;
+  }
+  return { swingHigh: hi, swingLow: lo };
+}
+
+// Fib retracement confluence: a bounce setup is meaningfully better when the
+// pivot level coincides with the 38.2 / 50 / 61.8% retracement of the recent
+// swing — that's the textbook reason institutions defend a level. We accept
+// confluence when the entry sits within `tolerance` of any of those three
+// fibs. Tolerance is expressed as a fraction of the swing range so it scales
+// with volatility.
+function hasFibConfluence(price: number, swingHigh: number, swingLow: number, tolerance = 0.05): boolean {
+  const range = swingHigh - swingLow;
+  if (range <= 0) return false;
+  const fibs = [
+    swingHigh - range * 0.382,
+    swingHigh - range * 0.5,
+    swingHigh - range * 0.618,
+  ];
+  const tol = range * tolerance;
+  return fibs.some((f) => Math.abs(price - f) <= tol);
+}
+
 // Wilder-smoothed RSI(14). Returns an array aligned with `closes` (NaN until
 // enough bars are available). Used as a mean-reversion confirmation: don't
 // fade S1 unless the market is actually oversold, don't fade R1 unless it's
@@ -130,6 +180,7 @@ function runBacktest(candles: CandleRaw[], timeframe: Timeframe, symbol: Symbol)
   const ema21 = calcEMASeries(closes, 21);
   const ema50 = calcEMASeries(closes, 50);
   const rsi14 = calcRSISeries(closes, 14);
+  const macdHist = calcMACDHist(closes, 12, 26, 9);
   const TREND_THRESHOLD = 0.001; // 0.1% gap counts as a real trend, smaller is "ranging"
   // RSI mean-reversion gates. Only fade S1 when oversold, only fade R1 when
   // overbought — fading in the middle of the range is a coin flip.
@@ -178,8 +229,25 @@ function runBacktest(candles: CandleRaw[], timeframe: Timeframe, symbol: Symbol)
     const rsiBuyOk = !Number.isFinite(r) ? true : r <= RSI_BUY_MAX;
     const rsiSellOk = !Number.isFinite(r) ? true : r >= RSI_SELL_MIN;
 
-    const canBuy = buyFills && buyAllowed && buyLevelValid && rsiBuyOk;
-    const canSell = sellFills && sellAllowed && sellLevelValid && rsiSellOk;
+    // MACD histogram momentum gate. BUY needs the histogram to have ticked
+    // up over the prior bar (bear momentum cooling); SELL needs it to have
+    // ticked down (bull momentum cooling). Falls open when the series is
+    // not yet warm.
+    const hNow = macdHist[i - 1];
+    const hPrev = macdHist[i - 2];
+    const macdWarm = Number.isFinite(hNow) && Number.isFinite(hPrev);
+    const macdBuyOk = !macdWarm ? true : hNow > hPrev;
+    const macdSellOk = !macdWarm ? true : hNow < hPrev;
+
+    // Fib confluence gate. The pivot entry must sit within 5% of swing range
+    // of a 38.2 / 50 / 61.8 retracement, computed from the last 60 bars
+    // ending at i-1 (no lookahead).
+    const { swingHigh, swingLow } = calcSwing(candles, i - 1, 60);
+    const fibBuyOk = hasFibConfluence(s1, swingHigh, swingLow);
+    const fibSellOk = hasFibConfluence(r1, swingHigh, swingLow);
+
+    const canBuy = buyFills && buyAllowed && buyLevelValid && rsiBuyOk && macdBuyOk && fibBuyOk;
+    const canSell = sellFills && sellAllowed && sellLevelValid && rsiSellOk && macdSellOk && fibSellOk;
 
     let direction: "BUY" | "SELL" | null = null;
     if (canBuy && canSell) {
