@@ -39,7 +39,7 @@ paths:
           name: symbol
           schema:
             type: string
-            enum: ["XAGUSD", "XAUUSD", "EURUSD", "GBPUSD", "AUDUSD", "USDJPY", "GBPJPY", "BTCUSD", "ETHUSD"]
+            enum: ["XAGUSD", "XAUUSD", "EURUSD", "GBPUSD", "AUDUSD", "USDJPY", "GBPJPY", "BTCUSD", "ETHUSD", "SKYAIUSDT"]
             default: "XAGUSD"
           description: Trading instrument
         - in: query
@@ -106,7 +106,7 @@ paths:
           name: symbol
           schema:
             type: string
-            enum: ["XAGUSD", "XAUUSD", "EURUSD", "GBPUSD", "AUDUSD", "USDJPY", "GBPJPY", "BTCUSD", "ETHUSD"]
+            enum: ["XAGUSD", "XAUUSD", "EURUSD", "GBPUSD", "AUDUSD", "USDJPY", "GBPJPY", "BTCUSD", "ETHUSD", "SKYAIUSDT"]
             default: "XAGUSD"
           description: Trading instrument
         - in: query
@@ -243,7 +243,7 @@ paths:
           name: symbol
           schema:
             type: string
-            enum: ["XAGUSD", "XAUUSD", "EURUSD", "GBPUSD", "AUDUSD", "USDJPY", "GBPJPY", "BTCUSD", "ETHUSD"]
+            enum: ["XAGUSD", "XAUUSD", "EURUSD", "GBPUSD", "AUDUSD", "USDJPY", "GBPJPY", "BTCUSD", "ETHUSD", "SKYAIUSDT"]
             default: "XAGUSD"
           description: Trading instrument
         - in: query
@@ -628,7 +628,7 @@ components:
       properties:
         symbol:
           type: string
-          enum: ["XAGUSD", "XAUUSD", "EURUSD", "GBPUSD", "AUDUSD", "USDJPY", "GBPJPY", "BTCUSD", "ETHUSD"]
+          enum: ["XAGUSD", "XAUUSD", "EURUSD", "GBPUSD", "AUDUSD", "USDJPY", "GBPJPY", "BTCUSD", "ETHUSD", "SKYAIUSDT"]
         timeframe:
           type: string
           enum: ["15m", "30m", "1h", "1d"]

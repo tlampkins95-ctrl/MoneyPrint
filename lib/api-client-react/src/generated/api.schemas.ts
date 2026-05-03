@@ -268,6 +268,7 @@ export const ActiveSignalEntrySymbol = {
   GBPJPY: "GBPJPY",
   BTCUSD: "BTCUSD",
   ETHUSD: "ETHUSD",
+  SKYAIUSDT: "SKYAIUSDT",
 } as const;
 
 export type ActiveSignalEntryTimeframe =
@@ -429,6 +430,7 @@ export const GetLevelsSymbol = {
   GBPJPY: "GBPJPY",
   BTCUSD: "BTCUSD",
   ETHUSD: "ETHUSD",
+  SKYAIUSDT: "SKYAIUSDT",
 } as const;
 
 export type GetLevelsTimeframe =
@@ -465,6 +467,7 @@ export const GetBacktestSymbol = {
   GBPJPY: "GBPJPY",
   BTCUSD: "BTCUSD",
   ETHUSD: "ETHUSD",
+  SKYAIUSDT: "SKYAIUSDT",
 } as const;
 
 export type GetBacktestTimeframe =
@@ -536,6 +539,7 @@ export const GetPriceHistorySymbol = {
   GBPJPY: "GBPJPY",
   BTCUSD: "BTCUSD",
   ETHUSD: "ETHUSD",
+  SKYAIUSDT: "SKYAIUSDT",
 } as const;
 
 export type GetPriceHistoryTimeframe =

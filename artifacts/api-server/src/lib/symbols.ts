@@ -7,7 +7,8 @@ export type Symbol =
   | "USDJPY"
   | "GBPJPY"
   | "BTCUSD"
-  | "ETHUSD";
+  | "ETHUSD"
+  | "SKYAIUSDT";
 
 export interface SymbolMeta {
   yahoo: string;
@@ -128,6 +129,15 @@ export const SYMBOLS: Record<Symbol, SymbolMeta> = {
     phemexQtyStep: 0.01,
     pythFeedId: "ff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace",
     venue: "PHEMEX · USDT perp",
+  },
+  SKYAIUSDT: {
+    yahoo: "SKYAI-USD",
+    tvSymbol: "COINBASE:SKYAIUSD",
+    tvScrapePath: "/symbols/SKYAIUSD/?exchange=COINBASE",
+    label: "SKYAI / USD (Coinbase)",
+    decimals: 4,
+    prefix: "$",
+    venue: "Coinbase · spot",
   },
 };
 

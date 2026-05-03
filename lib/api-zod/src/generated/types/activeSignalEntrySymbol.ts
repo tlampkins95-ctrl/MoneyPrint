@@ -19,4 +19,5 @@ export const ActiveSignalEntrySymbol = {
   GBPJPY: "GBPJPY",
   BTCUSD: "BTCUSD",
   ETHUSD: "ETHUSD",
+  SKYAIUSDT: "SKYAIUSDT",
 } as const;
