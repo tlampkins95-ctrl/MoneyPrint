@@ -231,8 +231,8 @@ export function SignalPanel({
             {/* Trade Ticket */}
             <div className="min-w-0">
               <div className="text-[10px] text-zinc-500 tracking-widest font-sans font-semibold mb-2 flex items-center gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-zinc-600 inline-block" />
-                TRADE TICKET
+                <span className={cn("w-1.5 h-1.5 rounded-full inline-block", data.signal === "WAIT" ? "bg-amber-500/60" : "bg-zinc-600")} />
+                {data.signal === "WAIT" ? "NEXT SETUP" : "TRADE TICKET"}
                 {data.signal !== "WAIT" && (
                   <span
                     className={cn(
@@ -243,6 +243,11 @@ export function SignalPanel({
                     )}
                   >
                     LIVE
+                  </span>
+                )}
+                {data.signal === "WAIT" && (
+                  <span className="ml-auto text-[9px] font-bold tracking-widest px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400">
+                    WATCHING
                   </span>
                 )}
               </div>
@@ -256,6 +261,22 @@ export function SignalPanel({
                       : "border-zinc-800",
                 )}
               >
+                {data.signal === "WAIT" && (() => {
+                  const pendingDir = data.stopLoss > data.entryPrice ? "SELL" : "BUY";
+                  return (
+                    <div className="flex justify-between items-center px-3 py-2 bg-zinc-950/60">
+                      <span className="text-[9px] font-sans font-semibold tracking-widest text-zinc-500">DIRECTION</span>
+                      <span className={cn(
+                        "text-[10px] font-bold tracking-widest px-2 py-0.5 rounded",
+                        pendingDir === "BUY"
+                          ? "bg-emerald-500/20 text-emerald-400"
+                          : "bg-red-500/20 text-red-400"
+                      )}>
+                        {pendingDir === "BUY" ? "▲ BUY on dip" : "▼ SELL on rally"}
+                      </span>
+                    </div>
+                  );
+                })()}
                 <Row label="Entry" value={fmtPrice(symbol, data.entryPrice)} />
                 <TradeRow
                   label="Stop Loss"

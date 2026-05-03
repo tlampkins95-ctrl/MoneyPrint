@@ -862,18 +862,37 @@ export function computeLevels(
       const distAboveSell = round(currentPrice - sellZoneHigh);
       const distToR2 = round(pivots.r2 - currentPrice);
       signalReason = `[${tfLabel}] Price (${fmt(currentPrice)}) has cleared the sell zone and is ${fmt(distAboveSell)} above resistance. ${distToR2 > 0 ? `Watch R2 at ${fmt(pivots.r2)} (${fmt(distToR2)} away) for the next sell opportunity.` : `Price is above R2 — momentum play, no clean entry zone yet.`} Wait for a pullback into a zone.`;
-      entryPrice = round(pivots.r1);
-      stopLoss = round(sellZoneHigh + atr * 0.5);
-      takeProfit1 = round(floorTarget(entryPrice, stopLoss, pivots.pivot, MIN_RR_TP1, "SELL"));
-      takeProfit2 = round(floorTarget(entryPrice, stopLoss, buyZoneHigh, MIN_RR_TP2, "SELL"));
+      if (distToR2 > 0) {
+        // R2 is above current — pending SELL at R2 keeps entry above price ✓
+        entryPrice = round(pivots.r2);
+        stopLoss = round(pivots.r2 + atr * 0.5);
+        takeProfit1 = round(floorTarget(entryPrice, stopLoss, pivots.pivot, MIN_RR_TP1, "SELL"));
+        takeProfit2 = round(floorTarget(entryPrice, stopLoss, buyZoneHigh, MIN_RR_TP2, "SELL"));
+      } else {
+        // Price is above R2 — show pending BUY at S1 on a pullback (entry below current ✓)
+        entryPrice = round(pivots.s1);
+        stopLoss = round(buyZoneLow - atr * 0.5);
+        takeProfit1 = round(floorTarget(entryPrice, stopLoss, pivots.pivot, MIN_RR_TP1, "BUY"));
+        takeProfit2 = round(floorTarget(entryPrice, stopLoss, sellZoneLow, MIN_RR_TP2, "BUY"));
+      }
     } else if (belowBuyZone) {
       const distBelowBuy = round(buyZoneLow - currentPrice);
       const distToS2 = round(currentPrice - pivots.s2);
       signalReason = `[${tfLabel}] Price (${fmt(currentPrice)}) has broken below the buy zone and is ${fmt(distBelowBuy)} below support. ${distToS2 > 0 ? `Watch S2 at ${fmt(pivots.s2)} (${fmt(distToS2)} away) for the next buy opportunity.` : `Price is below S2 — wait for stabilization before entering.`}`;
-      entryPrice = round(pivots.s1);
-      stopLoss = round(buyZoneLow - atr * 0.5);
-      takeProfit1 = round(floorTarget(entryPrice, stopLoss, pivots.pivot, MIN_RR_TP1, "BUY"));
-      takeProfit2 = round(floorTarget(entryPrice, stopLoss, sellZoneLow, MIN_RR_TP2, "BUY"));
+      if (distToS2 > 0) {
+        // S2 is below current — pending BUY at S2 keeps entry below price ✓
+        entryPrice = round(pivots.s2);
+        stopLoss = round(pivots.s2 - atr * 0.5);
+        takeProfit1 = round(floorTarget(entryPrice, stopLoss, pivots.pivot, MIN_RR_TP1, "BUY"));
+        takeProfit2 = round(floorTarget(entryPrice, stopLoss, sellZoneLow, MIN_RR_TP2, "BUY"));
+      } else {
+        // Price is below S2 — no valid buy level below current; show pending SELL at R1
+        // on a dead-cat bounce instead (entry above current ✓)
+        entryPrice = round(pivots.r1);
+        stopLoss = round(sellZoneHigh + atr * 0.5);
+        takeProfit1 = round(floorTarget(entryPrice, stopLoss, pivots.pivot, MIN_RR_TP1, "SELL"));
+        takeProfit2 = round(floorTarget(entryPrice, stopLoss, buyZoneHigh, MIN_RR_TP2, "SELL"));
+      }
     } else {
       const distToBuy = round(currentPrice - buyZoneHigh);
       const distToSell = round(sellZoneLow - currentPrice);
