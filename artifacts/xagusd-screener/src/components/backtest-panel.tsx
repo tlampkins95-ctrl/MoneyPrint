@@ -181,6 +181,32 @@ export function BacktestPanel({
         </div>
       </div>
 
+      {/* Quality warnings — emitted by the server when the result should
+          be taken with a grain of salt (small sample, weak edge, etc.). */}
+      {data.qualityWarnings && data.qualityWarnings.length > 0 ? (
+        <div
+          className="px-4 py-2.5 border-b border-amber-500/30 bg-amber-950/20"
+          data-testid="backtest-quality-warnings"
+        >
+          <div className="flex items-center gap-2 mb-1.5">
+            <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+            <span className="text-[10px] uppercase tracking-widest text-amber-300 font-mono font-bold">
+              Read with caution
+            </span>
+          </div>
+          <ul className="space-y-1">
+            {data.qualityWarnings.map((w, idx) => (
+              <li
+                key={idx}
+                className="text-[11px] text-amber-200/90 font-mono leading-relaxed pl-5 -indent-3"
+              >
+                · {w}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
       {/* Stats grid */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2 p-3">
         <StatCard

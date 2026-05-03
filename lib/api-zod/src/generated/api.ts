@@ -363,6 +363,11 @@ export const GetBacktestResponse = zod.object({
       }),
     )
     .describe("Most recent trades (capped to last 50 for response size)"),
+  qualityWarnings: zod
+    .array(zod.string())
+    .describe(
+      "Human-readable warnings when the result should be taken with a grain of salt (small sample, weak edge, no trades, etc.)",
+    ),
   lastUpdated: zod.string(),
 });
 

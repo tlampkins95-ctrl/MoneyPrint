@@ -766,6 +766,11 @@ components:
           items:
             $ref: "#/components/schemas/BacktestTrade"
           description: Most recent trades (capped to last 50 for response size)
+        qualityWarnings:
+          type: array
+          items:
+            type: string
+          description: Human-readable warnings when the result should be taken with a grain of salt (small sample, weak edge, no trades, etc.)
         lastUpdated:
           type: string
       required:
@@ -791,4 +796,5 @@ components:
         - slHits
         - expiredHits
         - trades
+        - qualityWarnings
         - lastUpdated

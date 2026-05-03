@@ -375,6 +375,68 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+// Quality heuristics applied to the aggregate. Surfaced as plain-English
+// warnings on the API response so the UI can flag results that look like
+// noise (tiny sample, no edge, regime mismatch) rather than the user
+// inferring it from raw numbers. Order matters here — the most material
+// caveats come first so they show up at the top of the panel.
+function buildQualityWarnings(args: {
+  totalTrades: number;
+  winRate: number;
+  profitFactor: number;
+  totalReturnR: number;
+  maxDrawdownR: number;
+  totalBars: number;
+}): string[] {
+  const { totalTrades, winRate, profitFactor, totalReturnR, maxDrawdownR, totalBars } = args;
+  const warnings: string[] = [];
+  if (totalTrades === 0) {
+    warnings.push(
+      "No qualifying trades over this period — gates didn't align on any bar. Often a sample-size issue on short daily series, not a signal that the strategy is broken.",
+    );
+    return warnings;
+  }
+  if (totalTrades < 20) {
+    warnings.push(
+      `Small sample (${totalTrades} trades). Stats are noisy — wait for a larger sample before drawing conclusions.`,
+    );
+  } else if (totalTrades < 50) {
+    warnings.push(
+      `Moderate sample (${totalTrades} trades). Treat the win rate as indicative rather than reliable.`,
+    );
+  }
+  if (totalReturnR < 0) {
+    warnings.push(
+      `Negative cumulative return (${totalReturnR}R) — the strategy lost money on this slice.`,
+    );
+  }
+  if (profitFactor < 1) {
+    warnings.push(
+      `Profit factor below 1 (${profitFactor}) — gross losses exceeded gross wins.`,
+    );
+  } else if (profitFactor < 1.2) {
+    warnings.push(
+      `Thin profit factor (${profitFactor}) — the edge barely covers the losers. Live slippage and commissions may eat it.`,
+    );
+  }
+  if (winRate < 55 && totalTrades >= 20) {
+    warnings.push(
+      `Win rate (${winRate}%) is on the low side for a mean-reversion strategy that takes 1× risk to ~1× reward at TP1.`,
+    );
+  }
+  if (totalReturnR > 0 && maxDrawdownR > totalReturnR) {
+    warnings.push(
+      `Max drawdown (${maxDrawdownR}R) exceeds total return (${totalReturnR}R) — the strategy is profitable but volatile.`,
+    );
+  }
+  if (totalBars < 100) {
+    warnings.push(
+      `Short historical window (${totalBars} bars). Not enough data to characterise regime variety.`,
+    );
+  }
+  return warnings;
+}
+
 function aggregate(trades: Trade[], candles: CandleRaw[], symbol: Symbol) {
   const wins = trades.filter((t) => t.rMultiple > 0);
   const losses = trades.filter((t) => t.rMultiple <= 0);
@@ -393,21 +455,28 @@ function aggregate(trades: Trade[], candles: CandleRaw[], symbol: Symbol) {
   const buys = trades.filter((t) => t.direction === "BUY");
   const sells = trades.filter((t) => t.direction === "SELL");
 
+  const totalTrades = trades.length;
+  const winRate = totalTrades ? round2((wins.length / totalTrades) * 100) : 0;
+  const totalReturnR = round2(totalR);
+  const profitFactor = grossLoss > 0 ? round2(grossProfit / grossLoss) : grossProfit > 0 ? 999 : 0;
+  const maxDrawdownR = round2(maxDD);
+  const totalBars = candles.length;
+
   return {
     symbol,
     startDate: candles[0]?.date ?? "",
     endDate: candles[candles.length - 1]?.date ?? "",
-    totalBars: candles.length,
-    totalTrades: trades.length,
+    totalBars,
+    totalTrades,
     winningTrades: wins.length,
     losingTrades: losses.length,
-    winRate: trades.length ? round2((wins.length / trades.length) * 100) : 0,
-    totalReturnR: round2(totalR),
-    avgReturnR: trades.length ? round2(totalR / trades.length) : 0,
-    profitFactor: grossLoss > 0 ? round2(grossProfit / grossLoss) : grossProfit > 0 ? 999 : 0,
-    maxDrawdownR: round2(maxDD),
-    avgBarsHeld: trades.length
-      ? round2(trades.reduce((s, t) => s + t.barsHeld, 0) / trades.length)
+    winRate,
+    totalReturnR,
+    avgReturnR: totalTrades ? round2(totalR / totalTrades) : 0,
+    profitFactor,
+    maxDrawdownR,
+    avgBarsHeld: totalTrades
+      ? round2(trades.reduce((s, t) => s + t.barsHeld, 0) / totalTrades)
       : 0,
     buyTrades: buys.length,
     sellTrades: sells.length,
@@ -422,6 +491,14 @@ function aggregate(trades: Trade[], candles: CandleRaw[], symbol: Symbol) {
     slHits: trades.filter((t) => t.outcome === "SL").length,
     expiredHits: trades.filter((t) => t.outcome === "EXPIRED").length,
     trades: trades.slice(-50).reverse(),
+    qualityWarnings: buildQualityWarnings({
+      totalTrades,
+      winRate,
+      profitFactor,
+      totalReturnR,
+      maxDrawdownR,
+      totalBars,
+    }),
     lastUpdated: new Date().toISOString(),
   };
 }

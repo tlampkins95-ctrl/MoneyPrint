@@ -372,6 +372,8 @@ export interface BacktestResult {
   expiredHits: number;
   /** Most recent trades (capped to last 50 for response size) */
   trades: BacktestTrade[];
+  /** Human-readable warnings when the result should be taken with a grain of salt (small sample, weak edge, no trades, etc.) */
+  qualityWarnings: string[];
   lastUpdated: string;
 }
 
