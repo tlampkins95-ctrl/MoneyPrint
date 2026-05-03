@@ -50,7 +50,7 @@ export function SymbolSelector({
       </button>
 
       {open && (
-        <div className="absolute right-0 mt-1.5 w-60 z-[100] bg-card border border-border rounded-lg shadow-2xl overflow-hidden">
+        <div className="absolute left-0 mt-1.5 w-60 z-[100] bg-card border border-border rounded-lg shadow-2xl overflow-hidden">
           <div className="px-3 py-2 border-b border-border/60 text-[10px] font-bold tracking-widest text-muted-foreground">
             INSTRUMENT
           </div>
