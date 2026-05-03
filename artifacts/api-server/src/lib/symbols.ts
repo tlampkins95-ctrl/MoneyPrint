@@ -23,6 +23,14 @@ export interface SymbolMeta {
   // is the primary spot source so the Now-price line agrees with the
   // PHEMEX:BTCUSDT chart's mark print.
   phemexPerp?: string;
+  // Phemex contract minimum order qty in coin units. BTCUSDT trades in
+  // 0.001 BTC contracts, ETHUSDT in 0.01 ETH. The exchange rejects any
+  // order below `phemexMinQty`, so the screener forces over-sized when the
+  // ideal position is below this floor (notional ≈ minQty × entry).
+  phemexMinQty?: number;
+  // Phemex contract qty increment. Orders are rounded DOWN to this step
+  // (you can't place 0.0017 BTC, only 0.001 or 0.002).
+  phemexQtyStep?: number;
   // Pyth Hermes price-feed IDs (mainnet). Used as the primary spot source for
   // crypto so the Now-price line agrees with jup.ag's chart and oracle marks.
   pythFeedId?: string;
@@ -101,6 +109,8 @@ export const SYMBOLS: Record<Symbol, SymbolMeta> = {
     coinbase: "BTC-USD",
     okxPerp: "BTC-USDT-SWAP",
     phemexPerp: "BTCUSDT",
+    phemexMinQty: 0.001,
+    phemexQtyStep: 0.001,
     pythFeedId: "e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
     venue: "PHEMEX · USDT perp",
   },
@@ -114,6 +124,8 @@ export const SYMBOLS: Record<Symbol, SymbolMeta> = {
     coinbase: "ETH-USD",
     okxPerp: "ETH-USDT-SWAP",
     phemexPerp: "ETHUSDT",
+    phemexMinQty: 0.01,
+    phemexQtyStep: 0.01,
     pythFeedId: "ff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace",
     venue: "PHEMEX · USDT perp",
   },

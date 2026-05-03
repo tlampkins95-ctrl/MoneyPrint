@@ -337,14 +337,21 @@ interface PositionSizing {
   mt5?: MT5Sizing;
 }
 
-// Compute the "achievable" position given exchange constraints. Uses the
-// scale-factor approach: when the ideal notional is below the exchange's
-// minimum collateral (case C), the position is forced larger, scaling risk
-// and dollar P&L proportionally. When ideal is achievable (cases A/B), we
-// recommend the smallest collateral that satisfies both the exchange minimum
-// and the user's leverage cap. The same scale factor is applied to risk and
-// P&L so this works for any asset class without per-asset currency math —
-// we leverage the fact that ideal P&L = riskAmount × R-multiple.
+// Compute the "achievable" position given exchange constraints.
+//
+// Two flavors of exchange floor:
+//   • Phemex (minQty/qtyStep): contract-based — BTCUSDT trades in 0.001 BTC
+//     increments, ETHUSDT in 0.01. The binding minimum is `minQty × entry`
+//     dollars of notional, NOT a fixed collateral. We round qty DOWN to the
+//     step (a small under-allocation), and if it lands below minQty we force
+//     it up to minQty (the OVER-SIZED case). Forced trades take maxLev so
+//     collateral stays tiny — Phemex doesn't require $X locked, only ≥1
+//     contract worth of notional.
+//   • Legacy ($ minCollateral floor, e.g. Jupiter): notional must clear a
+//     fixed dollar amount. Forced over-sized trades use 1× at the floor.
+//
+// In both flavors the scale-factor approach lets us scale risk & dollar P&L
+// proportionally without per-asset math, since ideal P&L = riskAmount × R.
 function computeAchievable(
   ideal: { positionSize: number; notional: number; positionSizeUnit: string },
   riskAmount: number,
@@ -355,27 +362,81 @@ function computeAchievable(
   takeProfit2: number,
   minCollateral: number,
   maxLeverage: number,
+  minQty?: number,
+  qtyStep?: number,
 ): AchievablePosition {
   const slDist = Math.abs(entry - stopLoss);
   const tp1Dist = Math.abs(takeProfit1 - entry);
   const tp2Dist = Math.abs(takeProfit2 - entry);
   const r = (n: number, d = 2) => Math.round(n * 10 ** d) / 10 ** d;
+  const usePhemexFloor = minQty != null && qtyStep != null && minQty > 0 && qtyStep > 0;
+  // Defensive: maxLeverage=0 would divide by zero downstream. Routes clamp
+  // ≥1 today, but belt-and-braces here so the helper is safe in isolation.
+  const safeMaxLev = Math.max(1, maxLeverage);
 
+  // ─── Step 1: determine actual position size (qty-stepped or scaled) ──
+  let actualPosition: number;
   let scaleFactor = 1;
+  let belowMinimum = false;
+
+  if (ideal.notional <= 0 || ideal.positionSize <= 0) {
+    // Degenerate ideal — zero out everything so risk/PnL outputs match the
+    // (zero) position. Without scaleFactor=0 the function would still report
+    // a non-zero actualRiskAmount = riskAmount × 1.
+    actualPosition = 0;
+    scaleFactor = 0;
+  } else if (usePhemexFloor) {
+    // Snap to step with a small epsilon so an exact multiple like
+    // 0.05 / 0.001 doesn't dip to 0.049 due to IEEE-754 precision (qtyStep
+    // is typically 0.001 or 0.01 — both representable, but their quotients
+    // aren't always). Epsilon = 1e-9 of the step is well below any real
+    // exchange granularity.
+    const eps = qtyStep! * 1e-9;
+    const stepped = Math.floor(ideal.positionSize / qtyStep! + eps) * qtyStep!;
+    if (stepped < minQty!) {
+      // Below 1 contract → forced to minQty (OVER-SIZED, scaleFactor > 1).
+      actualPosition = minQty!;
+      belowMinimum = true;
+    } else {
+      // Round-down to step (slight under-risk, scaleFactor ≤ 1).
+      actualPosition = stepped;
+    }
+    scaleFactor = actualPosition / ideal.positionSize;
+  } else {
+    // Legacy $-floor path
+    belowMinimum = ideal.notional < minCollateral;
+    if (belowMinimum) {
+      scaleFactor = minCollateral / ideal.notional;
+      actualPosition = ideal.positionSize * scaleFactor;
+    } else {
+      actualPosition = ideal.positionSize;
+    }
+  }
+
+  const actualNotional = actualPosition * entry;
+  const actualRiskAmount = riskAmount * scaleFactor;
+
+  // ─── Step 2: determine collateral / leverage from actual notional ────
   let collateral: number;
   let leverage: number;
   let warning: string | undefined;
-  const belowMinimum = ideal.notional > 0 && ideal.notional < minCollateral;
 
   if (ideal.notional <= 0) {
-    // Defensive: degenerate ideal (zero risk or zero account). Cannot scale.
     collateral = minCollateral;
     leverage = 1;
     warning = `Cannot compute achievable position — ideal notional is zero.`;
+  } else if (belowMinimum && usePhemexFloor) {
+    // Phemex over-sized: take the forced 1-contract notional at maxLev so
+    // collateral reflects the realistic exchange usage (tiny $).
+    collateral = actualNotional / safeMaxLev;
+    leverage = safeMaxLev;
+    const overPct = Math.round((scaleFactor - 1) * 100);
+    warning =
+      `Ideal position smaller than Phemex contract minimum ` +
+      `(${minQty} ${ideal.positionSizeUnit} ≈ $${actualNotional.toFixed(2)}) — ` +
+      `forced ${overPct}% over-sized.`;
   } else if (belowMinimum) {
-    // CASE C: ideal notional too small to even use 1x lev with min collateral.
-    // Position is forced larger than risk-budgeted.
-    scaleFactor = minCollateral / ideal.notional;
+    // Legacy $-floor: forced to minCollateral at 1×.
     collateral = minCollateral;
     leverage = 1;
     const overPct = Math.round((scaleFactor - 1) * 100);
@@ -385,28 +446,24 @@ function computeAchievable(
     }
     warning = parts.join(" ");
   } else {
-    const requiredCollateralAtMaxLev = ideal.notional / maxLeverage;
+    // CASE A/B: ideal (or stepped-down ideal) is achievable.
+    const requiredCollateralAtMaxLev = actualNotional / safeMaxLev;
     if (requiredCollateralAtMaxLev >= minCollateral) {
-      // CASE A: ideal achievable at exactly maxLev with collateral >= min.
       collateral = requiredCollateralAtMaxLev;
-      leverage = maxLeverage;
+      leverage = safeMaxLev;
     } else {
-      // CASE B: at maxLev would be below min collateral. Bump collateral to
-      // min, drop leverage proportionally. Position still matches ideal.
       collateral = minCollateral;
-      leverage = ideal.notional / minCollateral;
+      leverage = actualNotional / minCollateral;
     }
     if (collateral > accountSize) {
       warning = `Required collateral $${collateral.toFixed(2)} exceeds account $${accountSize}.`;
     }
   }
 
-  const actualNotional = ideal.notional * scaleFactor;
-  const actualPosition = ideal.positionSize * scaleFactor;
-  const actualRiskAmount = riskAmount * scaleFactor;
-  // Per-unit-of-price-move dollar P&L derived from the known ideal: at slDist
-  // the loss is exactly riskAmount, so $/move = riskAmount / slDist.
-  const dollarPerUnit = slDist > 0 ? riskAmount / slDist : 0;
+  // ─── Step 3: P&L direct from actual position × distance ──────────────
+  // Equivalent to the legacy `(riskAmount / slDist) × dist × scaleFactor`
+  // since actualPosition × slDist = actualRiskAmount, but expressed
+  // directly so qty-stepped Phemex sizes round-trip cleanly.
   return {
     positionSize: r(actualPosition, 6),
     notional: r(actualNotional),
@@ -415,8 +472,8 @@ function computeAchievable(
     actualRiskAmount: r(actualRiskAmount),
     actualRiskPct: r((actualRiskAmount / accountSize) * 100, 2),
     pnlAtSL: r(-actualRiskAmount),
-    pnlAtTP1: r(dollarPerUnit * tp1Dist * scaleFactor),
-    pnlAtTP2: r(dollarPerUnit * tp2Dist * scaleFactor),
+    pnlAtTP1: r(actualPosition * tp1Dist),
+    pnlAtTP2: r(actualPosition * tp2Dist),
     belowMinimum,
     warning,
   };
@@ -472,6 +529,8 @@ function computePositionSizing(
         takeProfit2,
         minCollateral,
         maxLeverage,
+        meta.phemexMinQty,
+        meta.phemexQtyStep,
       ),
     };
   }
