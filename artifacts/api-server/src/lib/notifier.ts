@@ -76,19 +76,27 @@ async function checkSymbol(
     const prev = stateMap.get(k);
     const now = Date.now();
 
-    // Seed state on first observation — never alert on first run.
-    if (!prev) {
+    // Seed state on first observation. If a BUY/SELL is *already active*
+    // at seed time (e.g. the server just started while a position was
+    // already in its zone), treat it as a transition so the user gets a
+    // one-time snapshot alert instead of silently missing the trade. WAIT
+    // signals at seed time are still suppressed — there's nothing to
+    // alert on.
+    const isSeedSnapshot = !prev && (levels.signal === "BUY" || levels.signal === "SELL");
+    const transitioned =
+      isSeedSnapshot ||
+      (!!prev &&
+        prev.signal !== levels.signal &&
+        (levels.signal === "BUY" || levels.signal === "SELL"));
+
+    if (!prev && !isSeedSnapshot) {
       stateMap.set(k, { signal: levels.signal, lastAlertAt: 0 });
       return;
     }
 
-    // Only fire when the signal *transitions into* BUY or SELL.
-    const transitioned =
-      prev.signal !== levels.signal &&
-      (levels.signal === "BUY" || levels.signal === "SELL");
-
     const cooldownMs = COOLDOWN_BY_TIMEFRAME[timeframe];
-    const cooldownActive = now - prev.lastAlertAt < cooldownMs;
+    // On a seed snapshot there's no prior alert, so cooldown is N/A.
+    const cooldownActive = !!prev && now - prev.lastAlertAt < cooldownMs;
 
     // De-dup against the active-trade store: if a trade is already open in
     // the same direction for this (symbol, timeframe), the user is already
@@ -100,7 +108,10 @@ async function checkSymbol(
     // design, so checking the store is the source of truth for "am I
     // already in this?".
     const activeTrade = getActiveTrade(symbol, timeframe);
+    // For a seed snapshot we *want* to surface the active trade — that's the
+    // whole point of the snapshot — so the active-trade de-dup is skipped.
     const alreadyInSameDirection =
+      !isSeedSnapshot &&
       activeTrade?.signal === levels.signal &&
       (levels.signal === "BUY" || levels.signal === "SELL");
 
@@ -141,7 +152,14 @@ async function checkSymbol(
       if (tasks.length > 0) {
         await Promise.allSettled(tasks);
         logger.info(
-          { symbol, timeframe, from: prev.signal, to: levels.signal, channels: tasks.length },
+          {
+            symbol,
+            timeframe,
+            from: prev?.signal ?? "(seed)",
+            to: levels.signal,
+            channels: tasks.length,
+            seedSnapshot: isSeedSnapshot,
+          },
           "Signal alert dispatched",
         );
       }
@@ -149,7 +167,7 @@ async function checkSymbol(
       return;
     }
 
-    if (transitioned && cooldownActive) {
+    if (transitioned && cooldownActive && prev) {
       logger.debug(
         {
           symbol,
@@ -167,7 +185,7 @@ async function checkSymbol(
         {
           symbol,
           timeframe,
-          from: prev.signal,
+          from: prev?.signal ?? "(seed)",
           to: levels.signal,
           activeEntry: activeTrade?.entryPrice,
           activeOpenedAt: activeTrade?.openedAt,
@@ -177,7 +195,10 @@ async function checkSymbol(
     }
 
     // Track new signal but preserve lastAlertAt so cooldown still ticks.
-    stateMap.set(k, { signal: levels.signal, lastAlertAt: prev.lastAlertAt });
+    stateMap.set(k, {
+      signal: levels.signal,
+      lastAlertAt: prev?.lastAlertAt ?? 0,
+    });
   } catch (err) {
     logger.warn({ err, symbol, timeframe }, "Notifier check failed");
   }
