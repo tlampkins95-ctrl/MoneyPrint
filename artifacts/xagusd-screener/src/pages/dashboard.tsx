@@ -92,12 +92,16 @@ export default function Dashboard() {
         {/* Top row: chart + signal panel.
             Mobile: explicit chart/panel heights so flex-1 inside <main> doesn't
             balloon the chart to fill the whole viewport. Desktop (lg+): the
-            row is locked to 640px and children flex normally. */}
-        <div className="flex flex-col lg:flex-row gap-2 md:gap-3 lg:h-[640px]">
-          <div className="w-full h-[420px] md:h-[480px] lg:w-[65%] lg:h-auto lg:flex-1 lg:min-h-0">
+            row grows to 900px so the panel's WAIT card + trade ticket + zone
+            watch + position-sizing controls + EXACT TRADE block all fit on
+            BUY/SELL without internal scroll. Panel widened to 42% (chart 58%)
+            so trade-ticket rows and PHEMEX collateral×lev grid don't truncate
+            on the right edge. Mobile panel height bumped to match. */}
+        <div className="flex flex-col lg:flex-row gap-2 md:gap-3 lg:h-[1080px]">
+          <div className="w-full h-[420px] md:h-[480px] lg:w-[58%] lg:h-auto lg:flex-1 lg:min-h-0">
             <TradingViewChart symbol={symbol} timeframe={timeframe} />
           </div>
-          <div className="w-full h-[520px] lg:w-[35%] lg:h-auto lg:min-h-0">
+          <div className="w-full h-[920px] lg:w-[42%] lg:h-auto lg:min-h-0">
             <SignalPanel symbol={symbol} timeframe={timeframe} />
           </div>
         </div>
