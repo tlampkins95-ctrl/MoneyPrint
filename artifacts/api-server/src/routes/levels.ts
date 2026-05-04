@@ -92,7 +92,15 @@ router.get("/levels", async (req: Request, res: Response) => {
 
     // ── Multi-gate alignment check ────────────────────────────────────────────
     // Run each gate in order. First failure suppresses the signal to WAIT.
-    if (result.signal === "BUY" || result.signal === "SELL") {
+    //
+    // Gates only apply to PENDING (unfilled) limit orders. A FILLED trade
+    // means the trader is already in the position — suppressing it to WAIT
+    // hides a live trade from the signal panel while Active Signals (which
+    // skips gates) still shows it, producing a contradictory display.
+    // Once filled, show the real trade state regardless of higher-TF alignment.
+    const isFilledTrade =
+      result.tradeState !== "WAIT" && result.tradeState !== "PENDING";
+    if (!isFilledTrade && (result.signal === "BUY" || result.signal === "SELL")) {
       for (const gate of gates) {
         const rawHigher = higherTfMap.get(gate.higherTf);
         if (!rawHigher || rawHigher.length < 2) continue;
