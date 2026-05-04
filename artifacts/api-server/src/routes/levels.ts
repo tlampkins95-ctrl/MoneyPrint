@@ -12,7 +12,7 @@ import {
   type Timeframe,
 } from "../lib/yahoo-fetch";
 import { SYMBOLS, makeRounder, ALL_SYMBOLS, type Symbol } from "../lib/symbols";
-import { computeLevelsStable, fetchSpotPrice, applyFuturesBasis } from "../lib/signals";
+import { computeLevelsStable, fetchSpotPrice, applyFuturesBasis, seedActiveTrades } from "../lib/signals";
 
 // Only 30m is tracked in the active-signals overview. It's the entry
 // timeframe — 1h and daily are alignment gates, not signals in their own right.
@@ -335,6 +335,30 @@ router.get("/active-signals", async (req: Request, res: Response) => {
     req.log.error({ err }, "Failed to compute active signals");
     res.status(500).json({ error: "Failed to compute active signals" });
   }
+});
+
+// ─── Admin seed endpoint ──────────────────────────────────────────────────────
+// POST /api/admin/seed-trades
+// Accepts a JSON body of { "SYMBOL::TF": { ...ActiveTrade } } and injects them
+// into the in-memory Map + persists to disk and DB. Requires Bearer token.
+router.post("/admin/seed-trades", (req: Request, res: Response) => {
+  const secret = process.env["ADMIN_SECRET"];
+  if (!secret) {
+    res.status(503).json({ error: "Admin endpoint not configured" });
+    return;
+  }
+  const auth = req.headers["authorization"] ?? "";
+  if (auth !== `Bearer ${secret}`) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  const body = req.body as Record<string, unknown>;
+  if (!body || typeof body !== "object") {
+    res.status(400).json({ error: "Expected JSON object body" });
+    return;
+  }
+  const count = seedActiveTrades(body);
+  res.json({ ok: true, seeded: count });
 });
 
 export default router;

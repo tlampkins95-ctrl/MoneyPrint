@@ -1746,3 +1746,25 @@ export function clearActiveTrade(symbol: Symbol, timeframe: Timeframe): void {
   activeTrades.delete(tradeKey(symbol, timeframe));
   persistActiveTrades();
 }
+
+// Used by the admin seed endpoint to inject trades into the in-memory Map
+// and persist them to both disk and DB. Runs the same migration/validation
+// as loadActiveTradesFromDisk so stale fields are backfilled safely.
+export function seedActiveTrades(raw: Record<string, unknown>): number {
+  let count = 0;
+  for (const [k, v] of Object.entries(raw)) {
+    if (!v || typeof v !== "object") continue;
+    const p = v as Partial<ActiveTrade>;
+    activeTrades.set(k, {
+      ...(p as ActiveTrade),
+      triggered: typeof p.triggered === "boolean" ? p.triggered : false,
+      openedPrice: typeof p.openedPrice === "number" ? p.openedPrice : (p.entryPrice ?? 0),
+      openedCandleStartTs: typeof p.openedCandleStartTs === "number" ? p.openedCandleStartTs : (p.openedAt ?? 0),
+      openedCandleLow: typeof p.openedCandleLow === "number" ? p.openedCandleLow : 0,
+      openedCandleHigh: typeof p.openedCandleHigh === "number" ? p.openedCandleHigh : 0,
+    });
+    count++;
+  }
+  if (count > 0) persistActiveTrades();
+  return count;
+}
