@@ -31,9 +31,13 @@ const TIMEFRAME_LABEL: Record<Timeframe, string> = {
 export function SignalPanel({
   symbol,
   timeframe,
+  expanded,
+  onExpandedChange,
 }: {
   symbol: Symbol;
   timeframe: Timeframe;
+  expanded: boolean;
+  onExpandedChange: (v: boolean) => void;
 }) {
   const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
   const [accountSize, setAccountSize] = useState<number>(() => readNumber(ACCOUNT_KEY, 500));
@@ -51,17 +55,6 @@ export function SignalPanel({
   const [mt5LotsText, setMt5LotsText] = useState<string>(() =>
     String(readNumber(MT5_LOTS_KEY, 0.01)),
   );
-  const [expanded, setExpanded] = useState<boolean>(() => {
-    if (typeof window === "undefined") return true;
-    return window.localStorage.getItem("screener.signalExpanded") !== "0";
-  });
-
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem("screener.signalExpanded", expanded ? "1" : "0");
-    }
-  }, [expanded]);
-
   useEffect(() => {
     window.localStorage.setItem(ACCOUNT_KEY, String(accountSize));
   }, [accountSize]);
@@ -196,7 +189,7 @@ export function SignalPanel({
       {!expanded && (
         <button
           className={cn("w-full flex items-center gap-3 px-4 py-3 shrink-0 text-left", signalBg)}
-          onClick={() => setExpanded(true)}
+          onClick={() => onExpandedChange(true)}
           aria-label="Expand signal details"
         >
           <span className="text-2xl font-black tracking-tight shrink-0" style={signalWordStyle}>
@@ -213,11 +206,11 @@ export function SignalPanel({
       {expanded && (
         <div
           className={cn("px-5 py-5 flex flex-col items-center text-center shrink-0 relative cursor-pointer select-none", signalBg, signalTextColor)}
-          onClick={() => setExpanded(false)}
+          onClick={() => onExpandedChange(false)}
           role="button"
           tabIndex={0}
           aria-label="Collapse signal details"
-          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setExpanded(false); }}
+          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onExpandedChange(false); }}
         >
           <span className="absolute top-2 right-3 text-[10px] tracking-widest font-bold opacity-80 bg-black/30 rounded px-2 py-0.5">
             {TIMEFRAME_LABEL[timeframe]}

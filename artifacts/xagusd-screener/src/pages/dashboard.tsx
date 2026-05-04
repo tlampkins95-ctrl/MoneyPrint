@@ -11,6 +11,7 @@ import {
 import { SymbolSelector } from "@/components/symbol-selector";
 import { PushNotificationsToggle } from "@/components/push-notifications-toggle";
 import { SYMBOLS, type Symbol } from "@/lib/symbols";
+import { cn } from "@/lib/utils";
 
 const VALID_TIMEFRAMES: readonly Timeframe[] = ["15m", "30m", "1h", "1d"];
 
@@ -32,10 +33,22 @@ function readInitial(): { symbol: Symbol; timeframe: Timeframe } {
   };
 }
 
+const LS_EXPANDED = "screener.signalExpanded";
+
 export default function Dashboard() {
   const initial = readInitial();
   const [symbol, setSymbol] = useState<Symbol>(initial.symbol);
   const [timeframe, setTimeframe] = useState<Timeframe>(initial.timeframe);
+  const [signalExpanded, setSignalExpanded] = useState<boolean>(() => {
+    if (typeof window === "undefined") return true;
+    return window.localStorage.getItem(LS_EXPANDED) !== "0";
+  });
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(LS_EXPANDED, signalExpanded ? "1" : "0");
+    }
+  }, [signalExpanded]);
 
   // Keep the URL in sync so the current view is always shareable / bookmarkable.
   useEffect(() => {
@@ -101,8 +114,16 @@ export default function Dashboard() {
           <div className="w-full h-[420px] md:h-[480px] lg:w-[58%] lg:h-auto lg:flex-1 lg:min-h-0">
             <TradingViewChart symbol={symbol} timeframe={timeframe} />
           </div>
-          <div className="w-full h-[920px] lg:w-[42%] lg:h-auto lg:min-h-0">
-            <SignalPanel symbol={symbol} timeframe={timeframe} />
+          <div className={cn(
+            "w-full lg:w-[42%] lg:h-auto lg:min-h-0",
+            signalExpanded ? "h-[920px]" : "h-auto",
+          )}>
+            <SignalPanel
+              symbol={symbol}
+              timeframe={timeframe}
+              expanded={signalExpanded}
+              onExpandedChange={setSignalExpanded}
+            />
           </div>
         </div>
 
