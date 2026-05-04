@@ -80,34 +80,44 @@ router.get("/price-history", async (req: Request, res: Response) => {
     }
 
     const round = makeRounder(SYMBOLS[symbol].decimals);
-    const sliced = allCandles.slice(-bars);
+
+    // Drop any zero-range candle Yahoo injects for the current partial
+    // period (its O=H=L=C, it's a live-tick stub, not a real bar). We
+    // apply the live price directly to the last proper candle instead.
+    const rawSliced = allCandles.slice(-bars);
+    const last = rawSliced[rawSliced.length - 1];
+    const isZeroRange = last && last.high === last.low && last.high === last.close;
+    const sliced = isZeroRange ? rawSliced.slice(0, -1) : rawSliced;
+
     if (sliced.length === 0) {
       res.status(503).json({ error: "No candle data in requested window" });
       return;
     }
-    const last = sliced[sliced.length - 1];
-    const effectiveSpot = spotPrice ?? last.close;
-    // Align Yahoo candles to OANDA spot via ratio scaling so the latest
-    // close equals the OANDA price exactly and earlier bars are scaled
-    // proportionally — keeps shape but matches OANDA price levels.
-    const factor = last.close > 0 ? effectiveSpot / last.close : 1;
+    const lastGood = sliced[sliced.length - 1];
+    const effectiveSpot = spotPrice ?? lastGood.close;
+
+    // No ratio scaling — applying a factor derived from two different price
+    // sources (Yahoo live tick vs gold-api spot) shifts every historical
+    // candle by their divergence and causes 30-50 cent chart errors.
+    // Instead, only patch the close of the most-recent bar with the live
+    // spot price; all prior bars are returned exactly as Yahoo sent them.
     const aligned = sliced.map((c, i) => {
       if (i === sliced.length - 1) {
         return {
           date: c.date,
-          open: round(c.open * factor),
-          high: round(Math.max(c.high * factor, effectiveSpot)),
-          low: round(Math.min(c.low * factor, effectiveSpot)),
+          open: round(c.open),
+          high: round(Math.max(c.high, effectiveSpot)),
+          low: round(Math.min(c.low, effectiveSpot)),
           close: round(effectiveSpot),
           volume: c.volume,
         };
       }
       return {
         date: c.date,
-        open: round(c.open * factor),
-        high: round(c.high * factor),
-        low: round(c.low * factor),
-        close: round(c.close * factor),
+        open: round(c.open),
+        high: round(c.high),
+        low: round(c.low),
+        close: round(c.close),
         volume: c.volume,
       };
     });
