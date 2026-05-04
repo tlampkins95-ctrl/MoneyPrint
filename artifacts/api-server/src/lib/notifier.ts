@@ -71,6 +71,14 @@ async function checkSymbol(
     ]);
     if (candles.length < 2) return;
 
+    // Snapshot the active trade BEFORE calling computeLevelsStable.
+    // computeLevelsStable writes a new ActiveTrade entry the moment a fresh
+    // BUY/SELL fires, so reading after the call always finds a trade in the
+    // new direction — causing alreadyInSameDirection to fire and silently
+    // eat every non-seed alert. Reading before gives us the pre-computation
+    // state: null on a genuine new signal, populated on an oscillation.
+    const activeTradeBeforeCompute = getActiveTrade(symbol, timeframe);
+
     const levels = computeLevelsStable(candles, spot, timeframe, symbol);
     const k = key(symbol, timeframe);
     const prev = stateMap.get(k);
@@ -98,8 +106,8 @@ async function checkSymbol(
     // On a seed snapshot there's no prior alert, so cooldown is N/A.
     const cooldownActive = !!prev && now - prev.lastAlertAt < cooldownMs;
 
-    // De-dup against the active-trade store: if a trade is already open in
-    // the same direction for this (symbol, timeframe), the user is already
+    // De-dup against the active-trade store: if a trade was already open in
+    // the same direction BEFORE this compute cycle, the user is already
     // positioned and a fresh BUY/SELL alert is just noise. The level-signal
     // classifier can oscillate BUY→WAIT→BUY when price briefly exits its
     // zone (e.g. the start of a pump), and without this guard the second
@@ -107,12 +115,9 @@ async function checkSymbol(
     // mathematically open. WAIT does not invalidate the active trade by
     // design, so checking the store is the source of truth for "am I
     // already in this?".
-    const activeTrade = getActiveTrade(symbol, timeframe);
-    // For a seed snapshot we *want* to surface the active trade — that's the
-    // whole point of the snapshot — so the active-trade de-dup is skipped.
     const alreadyInSameDirection =
       !isSeedSnapshot &&
-      activeTrade?.signal === levels.signal &&
+      activeTradeBeforeCompute?.signal === levels.signal &&
       (levels.signal === "BUY" || levels.signal === "SELL");
 
     if (transitioned && !cooldownActive && !alreadyInSameDirection) {
