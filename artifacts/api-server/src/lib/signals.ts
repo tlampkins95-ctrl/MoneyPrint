@@ -975,7 +975,10 @@ export function computeLevels(
       const distToBuy = round(currentPrice - buyZoneHigh);
       const distToSell = round(sellZoneLow - currentPrice);
       signalReason = `[${tfLabel}] Price (${fmt(currentPrice)}) is in no-trade territory — ${fmt(distToBuy)} above the buy zone (${fmt(buyZoneLow)}–${fmt(buyZoneHigh)}) and ${fmt(distToSell)} below the sell zone (${fmt(sellZoneLow)}–${fmt(sellZoneHigh)}). Wait for price to reach a zone.`;
-      const dir: "BUY" | "SELL" = trend === "UPTREND" ? "BUY" : "SELL";
+      // Use buyAllowed (trend + RSI) rather than just trend to pick direction:
+      // in RANGING with oversold RSI a BUY will fire once price reaches the
+      // buy zone, so the pending setup should point there, not to the sell zone.
+      const dir: "BUY" | "SELL" = (trend === "UPTREND" || buyAllowed) ? "BUY" : "SELL";
       entryPrice = round(dir === "BUY" ? pivots.s1 : pivots.r1);
       stopLoss = round(dir === "BUY" ? buyZoneLow - atr * 0.5 : sellZoneHigh + atr * 0.5);
       const structural1 = pivots.pivot;
@@ -1289,14 +1292,23 @@ function describeFrozenTrade(
   const dirWord = isBuy ? "BUY" : "SELL";
   const triggered = trade.triggered;
 
-  const risk = Math.abs(trade.entryPrice - trade.stopLoss);
+  // Detect break-even trail early — needed for correct R-math below.
+  // After TP1 hits, stopLoss is moved to entryPrice (risk = 0). Using the
+  // live SL would make rMult always 0 for the runner. Derive the original
+  // risk from the frozen TP1 distance ÷ stored R:R so R readings stay honest.
+  const trailedToBE = trade.tp1Hit && trade.stopLoss === trade.entryPrice;
+  const originalRisk = trailedToBE && trade.riskRewardRatio > 0
+    ? Math.abs(trade.takeProfit1 - trade.entryPrice) / trade.riskRewardRatio
+    : Math.abs(trade.entryPrice - trade.stopLoss);
   const rawPnl = isBuy ? currentPrice - trade.entryPrice : trade.entryPrice - currentPrice;
-  const rMult = risk > 0 ? rawPnl / risk : 0;
+  const rMult = originalRisk > 0 ? rawPnl / originalRisk : 0;
   const rStr = `${rMult >= 0 ? "+" : ""}${rMult.toFixed(2)}R`;
 
   const distToTp1 = Math.abs(trade.takeProfit1 - currentPrice);
   const distToTp2 = Math.abs(trade.takeProfit2 - currentPrice);
-  const distToSl = Math.abs(currentPrice - trade.stopLoss);
+  const distToSl = trailedToBE
+    ? Math.abs(currentPrice - trade.entryPrice)   // BE stop: distance to entry
+    : Math.abs(currentPrice - trade.stopLoss);
   const distToEntry = Math.abs(currentPrice - trade.entryPrice);
 
   const beyondTp2 = isBuy ? currentPrice >= trade.takeProfit2 : currentPrice <= trade.takeProfit2;
@@ -1327,11 +1339,6 @@ function describeFrozenTrade(
     const dirFromEntry = isBuy ? "below" : "above";
     return `[${tfLabel}] ${dirWord} PENDING — limit at ${fmt(trade.entryPrice)}, price ${fmt(currentPrice)} (${fmt(distToEntry)} ${dirFromEntry} entry, ${fmt(distToSl)} from SL ${fmt(trade.stopLoss)}). Order will fill if price tags ${fmt(trade.entryPrice)}.`;
   }
-
-  // After TP1 hits the engine trails the stop to the entry price, so a
-  // post-TP1 SL hit is really a flat break-even exit, not a -1R loss. Detect
-  // that case explicitly so the message reads honestly.
-  const trailedToBE = trade.tp1Hit && trade.stopLoss === trade.entryPrice;
 
   // ─── TRIGGERED: position is real ────────────────────────────────────────
   if (beyondTp2) {
