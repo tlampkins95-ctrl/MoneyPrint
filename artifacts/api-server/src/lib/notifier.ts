@@ -1,10 +1,10 @@
 import { logger } from "./logger";
-import { SYMBOLS, type Symbol, ALL_SYMBOLS } from "./symbols";
+import { SYMBOLS, makeRounder, type Symbol, ALL_SYMBOLS } from "./symbols";
 import {
   fetchCandlesForTimeframe,
   type Timeframe,
 } from "./yahoo-fetch";
-import { computeLevelsStable, fetchSpotPrice, getActiveTrade } from "./signals";
+import { computeLevelsStable, fetchSpotPrice, getActiveTrade, applyFuturesBasis } from "./signals";
 import {
   buildAlertContext,
   sendTelegramAlert,
@@ -71,6 +71,13 @@ async function checkSymbol(
     ]);
     if (candles.length < 2) return;
 
+    // Apply basis shift for metals so alert prices (entry/SL/TP) match broker
+    // spot pricing (MT5 / OANDA) rather than SI=F / GC=F futures levels.
+    const adjustedCandles =
+      spot != null && SYMBOLS[symbol].hasFuturesBasis
+        ? applyFuturesBasis(candles, spot, makeRounder(SYMBOLS[symbol].decimals))
+        : candles;
+
     // Snapshot the active trade BEFORE calling computeLevelsStable.
     // computeLevelsStable writes a new ActiveTrade entry the moment a fresh
     // BUY/SELL fires, so reading after the call always finds a trade in the
@@ -79,7 +86,7 @@ async function checkSymbol(
     // state: null on a genuine new signal, populated on an oscillation.
     const activeTradeBeforeCompute = getActiveTrade(symbol, timeframe);
 
-    const levels = computeLevelsStable(candles, spot, timeframe, symbol);
+    const levels = computeLevelsStable(adjustedCandles, spot, timeframe, symbol);
     const k = key(symbol, timeframe);
     const prev = stateMap.get(k);
     const now = Date.now();

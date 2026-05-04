@@ -18,6 +18,10 @@ export interface SymbolMeta {
   decimals: number;
   prefix: string;
   goldApi?: "XAG" | "XAU";
+  // True for symbols whose Yahoo candle data comes from a futures contract
+  // (SI=F for silver, GC=F for gold). A basis shift is applied at response
+  // time to align OHLCV candles with broker spot prices (MT5 / OANDA).
+  hasFuturesBasis?: boolean;
   coinbase?: string;
   okxPerp?: string;
   // Phemex USDT-margined perp symbol (e.g. "BTCUSDT"). When present, Phemex
@@ -54,6 +58,7 @@ export const SYMBOLS: Record<Symbol, SymbolMeta> = {
     decimals: 3,
     prefix: "$",
     goldApi: "XAG",
+    hasFuturesBasis: true,
   },
   XAUUSD: {
     yahoo: "GC=F",
@@ -63,6 +68,7 @@ export const SYMBOLS: Record<Symbol, SymbolMeta> = {
     decimals: 2,
     prefix: "$",
     goldApi: "XAU",
+    hasFuturesBasis: true,
   },
   EURUSD: {
     yahoo: "EURUSD=X",

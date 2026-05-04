@@ -48,6 +48,36 @@ async function fetchFromGoldApi(symbol: Symbol): Promise<number | null> {
   }
 }
 
+// Swissquote free public BBO feed — returns the broker mid-price (bid+ask)/2
+// for XAG/USD and XAU/USD. Matches MT5/OANDA spot pricing far better than
+// gold-api.com which quotes the metals dealer ask price.
+async function fetchFromSwissquote(symbol: Symbol): Promise<number | null> {
+  if (!SYMBOLS[symbol].hasFuturesBasis) return null;
+  const base = symbol === "XAGUSD" ? "XAG" : symbol === "XAUUSD" ? "XAU" : null;
+  if (!base) return null;
+  try {
+    const response = await fetch(
+      `https://forex-data-feed.swissquote.com/public-quotes/bboquotes/instrument/${base}/USD`,
+      {
+        headers: { "User-Agent": "Mozilla/5.0 (compatible; Forex-Screener/1.0)" },
+        signal: AbortSignal.timeout(4000),
+      },
+    );
+    if (!response.ok) return null;
+    // Swissquote returns a JSON array; the first element has spreadProfilePrices.
+    const json = (await response.json()) as Array<{
+      spreadProfilePrices?: Array<{ spreadProfile: string; bid: number; ask: number }>;
+    }>;
+    // Take the first available spread profile — Swissquote sometimes omits
+    // the "standard" profile, but any profile's mid (bid+ask)/2 is accurate.
+    const profile = json[0]?.spreadProfilePrices?.[0];
+    if (!profile || !isFinite(profile.bid) || !isFinite(profile.ask)) return null;
+    return (profile.bid + profile.ask) / 2;
+  } catch {
+    return null;
+  }
+}
+
 async function fetchFromOkxPerp(symbol: Symbol): Promise<number | null> {
   const perp = SYMBOLS[symbol].okxPerp;
   if (!perp) return null;
@@ -130,6 +160,7 @@ export async function fetchSpotPrice(symbol: Symbol): Promise<number | null> {
     (await fetchFromOkxPerp(symbol)) ??
     (await fetchFromCoinbase(symbol)) ??
     (await fetchFromTradingView(symbol)) ??
+    (await fetchFromSwissquote(symbol)) ??
     (await fetchFromGoldApi(symbol));
   if (price !== null) {
     spotCache.set(symbol, { price, timestamp: now });
@@ -1453,6 +1484,41 @@ export function computeLevelsStable(
   }
 
   return fresh;
+}
+
+// Shifts all candle OHLCV values by a constant basis so that futures-sourced
+// candle data (SI=F for silver, GC=F for gold) aligns with broker spot prices
+// (MT5 / OANDA). The basis is computed as spotPrice − lastCandleClose; it is
+// applied additively (not as a ratio) because futures contango is a fixed
+// dollar amount, not a percentage of price. The last candle's close is
+// replaced exactly with the live spot price.
+export function applyFuturesBasis(
+  candles: CandleRaw[],
+  spotPrice: number,
+  round: (n: number) => number,
+): CandleRaw[] {
+  if (candles.length === 0) return candles;
+  const basis = spotPrice - candles[candles.length - 1].close;
+  return candles.map((c, i) => {
+    if (i === candles.length - 1) {
+      return {
+        date: c.date,
+        open: round(c.open + basis),
+        high: round(Math.max(c.high + basis, spotPrice)),
+        low: round(Math.min(c.low + basis, spotPrice)),
+        close: round(spotPrice),
+        volume: c.volume,
+      };
+    }
+    return {
+      date: c.date,
+      open: round(c.open + basis),
+      high: round(c.high + basis),
+      low: round(c.low + basis),
+      close: round(c.close + basis),
+      volume: c.volume,
+    };
+  });
 }
 
 // Exposed for diagnostics / testing.

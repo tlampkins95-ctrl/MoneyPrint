@@ -12,7 +12,7 @@ import {
   type Timeframe,
 } from "../lib/yahoo-fetch";
 import { SYMBOLS, makeRounder, ALL_SYMBOLS, type Symbol } from "../lib/symbols";
-import { computeLevelsStable, fetchSpotPrice } from "../lib/signals";
+import { computeLevelsStable, fetchSpotPrice, applyFuturesBasis } from "../lib/signals";
 
 // Timeframes scanned for the all-signals overview. Mirrors the dashboard's
 // timeframe selector so the overview shows every signal a trader could be
@@ -42,9 +42,14 @@ router.get("/levels", async (req: Request, res: Response) => {
       res.status(503).json({ error: "Insufficient candle data for timeframe" });
       return;
     }
+    const round = makeRounder(SYMBOLS[symbol].decimals);
+    const adjustedCandles =
+      spotPrice != null && SYMBOLS[symbol].hasFuturesBasis
+        ? applyFuturesBasis(candles, spotPrice, round)
+        : candles;
     const data = GetLevelsResponse.parse(
       computeLevelsStable(
-        candles,
+        adjustedCandles,
         spotPrice,
         timeframe,
         symbol,
@@ -109,31 +114,12 @@ router.get("/price-history", async (req: Request, res: Response) => {
     const lastGood = sliced[sliced.length - 1];
     const effectiveSpot = spotPrice ?? lastGood.close;
 
-    // No ratio scaling — applying a factor derived from two different price
-    // sources (Yahoo live tick vs gold-api spot) shifts every historical
-    // candle by their divergence and causes 30-50 cent chart errors.
-    // Instead, only patch the close of the most-recent bar with the live
-    // spot price; all prior bars are returned exactly as Yahoo sent them.
-    const aligned = sliced.map((c, i) => {
-      if (i === sliced.length - 1) {
-        return {
-          date: c.date,
-          open: round(c.open),
-          high: round(Math.max(c.high, effectiveSpot)),
-          low: round(Math.min(c.low, effectiveSpot)),
-          close: round(effectiveSpot),
-          volume: c.volume,
-        };
-      }
-      return {
-        date: c.date,
-        open: round(c.open),
-        high: round(c.high),
-        low: round(c.low),
-        close: round(c.close),
-        volume: c.volume,
-      };
-    });
+    // Apply futures basis shift for metals (SI=F / GC=F Yahoo symbols).
+    // This shifts every OHLCV bar by the constant basis (spot − futures_close)
+    // so chart candles and S/R levels align with broker spot pricing (MT5 /
+    // OANDA) rather than showing the futures contango premium (~40c for silver).
+    // For spot-priced symbols (EURUSD=X etc.) the basis is effectively zero.
+    const aligned = applyFuturesBasis(sliced, effectiveSpot, round);
 
     const data = GetPriceHistoryResponse.parse({
       symbol,
@@ -187,8 +173,13 @@ router.get("/active-signals", async (req: Request, res: Response) => {
             spotPromises.get(symbol)!,
           ]);
           if (candles.length < 2) return { ok: false, symbol, timeframe };
+          const adjRound = makeRounder(SYMBOLS[symbol].decimals);
+          const adjustedCandles =
+            spot != null && SYMBOLS[symbol].hasFuturesBasis
+              ? applyFuturesBasis(candles, spot, adjRound)
+              : candles;
           const levels = computeLevelsStable(
-            candles,
+            adjustedCandles,
             spot,
             timeframe,
             symbol,
