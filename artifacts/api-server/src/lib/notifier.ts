@@ -19,9 +19,8 @@ interface TrackedState {
   lastAlertAt: number;
 }
 
-// 15m dropped — too noisy at intraday cadence. 30m / 1h / 1d give meaningful,
-// actionable alerts.
-const TRACKED_TIMEFRAMES: Timeframe[] = ["30m", "1h", "1d"];
+// Only alert on 30m — the entry timeframe. 1h and daily are alignment gates.
+const TRACKED_TIMEFRAMES: Timeframe[] = ["30m"];
 const POLL_INTERVAL_MS = 60_000;
 
 const COOLDOWN_BY_TIMEFRAME: Record<Timeframe, number> = {
@@ -65,9 +64,11 @@ async function checkSymbol(
   timeframe: Timeframe,
 ): Promise<void> {
   try {
-    const [candles, spot] = await Promise.all([
+    // Always fetch 1h alongside 30m — used as the alignment gate before firing.
+    const [candles, spot, higherCandles] = await Promise.all([
       fetchCandlesForTimeframe(symbol, timeframe),
       fetchSpotPrice(symbol),
+      fetchCandlesForTimeframe(symbol, "1h"),
     ]);
     if (candles.length < 2) return;
 
@@ -128,6 +129,35 @@ async function checkSymbol(
       (levels.signal === "BUY" || levels.signal === "SELL");
 
     if (transitioned && !cooldownActive && !alreadyInSameDirection) {
+      // Gate: for pending 30m signals, 1h must agree before alerting.
+      // Filled trades are exempt — the user is already in the position.
+      const isFilledTrade =
+        levels.tradeState !== "WAIT" && levels.tradeState !== "PENDING";
+      if (
+        timeframe === "30m" &&
+        !isFilledTrade &&
+        (levels.signal === "BUY" || levels.signal === "SELL") &&
+        higherCandles.length >= 2
+      ) {
+        const adjRound = makeRounder(SYMBOLS[symbol].decimals);
+        const adjHigher =
+          spot != null && SYMBOLS[symbol].hasFuturesBasis
+            ? applyFuturesBasis(higherCandles, spot, adjRound)
+            : higherCandles;
+        const higherResult = computeLevelsStable(adjHigher, spot, "1h", symbol);
+        if (higherResult.signal !== levels.signal) {
+          logger.debug(
+            { symbol, timeframe, signal: levels.signal, higherSignal: higherResult.signal },
+            "Signal alert suppressed (1h gate — higher TF disagrees)",
+          );
+          stateMap.set(k, {
+            signal: levels.signal,
+            lastAlertAt: prev?.lastAlertAt ?? 0,
+          });
+          return;
+        }
+      }
+
       const tfLabel = TIMEFRAME_LABEL[timeframe];
       const link = buildAppLink(symbol, timeframe);
       const ctx = buildAlertContext(symbol, timeframe, tfLabel, levels, link);

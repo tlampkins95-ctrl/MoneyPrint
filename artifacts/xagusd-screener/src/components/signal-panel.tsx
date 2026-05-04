@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useGetLevels, getGetLevelsQueryKey } from "@workspace/api-client-react";
 import { format } from "date-fns";
-import { RefreshCw, TrendingUp, TrendingDown, ArrowRight, AlertTriangle, Wallet, Settings } from "lucide-react";
+import { RefreshCw, TrendingUp, TrendingDown, ArrowRight, AlertTriangle, Wallet, Settings, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Timeframe } from "@/components/timeframe-selector";
 import { SYMBOLS, fmtPrice, fmtPriceCompact, type Symbol } from "@/lib/symbols";
@@ -51,6 +51,16 @@ export function SignalPanel({
   const [mt5LotsText, setMt5LotsText] = useState<string>(() =>
     String(readNumber(MT5_LOTS_KEY, 0.01)),
   );
+  const [expanded, setExpanded] = useState<boolean>(() => {
+    if (typeof window === "undefined") return true;
+    return window.localStorage.getItem("screener.signalExpanded") !== "0";
+  });
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("screener.signalExpanded", expanded ? "1" : "0");
+    }
+  }, [expanded]);
 
   useEffect(() => {
     window.localStorage.setItem(ACCOUNT_KEY, String(accountSize));
@@ -182,23 +192,50 @@ export function SignalPanel({
   return (
     <div className="flex flex-col h-full bg-[#0a0a0a]/50 backdrop-blur-md text-zinc-100 rounded-xl border border-zinc-800 overflow-hidden font-mono shadow-2xl">
 
-      {/* ── 1. Signal Hero ─────────────────────────────────────────────── */}
-      <div className={cn("px-5 py-5 flex flex-col items-center text-center shrink-0 relative", signalBg, signalTextColor)}>
-        <span className="absolute top-2 right-3 text-[10px] tracking-widest font-bold opacity-80 bg-black/30 rounded px-2 py-0.5">
-          {TIMEFRAME_LABEL[timeframe]}
-        </span>
-        <div
-          className="text-[64px] leading-none font-black tracking-tight"
-          style={signalWordStyle}
+      {/* ── Collapsed: compact tap-to-expand bar ─────────────────────── */}
+      {!expanded && (
+        <button
+          className={cn("w-full flex items-center gap-3 px-4 py-3 shrink-0 text-left", signalBg)}
+          onClick={() => setExpanded(true)}
+          aria-label="Expand signal details"
         >
-          {data.signal}
-        </div>
-        <p className="mt-2 text-sm font-medium leading-snug max-w-xs bg-black/20 rounded-lg px-3 py-2">
-          {data.signalReason}
-        </p>
-      </div>
+          <span className="text-2xl font-black tracking-tight shrink-0" style={signalWordStyle}>
+            {data.signal}
+          </span>
+          <span className="text-xs text-zinc-300 flex-1 truncate leading-snug">
+            {data.signalReason}
+          </span>
+          <ChevronDown className="w-4 h-4 text-white/40 shrink-0" />
+        </button>
+      )}
 
-      <div className="flex-1 overflow-y-auto min-h-0">
+      {/* ── 1. Signal Hero (click to collapse) ──────────────────────── */}
+      {expanded && (
+        <div
+          className={cn("px-5 py-5 flex flex-col items-center text-center shrink-0 relative cursor-pointer select-none", signalBg, signalTextColor)}
+          onClick={() => setExpanded(false)}
+          role="button"
+          tabIndex={0}
+          aria-label="Collapse signal details"
+          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setExpanded(false); }}
+        >
+          <span className="absolute top-2 right-3 text-[10px] tracking-widest font-bold opacity-80 bg-black/30 rounded px-2 py-0.5">
+            {TIMEFRAME_LABEL[timeframe]}
+          </span>
+          <div
+            className="text-[64px] leading-none font-black tracking-tight"
+            style={signalWordStyle}
+          >
+            {data.signal}
+          </div>
+          <p className="mt-2 text-sm font-medium leading-snug max-w-xs bg-black/20 rounded-lg px-3 py-2">
+            {data.signalReason}
+          </p>
+          <ChevronDown className="mt-2 w-4 h-4 text-white/30 rotate-180" />
+        </div>
+      )}
+
+      {expanded && <div className="flex-1 overflow-y-auto min-h-0">
         <div className="p-4 space-y-5">
 
           {/* ── 2. Price bar ────────────────────────────────────────────── */}
@@ -889,7 +926,7 @@ export function SignalPanel({
           </div>
 
         </div>
-      </div>
+      </div>}
 
       {/* ── Footer: last updated + refresh ──────────────────────────────── */}
       <div className="px-4 py-2.5 border-t border-zinc-800 bg-[#060606] flex items-center justify-between text-xs text-zinc-500 shrink-0">

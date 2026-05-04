@@ -14,10 +14,9 @@ import {
 import { SYMBOLS, makeRounder, ALL_SYMBOLS, type Symbol } from "../lib/symbols";
 import { computeLevelsStable, fetchSpotPrice, applyFuturesBasis } from "../lib/signals";
 
-// Timeframes scanned for the all-signals overview. Mirrors the dashboard's
-// timeframe selector so the overview shows every signal a trader could be
-// monitoring (Telegram only alerts on 30m/1h/1d, but 15m matters for entries).
-const OVERVIEW_TIMEFRAMES: Timeframe[] = ["15m", "30m", "1h", "1d"];
+// Only 30m is tracked in the active-signals overview. It's the entry
+// timeframe — 1h and daily are alignment gates, not signals in their own right.
+const OVERVIEW_TIMEFRAMES: Timeframe[] = ["30m"];
 
 const router: IRouter = Router();
 
@@ -271,6 +270,37 @@ router.get("/active-signals", async (req: Request, res: Response) => {
             maxLeverage,
             mt5Lots,
           );
+
+          // Gate: for pending 30m signals, 1h must agree before showing
+          // in the overview. Filled trades are exempt — already in position.
+          const isFilledTrade =
+            levels.tradeState !== "WAIT" && levels.tradeState !== "PENDING";
+          if (
+            timeframe === "30m" &&
+            !isFilledTrade &&
+            (levels.signal === "BUY" || levels.signal === "SELL")
+          ) {
+            try {
+              const rawHigher = await fetchCandlesForTimeframe(symbol, "1h");
+              if (rawHigher.length >= 2) {
+                const adjRound2 = makeRounder(SYMBOLS[symbol].decimals);
+                const adjHigher =
+                  spot != null && SYMBOLS[symbol].hasFuturesBasis
+                    ? applyFuturesBasis(rawHigher, spot, adjRound2)
+                    : rawHigher;
+                const higherResult = computeLevelsStable(
+                  adjHigher, spot, "1h", symbol,
+                  accountSize, riskPct / 100, minCollateral, maxLeverage, mt5Lots,
+                );
+                if (higherResult.signal !== levels.signal) {
+                  return { ok: false, symbol, timeframe };
+                }
+              }
+            } catch {
+              // gate fetch failed — include the signal anyway
+            }
+          }
+
           return { ok: true, symbol, timeframe, levels };
         } catch (err) {
           // Per-combo failures must not blank the whole overview, but they
