@@ -81,13 +81,26 @@ router.get("/price-history", async (req: Request, res: Response) => {
 
     const round = makeRounder(SYMBOLS[symbol].decimals);
 
-    // Drop any zero-range candle Yahoo injects for the current partial
-    // period (its O=H=L=C, it's a live-tick stub, not a real bar). We
-    // apply the live price directly to the last proper candle instead.
+    // Drop any live-tick stub Yahoo injects for the current partial period.
+    // Yahoo injects a zero-range bar (O=H=L=C) at the EXACT current clock
+    // time (e.g. 02:28:38) rather than a candle-grid boundary (e.g. 02:00:00).
+    // Genuine market-close candles can also be zero-range but always land on
+    // a proper grid boundary, so we only strip stubs whose timestamp has
+    // non-zero seconds (intraday) or whose date string contains a "T" with
+    // a non-zero seconds component.
     const rawSliced = allCandles.slice(-bars);
     const last = rawSliced[rawSliced.length - 1];
-    const isZeroRange = last && last.high === last.low && last.high === last.close;
-    const sliced = isZeroRange ? rawSliced.slice(0, -1) : rawSliced;
+    const isOffGrid = (d: string) => {
+      // Intraday ISO strings: "2026-05-04T02:28:38.000Z" — check seconds
+      const match = d.match(/T\d{2}:\d{2}:(\d{2})/);
+      return match ? parseInt(match[1], 10) !== 0 : false;
+    };
+    const isLiveTickStub =
+      last &&
+      last.high === last.low &&
+      last.high === last.close &&
+      isOffGrid(last.date);
+    const sliced = isLiveTickStub ? rawSliced.slice(0, -1) : rawSliced;
 
     if (sliced.length === 0) {
       res.status(503).json({ error: "No candle data in requested window" });
