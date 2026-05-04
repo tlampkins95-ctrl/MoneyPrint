@@ -1481,12 +1481,22 @@ export function computeLevelsStable(
   //      catches up — yahoo's hourly low can lag the live tick by minutes).
   //   2. Any candle since openedAt wicked through entry (catches intra-candle
   //      taps between polls when spot has since recovered past entry).
+  //
+  // ⚠️ Daily timeframe: do NOT use live spot as the trigger signal.
+  // Daily bars already aggregate the full intraday range. A single Swissquote
+  // quote spike (even a few seconds long) can flip `triggered=true` while the
+  // Yahoo daily candle high never reaches entry — giving the user a "SELL filled
+  // at $77.517" message when the chart clearly shows price never got there.
+  // For daily, rely only on candle wicks (wasEntryTagged). This is conservative
+  // but honest: if the daily candle doesn't confirm the fill, we don't claim one.
   const preTriggerCheck = activeTrades.get(k);
   if (preTriggerCheck && !preTriggerCheck.triggered) {
-    const spotTagged =
+    const useLiveSpot = timeframe !== "1d";
+    const spotTagged = useLiveSpot && (
       preTriggerCheck.signal === "BUY"
         ? fresh.currentPrice <= preTriggerCheck.entryPrice
-        : fresh.currentPrice >= preTriggerCheck.entryPrice;
+        : fresh.currentPrice >= preTriggerCheck.entryPrice
+    );
     if (spotTagged || wasEntryTagged(preTriggerCheck, candles)) {
       preTriggerCheck.triggered = true;
       persistActiveTrades();
