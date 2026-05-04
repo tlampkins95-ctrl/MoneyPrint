@@ -21,11 +21,24 @@ const OVERVIEW_TIMEFRAMES: Timeframe[] = ["15m", "30m", "1h", "1d"];
 
 const router: IRouter = Router();
 
-// Timeframe alignment pairs: key TF is only shown if the higher TF agrees.
-// 30m requires 1h to be in the same direction (BUY/SELL). If the higher TF
-// says WAIT or the opposite direction, the lower TF signal is suppressed to WAIT.
-const TF_ALIGNMENT: Partial<Record<Timeframe, Timeframe>> = {
-  "30m": "1h",
+// Gates applied to lower-TF signals. Checked in order; first failure suppresses.
+//
+//  require_agree  — higher TF must show the SAME direction (BUY/SELL).
+//                   WAIT on the higher TF also suppresses (no confirmation).
+//                   Use for: 1h confirming 30m entries.
+//
+//  block_oppose   — higher TF may say anything EXCEPT the opposite direction.
+//                   WAIT on the higher TF is fine (neutral, not blocking).
+//                   Use for: daily not fighting 30m/1h direction.
+interface TfGate {
+  higherTf: Timeframe;
+  mode: "require_agree" | "block_oppose";
+}
+const TF_GATES: Partial<Record<Timeframe, TfGate[]>> = {
+  "30m": [
+    { higherTf: "1h", mode: "require_agree" }, // 1h must confirm direction
+    { higherTf: "1d", mode: "block_oppose"  }, // daily must not oppose
+  ],
 };
 
 router.get("/levels", async (req: Request, res: Response) => {
@@ -42,13 +55,18 @@ router.get("/levels", async (req: Request, res: Response) => {
     const maxLeverage = Math.max(1, Math.min(200, query.maxLeverage ?? 50));
     const mt5Lots = Math.max(0.01, Math.min(100, query.mt5Lots ?? 0.01));
 
-    const higherTf = TF_ALIGNMENT[timeframe];
+    const gates = TF_GATES[timeframe] ?? [];
 
-    const [candles, spotPrice, higherTfCandles] = await Promise.all([
+    // Fetch candles for every unique higher TF in parallel with the primary fetch
+    const uniqueHigherTfs = [...new Set(gates.map((g) => g.higherTf))];
+    const [candles, spotPrice, ...higherTfCandlesArr] = await Promise.all([
       fetchCandlesForTimeframe(symbol, timeframe),
       fetchSpotPrice(symbol),
-      higherTf ? fetchCandlesForTimeframe(symbol, higherTf) : Promise.resolve(null),
+      ...uniqueHigherTfs.map((tf) => fetchCandlesForTimeframe(symbol, tf)),
     ]);
+    const higherTfMap = new Map(
+      uniqueHigherTfs.map((tf, i) => [tf, higherTfCandlesArr[i]]),
+    );
 
     if (candles.length < 2) {
       res.status(503).json({ error: "Insufficient candle data for timeframe" });
@@ -72,39 +90,46 @@ router.get("/levels", async (req: Request, res: Response) => {
       mt5Lots,
     );
 
-    // ── Higher-TF alignment gate ──────────────────────────────────────────────
-    // If the lower TF has a directional signal (BUY/SELL), check the higher TF.
-    // Suppress to WAIT when they disagree so only aligned setups are shown.
-    if (
-      higherTf &&
-      higherTfCandles &&
-      higherTfCandles.length >= 2 &&
-      (result.signal === "BUY" || result.signal === "SELL")
-    ) {
-      const adjHigher =
-        spotPrice != null && SYMBOLS[symbol].hasFuturesBasis
-          ? applyFuturesBasis(higherTfCandles, spotPrice, round)
-          : higherTfCandles;
-      const higherResult = computeLevelsStable(
-        adjHigher,
-        spotPrice,
-        higherTf,
-        symbol,
-        accountSize,
-        riskPctFrac,
-        minCollateral,
-        maxLeverage,
-        mt5Lots,
-      );
-      if (higherResult.signal !== result.signal) {
-        // Directions conflict — suppress lower-TF signal.
-        const data = GetLevelsResponse.parse({
-          ...result,
-          signal: "WAIT",
-          signalReason: `[${timeframe}] ${result.signal} setup detected but suppressed — ${higherTf} says ${higherResult.signal === "BUY" || higherResult.signal === "SELL" ? higherResult.signal : "WAIT"}. Wait for ${higherTf} alignment before entering.`,
-        });
-        res.json(data);
-        return;
+    // ── Multi-gate alignment check ────────────────────────────────────────────
+    // Run each gate in order. First failure suppresses the signal to WAIT.
+    if (result.signal === "BUY" || result.signal === "SELL") {
+      for (const gate of gates) {
+        const rawHigher = higherTfMap.get(gate.higherTf);
+        if (!rawHigher || rawHigher.length < 2) continue;
+
+        const adjHigher =
+          spotPrice != null && SYMBOLS[symbol].hasFuturesBasis
+            ? applyFuturesBasis(rawHigher, spotPrice, round)
+            : rawHigher;
+        const higherResult = computeLevelsStable(
+          adjHigher, spotPrice, gate.higherTf, symbol,
+          accountSize, riskPctFrac, minCollateral, maxLeverage, mt5Lots,
+        );
+        const higherSignal = higherResult.signal;
+
+        const blocked =
+          gate.mode === "require_agree"
+            ? higherSignal !== result.signal           // must match (WAIT also blocks)
+            : higherSignal === (result.signal === "BUY" ? "SELL" : "BUY"); // only block opposite
+
+        if (blocked) {
+          const higherLabel = higherSignal === "BUY" || higherSignal === "SELL"
+            ? higherSignal : "WAIT";
+          const modeNote =
+            gate.mode === "block_oppose"
+              ? ` (daily WAIT is fine — only blocks when daily opposes)`
+              : "";
+          const data = GetLevelsResponse.parse({
+            ...result,
+            signal: "WAIT",
+            signalReason:
+              `[${timeframe}] ${result.signal} setup suppressed — ` +
+              `${gate.higherTf} says ${higherLabel}. ` +
+              `Wait for ${gate.higherTf} to align before entering.${modeNote}`,
+          });
+          res.json(data);
+          return;
+        }
       }
     }
 
