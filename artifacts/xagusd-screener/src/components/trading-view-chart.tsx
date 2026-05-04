@@ -19,12 +19,16 @@ import {
 import type { Timeframe } from "@/components/timeframe-selector";
 import { SYMBOLS, fmtPrice, type Symbol } from "@/lib/symbols";
 
-const REFETCH_MS: Record<Timeframe, number> = {
+// Candle history: refresh once a minute (Yahoo data cadence).
+// Levels (live price): refresh every 10 s so the current-candle patch
+// always reflects a near-real-time close.
+const HISTORY_REFETCH_MS: Record<Timeframe, number> = {
   "15m": 60_000,
   "30m": 60_000,
   "1h": 60_000,
   "1d": 60_000,
 };
+const LEVELS_REFETCH_MS = 10_000;
 
 function toUnixTime(dateStr: string): Time {
   // lightweight-charts wants a UTCTimestamp (seconds) or business day string.
@@ -44,14 +48,12 @@ export function TradingViewChart({
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const linesRef = useRef<IPriceLine[]>([]);
 
-  const refetchInterval = REFETCH_MS[timeframe];
-
   const { data: history } = useGetPriceHistory(
     { symbol, timeframe, bars: 240 },
     {
       query: {
         queryKey: getGetPriceHistoryQueryKey({ symbol, timeframe, bars: 240 }),
-        refetchInterval,
+        refetchInterval: HISTORY_REFETCH_MS[timeframe],
       },
     },
   );
@@ -61,7 +63,7 @@ export function TradingViewChart({
     {
       query: {
         queryKey: getGetLevelsQueryKey({ symbol, timeframe }),
-        refetchInterval,
+        refetchInterval: LEVELS_REFETCH_MS,
       },
     },
   );
@@ -140,6 +142,21 @@ export function TradingViewChart({
     seriesRef.current.setData(data);
     chartRef.current?.timeScale().fitContent();
   }, [history]);
+
+  // Patch last candle close with live price so the current bar always
+  // reflects the latest price (history endpoint lags up to 60 s).
+  useEffect(() => {
+    if (!seriesRef.current || !levels || !history?.candles.length) return;
+    const last = history.candles[history.candles.length - 1];
+    const live = levels.currentPrice;
+    seriesRef.current.update({
+      time: toUnixTime(last.date),
+      open: last.open,
+      high: Math.max(last.high, live),
+      low: Math.min(last.low, live),
+      close: live,
+    });
+  }, [levels, history]);
 
   // Draw signal price lines (entry / SL / TP1 / TP2 / zones)
   useEffect(() => {
