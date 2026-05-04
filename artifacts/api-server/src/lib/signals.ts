@@ -912,20 +912,25 @@ export function computeLevels(
       ? ` RSI ${rsi.toFixed(0)} not yet oversold (need ≤${RSI_OVERSOLD}) — wait for exhaustion before entering long.`
       : ` EMA21 < EMA50 (downtrend) — counter-trend long filtered out.`;
     signalReason = `[${tfLabel}] Price is in the buy zone (${fmt(buyZoneLow)}–${fmt(buyZoneHigh)}) but conditions not met.${rsiNote}`;
-    entryPrice = round(pivots.r1);
-    stopLoss = round(sellZoneHigh + atr * 0.5);
-    takeProfit1 = round(floorTarget(entryPrice, stopLoss, pivots.pivot, MIN_RR_TP1, "SELL"));
-    takeProfit2 = round(floorTarget(entryPrice, stopLoss, buyZoneHigh, MIN_RR_TP2, "SELL"));
+    // Entry stays inside the buy zone — show a pending BUY at S1, not a SELL.
+    // Swapping to a SELL entry (old code used R1) was a direction inversion bug:
+    // price is at support, so the pending setup is a BUY if conditions improve.
+    entryPrice = round(pivots.s1);
+    stopLoss = round(buyZoneLow - atr * 0.5);
+    takeProfit1 = round(floorTarget(entryPrice, stopLoss, pivots.pivot, MIN_RR_TP1, "BUY"));
+    takeProfit2 = round(floorTarget(entryPrice, stopLoss, sellZoneLow, MIN_RR_TP2, "BUY"));
   } else if (inSellZone && !sellAllowed) {
     signal = "WAIT";
     const rsiNote = !isNaN(rsi) && rsi < RSI_OVERBOUGHT
       ? ` RSI ${rsi.toFixed(0)} not yet overbought (need ≥${RSI_OVERBOUGHT}) — wait for exhaustion before shorting.`
       : ` EMA21 > EMA50 (uptrend) — counter-trend short filtered out.`;
     signalReason = `[${tfLabel}] Price is in the sell zone (${fmt(sellZoneLow)}–${fmt(sellZoneHigh)}) but conditions not met.${rsiNote}`;
-    entryPrice = round(pivots.s1);
-    stopLoss = round(buyZoneLow - atr * 0.5);
-    takeProfit1 = round(floorTarget(entryPrice, stopLoss, pivots.pivot, MIN_RR_TP1, "BUY"));
-    takeProfit2 = round(floorTarget(entryPrice, stopLoss, sellZoneLow, MIN_RR_TP2, "BUY"));
+    // Entry stays inside the sell zone — show a pending SELL at R1, not a BUY.
+    // The old code showed a BUY at S1 while price was at resistance — direction inversion.
+    entryPrice = round(pivots.r1);
+    stopLoss = round(sellZoneHigh + atr * 0.5);
+    takeProfit1 = round(floorTarget(entryPrice, stopLoss, pivots.pivot, MIN_RR_TP1, "SELL"));
+    takeProfit2 = round(floorTarget(entryPrice, stopLoss, buyZoneHigh, MIN_RR_TP2, "SELL"));
   } else {
     signal = "WAIT";
     const aboveSellZone = currentPrice > sellZoneHigh;
