@@ -199,8 +199,8 @@ async function checkSymbol(
           timeframe,
           from: prev?.signal ?? "(seed)",
           to: levels.signal,
-          activeEntry: activeTrade?.entryPrice,
-          activeOpenedAt: activeTrade?.openedAt,
+          activeEntry: activeTradeBeforeCompute?.entryPrice,
+          activeOpenedAt: activeTradeBeforeCompute?.openedAt,
         },
         "Signal alert suppressed (already in active trade same direction)",
       );
