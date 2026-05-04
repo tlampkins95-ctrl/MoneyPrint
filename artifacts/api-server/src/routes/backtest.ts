@@ -108,35 +108,7 @@ function calcMACDHist(closes: number[], fast = 12, slow = 26, signal = 9): numbe
   return out;
 }
 
-// Swing high / swing low over the last `lookback` bars ending at `endIdx`
-// (no lookahead). Used to anchor Fibonacci retracement levels.
-function calcSwing(candles: CandleRaw[], endIdx: number, lookback = 60) {
-  const start = Math.max(0, endIdx - lookback + 1);
-  let hi = -Infinity, lo = Infinity;
-  for (let i = start; i <= endIdx; i++) {
-    if (candles[i].high > hi) hi = candles[i].high;
-    if (candles[i].low < lo) lo = candles[i].low;
-  }
-  return { swingHigh: hi, swingLow: lo };
-}
 
-// Fib retracement confluence: a bounce setup is meaningfully better when the
-// pivot level coincides with the 38.2 / 50 / 61.8% retracement of the recent
-// swing — that's the textbook reason institutions defend a level. We accept
-// confluence when the entry sits within `tolerance` of any of those three
-// fibs. Tolerance is expressed as a fraction of the swing range so it scales
-// with volatility.
-function hasFibConfluence(price: number, swingHigh: number, swingLow: number, tolerance = 0.05): boolean {
-  const range = swingHigh - swingLow;
-  if (range <= 0) return false;
-  const fibs = [
-    swingHigh - range * 0.382,
-    swingHigh - range * 0.5,
-    swingHigh - range * 0.618,
-  ];
-  const tol = range * tolerance;
-  return fibs.some((f) => Math.abs(price - f) <= tol);
-}
 
 // Wilder-smoothed RSI(14). Returns an array aligned with `closes` (NaN until
 // enough bars are available). Used as a mean-reversion confirmation: don't
@@ -183,10 +155,10 @@ function runBacktest(candles: CandleRaw[], timeframe: Timeframe, symbol: Symbol)
   const rsi14 = calcRSISeries(closes, 14);
   const macdHist = calcMACDHist(closes, 12, 26, 9);
   const TREND_THRESHOLD = 0.001; // 0.1% gap counts as a real trend, smaller is "ranging"
-  // RSI mean-reversion gates. Only fade S1 when oversold, only fade R1 when
-  // overbought — fading in the middle of the range is a coin flip.
-  const RSI_BUY_MAX = 45;
-  const RSI_SELL_MIN = 55;
+  // RSI mean-reversion gates. Synced with live signal thresholds (40/60).
+  // Stricter than 45/55 — fewer trades but each has genuine exhaustion behind it.
+  const RSI_BUY_MAX = 40;
+  const RSI_SELL_MIN = 60;
 
   let i = 15;
 
@@ -263,15 +235,8 @@ function runBacktest(candles: CandleRaw[], timeframe: Timeframe, symbol: Symbol)
     const macdBuyOk = !macdWarm ? true : hNow > hPrev;
     const macdSellOk = !macdWarm ? true : hNow < hPrev;
 
-    // Fib confluence gate. The pivot entry must sit within 5% of swing range
-    // of a 38.2 / 50 / 61.8 retracement, computed from the last 60 bars
-    // ending at i-1 (no lookahead).
-    const { swingHigh, swingLow } = calcSwing(candles, i - 1, 60);
-    const fibBuyOk = hasFibConfluence(s1, swingHigh, swingLow);
-    const fibSellOk = hasFibConfluence(r1, swingHigh, swingLow);
-
-    const canBuy = buyFills && buyAllowed && buyLevelValid && rsiBuyOk && macdBuyOk && fibBuyOk;
-    const canSell = sellFills && sellAllowed && sellLevelValid && rsiSellOk && macdSellOk && fibSellOk;
+    const canBuy  = buyFills  && buyAllowed  && buyLevelValid  && rsiBuyOk  && macdBuyOk;
+    const canSell = sellFills && sellAllowed && sellLevelValid && rsiSellOk && macdSellOk;
 
     let direction: "BUY" | "SELL" | null = null;
     if (canBuy && canSell) {

@@ -260,6 +260,34 @@ function findSwingHighLow(candles: CandleRaw[], lookback = 60) {
   };
 }
 
+// MACD(12,26,9) histogram. Returns array aligned with `closes` (NaN until warm).
+// Used as momentum-turn confirmation: only fade S1 when histogram is ticking UP
+// (selling pressure cooling), only fade R1 when ticking DOWN (buying pressure
+// cooling). Falls open (NaN) when not enough bars are available.
+function calcMACDHist(closes: number[], fast = 12, slow = 26, sig = 9): number[] {
+  const out: number[] = new Array(closes.length).fill(NaN);
+  if (closes.length < slow + sig) return out;
+  const fastEma = calcEMA(closes, fast);
+  const slowEma = calcEMA(closes, slow);
+  // MACD line: valid from slow-1 onwards (where slowEma becomes defined)
+  const macdLine: number[] = closes.map((_, i) => {
+    if (isNaN(fastEma[i]) || isNaN(slowEma[i])) return NaN;
+    return fastEma[i] - slowEma[i];
+  });
+  // Signal line = EMA(macdLine, sig). Slice out the valid (non-NaN) portion,
+  // compute EMA on that, then map back to global indices.
+  const validStart = slow - 1;
+  const macdValid = macdLine.slice(validStart);
+  const sigLine = calcEMA(macdValid, sig);
+  for (let i = 0; i < sigLine.length; i++) {
+    const g = validStart + i;
+    if (!isNaN(macdLine[g]) && !isNaN(sigLine[i])) {
+      out[g] = macdLine[g] - sigLine[i];
+    }
+  }
+  return out;
+}
+
 const TIMEFRAME_LABELS: Record<Timeframe, string> = {
   "15m": "15-minute",
   "30m": "30-minute",
@@ -826,8 +854,13 @@ export function computeLevels(
   const closes = candles.map((c) => c.close);
   const ema21 = calcEMA(closes, 21);
   const ema50 = calcEMA(closes, 50);
+  const ema200 = calcEMA(closes, 200);
   const last21 = ema21[ema21.length - 1];
   const last50 = ema50[ema50.length - 1];
+  // Use prev bar (last completed candle) for EMA200 and MACD checks — the
+  // current bar may be an incomplete live tick and would contaminate the signal.
+  const prevEma200 = ema200[ema200.length - 2];
+  const ema200Warm = closes.length >= 210 && !isNaN(prevEma200) && prevEma200 > 0;
   const ema21Recent = ema21.slice(-5).filter((v) => !isNaN(v));
   const slopeUp = ema21Recent[ema21Recent.length - 1] > ema21Recent[0];
 
@@ -840,6 +873,19 @@ export function computeLevels(
   const RSI_OVERSOLD  = 40; // below this → momentum confirms BUY zone bounce
   const RSI_OVERBOUGHT = 60; // above this → momentum confirms SELL zone rejection
 
+  // MACD(12,26,9) histogram momentum gate. Only fade S1 when the histogram
+  // has ticked UP over the prior completed bar (selling pressure cooling).
+  // Only fade R1 when histogram has ticked DOWN (buying pressure cooling).
+  // This eliminates fades into continuation moves where momentum is still
+  // running in the wrong direction — the single biggest category of losing
+  // pivot-fade trades. Falls open when the indicator isn't warm yet.
+  const macdHist = calcMACDHist(closes);
+  const histPrev1 = macdHist[closes.length - 2]; // last completed bar
+  const histPrev2 = macdHist[closes.length - 3]; // bar before that
+  const macdWarm = Number.isFinite(histPrev1) && Number.isFinite(histPrev2);
+  const macdBuyOk  = !macdWarm || histPrev1 > histPrev2; // histogram ticking up
+  const macdSellOk = !macdWarm || histPrev1 < histPrev2; // histogram ticking down
+
   let trend: "UPTREND" | "DOWNTREND" | "RANGING" = "RANGING";
   let trendStrength = 30;
   if (last21 > last50 && slopeUp) {
@@ -849,6 +895,16 @@ export function computeLevels(
     trend = "DOWNTREND";
     trendStrength = Math.min(100, Math.round(((last50 - last21) / last50) * 1000 + 50));
   }
+
+  // EMA200 regime gate (institutional trend bias). When the 200-EMA is warm
+  // enough to be reliable, price above EMA200 = bull regime (buy fades only),
+  // price below EMA200 = bear regime (sell fades only). Skip on daily — the
+  // available daily history is often only ~500 bars so EMA200 warms up but
+  // chews through most of the usable period, leaving few tradeable bars.
+  // Use prev bar's close so the gate is based on a completed candle.
+  const useEma200Gate = ema200Warm && timeframe !== "1d";
+  const ema200BuyOk  = !useEma200Gate || prev.close >= prevEma200;
+  const ema200SellOk = !useEma200Gate || prev.close <= prevEma200;
 
   const zoneGap = pivots.r1 - pivots.s1;
   const halfWidth = round(zoneGap * 0.2);
@@ -875,8 +931,16 @@ export function computeLevels(
   // only allow SELL when EMA21 ≤ EMA50 (downtrend or ranging). Counter-trend
   // pivot bounces are the lowest-edge setups in the historical data, so we
   // explicitly suppress them and emit WAIT instead.
-  const buyAllowed  = trend !== "DOWNTREND" && (isNaN(rsi) || rsi <= RSI_OVERSOLD);
-  const sellAllowed = trend !== "UPTREND"   && (isNaN(rsi) || rsi >= RSI_OVERBOUGHT);
+  // All four gates must pass to fire a live signal. Each has an individual
+  // fallback so cold-start (insufficient data) never blocks a valid setup.
+  const buyAllowed  = trend !== "DOWNTREND"
+    && (isNaN(rsi) || rsi <= RSI_OVERSOLD)
+    && macdBuyOk
+    && ema200BuyOk;
+  const sellAllowed = trend !== "UPTREND"
+    && (isNaN(rsi) || rsi >= RSI_OVERBOUGHT)
+    && macdSellOk
+    && ema200SellOk;
 
   if ((inBuyZone || approachingBuy) && buyAllowed) {
     signal = "BUY";
@@ -908,10 +972,17 @@ export function computeLevels(
       : `[${tfLabel}] Price is within ${fmt(sellZoneLow - currentPrice)} of the sell zone (${fmt(sellZoneLow)}–${fmt(sellZoneHigh)}). Stage a limit sell order near R1 ${fmt(pivots.r1)}.`;
   } else if (inBuyZone && !buyAllowed) {
     signal = "WAIT";
-    const rsiNote = !isNaN(rsi) && rsi > RSI_OVERSOLD
-      ? ` RSI ${rsi.toFixed(0)} not yet oversold (need ≤${RSI_OVERSOLD}) — wait for exhaustion before entering long.`
-      : ` EMA21 < EMA50 (downtrend) — counter-trend long filtered out.`;
-    signalReason = `[${tfLabel}] Price is in the buy zone (${fmt(buyZoneLow)}–${fmt(buyZoneHigh)}) but conditions not met.${rsiNote}`;
+    const blockNote =
+      trend === "DOWNTREND"
+        ? ` EMA21 < EMA50 (downtrend) — counter-trend long suppressed.`
+        : useEma200Gate && !ema200BuyOk
+        ? ` Price below EMA200 (${fmt(prevEma200)}) — institutional bear bias, fade suppressed.`
+        : !isNaN(rsi) && rsi > RSI_OVERSOLD
+        ? ` RSI ${rsi.toFixed(0)} not yet oversold (need ≤${RSI_OVERSOLD}) — wait for exhaustion.`
+        : macdWarm && !macdBuyOk
+        ? ` MACD histogram still falling — selling momentum not yet cooling. Wait for the turn.`
+        : ` Conditions not yet met.`;
+    signalReason = `[${tfLabel}] Price is in the buy zone (${fmt(buyZoneLow)}–${fmt(buyZoneHigh)}) but conditions not met.${blockNote}`;
     // Entry stays inside the buy zone — show a pending BUY at S1, not a SELL.
     // Swapping to a SELL entry (old code used R1) was a direction inversion bug:
     // price is at support, so the pending setup is a BUY if conditions improve.
@@ -921,10 +992,17 @@ export function computeLevels(
     takeProfit2 = round(floorTarget(entryPrice, stopLoss, sellZoneLow, MIN_RR_TP2, "BUY"));
   } else if (inSellZone && !sellAllowed) {
     signal = "WAIT";
-    const rsiNote = !isNaN(rsi) && rsi < RSI_OVERBOUGHT
-      ? ` RSI ${rsi.toFixed(0)} not yet overbought (need ≥${RSI_OVERBOUGHT}) — wait for exhaustion before shorting.`
-      : ` EMA21 > EMA50 (uptrend) — counter-trend short filtered out.`;
-    signalReason = `[${tfLabel}] Price is in the sell zone (${fmt(sellZoneLow)}–${fmt(sellZoneHigh)}) but conditions not met.${rsiNote}`;
+    const blockNote =
+      trend === "UPTREND"
+        ? ` EMA21 > EMA50 (uptrend) — counter-trend short suppressed.`
+        : useEma200Gate && !ema200SellOk
+        ? ` Price above EMA200 (${fmt(prevEma200)}) — institutional bull bias, fade suppressed.`
+        : !isNaN(rsi) && rsi < RSI_OVERBOUGHT
+        ? ` RSI ${rsi.toFixed(0)} not yet overbought (need ≥${RSI_OVERBOUGHT}) — wait for exhaustion.`
+        : macdWarm && !macdSellOk
+        ? ` MACD histogram still rising — buying momentum not yet cooling. Wait for the turn.`
+        : ` Conditions not yet met.`;
+    signalReason = `[${tfLabel}] Price is in the sell zone (${fmt(sellZoneLow)}–${fmt(sellZoneHigh)}) but conditions not met.${blockNote}`;
     // Entry stays inside the sell zone — show a pending SELL at R1, not a BUY.
     // The old code showed a BUY at S1 while price was at resistance — direction inversion.
     entryPrice = round(pivots.r1);
