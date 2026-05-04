@@ -1,5 +1,6 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { Pool } from "pg";
 import { SYMBOLS, makeRounder, type Symbol } from "./symbols";
 import { type CandleRaw, type Timeframe } from "./yahoo-fetch";
 import { fetchOkxPerpPrice, fetchPhemexPerpPrice } from "./crypto-perp-fetch";
@@ -1200,6 +1201,47 @@ const ACTIVE_TRADES_FILE =
   process.env.ACTIVE_TRADES_FILE ??
   join(process.cwd(), ".runtime", "active-trades.json");
 
+// ─── PostgreSQL pool (lazy) ───────────────────────────────────────────────────
+// Used as the durable persistence layer so active trades survive across
+// production deployments (the local JSON file is wiped on each redeploy).
+// Falls back silently to file-only if DATABASE_URL is absent.
+let _pgPool: Pool | null = null;
+function getPool(): Pool | null {
+  if (!process.env["DATABASE_URL"]) return null;
+  if (!_pgPool) _pgPool = new Pool({ connectionString: process.env["DATABASE_URL"] });
+  return _pgPool;
+}
+
+// On startup: load any trades from the DB that are missing from the local file.
+// This recovers from fresh deployments where the JSON file starts empty.
+async function syncFromDb(): Promise<void> {
+  const pool = getPool();
+  if (!pool) return;
+  try {
+    const res = await pool.query<{ key: string; data: Record<string, unknown> }>(
+      "SELECT key, data FROM active_trades",
+    );
+    let merged = 0;
+    for (const row of res.rows) {
+      if (activeTrades.has(row.key)) continue; // local file wins for existing keys
+      const v = row.data as Partial<ActiveTrade>;
+      activeTrades.set(row.key, {
+        ...(v as ActiveTrade),
+        triggered: typeof v.triggered === "boolean" ? v.triggered : false,
+        openedPrice: typeof v.openedPrice === "number" ? v.openedPrice : (v.entryPrice ?? 0),
+        openedCandleStartTs:
+          typeof v.openedCandleStartTs === "number" ? v.openedCandleStartTs : (v.openedAt ?? 0),
+        openedCandleLow: typeof v.openedCandleLow === "number" ? v.openedCandleLow : 0,
+        openedCandleHigh: typeof v.openedCandleHigh === "number" ? v.openedCandleHigh : 0,
+      });
+      merged++;
+    }
+    if (merged > 0) persistActiveTrades(); // flush merged DB state to local file
+  } catch {
+    // DB unreachable — proceed with file-only state.
+  }
+}
+
 function loadActiveTradesFromDisk(): void {
   try {
     const raw = readFileSync(ACTIVE_TRADES_FILE, "utf-8");
@@ -1253,18 +1295,49 @@ function loadActiveTradesFromDisk(): void {
 }
 
 function persistActiveTrades(): void {
+  // ── Sync write to local JSON (fast, survives restarts) ───────────────────
   try {
     mkdirSync(dirname(ACTIVE_TRADES_FILE), { recursive: true });
     const obj: Record<string, ActiveTrade> = {};
     for (const [k, v] of activeTrades) obj[k] = v;
     writeFileSync(ACTIVE_TRADES_FILE, JSON.stringify(obj));
   } catch {
-    // Persistence is best-effort — never crash the request path.
+    // best-effort
   }
+
+  // ── Async write to PostgreSQL (survives deployments) ─────────────────────
+  const pool = getPool();
+  if (!pool) return;
+  const snapshot = [...activeTrades.entries()];
+  void (async () => {
+    try {
+      for (const [key, data] of snapshot) {
+        await pool.query(
+          `INSERT INTO active_trades (key, data, updated_at)
+             VALUES ($1, $2::jsonb, NOW())
+             ON CONFLICT (key) DO UPDATE SET data = $2::jsonb, updated_at = NOW()`,
+          [key, JSON.stringify(data)],
+        );
+      }
+      // Remove rows for trades that were cleared from the Map.
+      if (snapshot.length === 0) {
+        await pool.query("DELETE FROM active_trades");
+      } else {
+        await pool.query(
+          "DELETE FROM active_trades WHERE key <> ALL($1::text[])",
+          [snapshot.map(([k]) => k)],
+        );
+      }
+    } catch {
+      // best-effort
+    }
+  })();
 }
 
-// Eager load on module init. Cheap (single small JSON file).
+// Eager load on module init: JSON file first (fast), then DB in background
+// to recover any trades that are missing from the file (e.g. fresh deployment).
 loadActiveTradesFromDisk();
+void syncFromDb();
 
 function tradeKey(symbol: Symbol, timeframe: Timeframe): string {
   return `${symbol}::${timeframe}`;
