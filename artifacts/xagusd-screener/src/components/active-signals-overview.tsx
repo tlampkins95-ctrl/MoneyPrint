@@ -274,7 +274,7 @@ export function ActiveSignalsOverview({
   const { data, isLoading, isError, refetch, isFetching } = useGetActiveSignals(params, {
     query: {
       queryKey: getGetActiveSignalsQueryKey(params),
-      refetchInterval: 60000,
+      refetchInterval: 15000,
     },
   });
 

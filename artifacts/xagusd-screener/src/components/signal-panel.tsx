@@ -71,7 +71,7 @@ export function SignalPanel({
     {
       query: {
         queryKey: getGetLevelsQueryKey(params),
-        refetchInterval: 60000,
+        refetchInterval: 10000,
       },
     },
   );
