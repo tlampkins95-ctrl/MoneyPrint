@@ -15,6 +15,33 @@ interface SpotCacheEntry {
 const spotCache = new Map<Symbol, SpotCacheEntry>();
 const SPOT_CACHE_TTL_MS = 30 * 1000;
 
+// Yahoo Finance chart API — returns regularMarketPrice (live tick) for forex.
+// Used as the primary live-price source for forex pairs before falling back to
+// the TradingView HTML scrape, which only returns the daily close (stale).
+async function fetchFromYahooSpot(symbol: Symbol): Promise<number | null> {
+  const yahooSymbol = SYMBOLS[symbol].yahoo;
+  if (!yahooSymbol) return null;
+  // Only use for forex — metals use Swissquote, crypto uses Phemex/Pyth/OKX.
+  const isMetals = SYMBOLS[symbol].hasFuturesBasis === true;
+  const isCrypto = Boolean(SYMBOLS[symbol].phemexPerp ?? SYMBOLS[symbol].coinbase);
+  if (isMetals || isCrypto) return null;
+  try {
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?interval=1m&range=1d`;
+    const response = await fetch(url, {
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; XAGUSD-Screener/1.0)" },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!response.ok) return null;
+    const json = (await response.json()) as {
+      chart: { result: Array<{ meta: { regularMarketPrice: number } }> | null };
+    };
+    const price = json.chart.result?.[0]?.meta?.regularMarketPrice;
+    return typeof price === "number" && isFinite(price) ? price : null;
+  } catch {
+    return null;
+  }
+}
+
 async function fetchFromTradingView(symbol: Symbol): Promise<number | null> {
   try {
     const path = SYMBOLS[symbol].tvScrapePath;
@@ -166,6 +193,7 @@ export async function fetchSpotPrice(symbol: Symbol): Promise<number | null> {
     (await fetchFromPyth(symbol)) ??
     (await fetchFromOkxPerp(symbol)) ??
     (await fetchFromCoinbase(symbol)) ??
+    (isMetals ? null : await fetchFromYahooSpot(symbol)) ??
     (isMetals ? null : await fetchFromTradingView(symbol)) ??
     (await fetchFromGoldApi(symbol));
   if (price !== null) {
