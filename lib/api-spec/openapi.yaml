@@ -442,6 +442,9 @@ components:
         trendStrength:
           type: number
           description: 0-100 strength score
+        rsi:
+          type: number
+          description: RSI-14 value (0-100). BUY signals require ≤40; SELL signals require ≥60.
         lastUpdated:
           type: string
         positionSizing:

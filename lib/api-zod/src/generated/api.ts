@@ -147,6 +147,12 @@ export const GetLevelsResponse = zod.object({
     .enum(["UPTREND", "DOWNTREND", "RANGING"])
     .describe("Current market structure"),
   trendStrength: zod.number().describe("0-100 strength score"),
+  rsi: zod
+    .number()
+    .optional()
+    .describe(
+      "RSI-14 value (0-100). BUY signals require ≤40; SELL signals require ≥60.",
+    ),
   lastUpdated: zod.string(),
   positionSizing: zod
     .object({
@@ -544,6 +550,12 @@ export const GetActiveSignalsResponse = zod.object({
               .enum(["UPTREND", "DOWNTREND", "RANGING"])
               .describe("Current market structure"),
             trendStrength: zod.number().describe("0-100 strength score"),
+            rsi: zod
+              .number()
+              .optional()
+              .describe(
+                "RSI-14 value (0-100). BUY signals require ≤40; SELL signals require ≥60.",
+              ),
             lastUpdated: zod.string(),
             positionSizing: zod
               .object({

@@ -228,6 +228,30 @@ function calcATR(candles: CandleRaw[], period = 14): number {
   return slice.reduce((a, b) => a + b, 0) / slice.length;
 }
 
+// Wilder-smoothed RSI (standard 14-period). Returns NaN when insufficient data.
+function calcRSI(closes: number[], period = 14): number {
+  if (closes.length < period + 1) return NaN;
+  let avgGain = 0;
+  let avgLoss = 0;
+  for (let i = 1; i <= period; i++) {
+    const change = closes[i] - closes[i - 1];
+    if (change > 0) avgGain += change;
+    else avgLoss += Math.abs(change);
+  }
+  avgGain /= period;
+  avgLoss /= period;
+  for (let i = period + 1; i < closes.length; i++) {
+    const change = closes[i] - closes[i - 1];
+    const gain = change > 0 ? change : 0;
+    const loss = change < 0 ? Math.abs(change) : 0;
+    avgGain = (avgGain * (period - 1) + gain) / period;
+    avgLoss = (avgLoss * (period - 1) + loss) / period;
+  }
+  if (avgLoss === 0) return 100;
+  const rs = avgGain / avgLoss;
+  return Math.round((100 - 100 / (1 + rs)) * 100) / 100;
+}
+
 function findSwingHighLow(candles: CandleRaw[], lookback = 60) {
   const slice = candles.slice(-lookback);
   return {
@@ -807,6 +831,15 @@ export function computeLevels(
   const ema21Recent = ema21.slice(-5).filter((v) => !isNaN(v));
   const slopeUp = ema21Recent[ema21Recent.length - 1] > ema21Recent[0];
 
+  // RSI-14 confirmation. Used to require momentum exhaustion at the zone:
+  //   BUY zone → RSI must be ≤ 40 (oversold, selling pressure exhausting)
+  //   SELL zone → RSI must be ≥ 60 (overbought, buying pressure exhausting)
+  // Without RSI confirmation, a BUY fires whenever price touches S1 even in
+  // a waterfall sell-off, and a SELL fires at R1 even during a strong rally.
+  const rsi = calcRSI(closes);
+  const RSI_OVERSOLD  = 40; // below this → momentum confirms BUY zone bounce
+  const RSI_OVERBOUGHT = 60; // above this → momentum confirms SELL zone rejection
+
   let trend: "UPTREND" | "DOWNTREND" | "RANGING" = "RANGING";
   let trendStrength = 30;
   if (last21 > last50 && slopeUp) {
@@ -842,8 +875,8 @@ export function computeLevels(
   // only allow SELL when EMA21 ≤ EMA50 (downtrend or ranging). Counter-trend
   // pivot bounces are the lowest-edge setups in the historical data, so we
   // explicitly suppress them and emit WAIT instead.
-  const buyAllowed = trend !== "DOWNTREND";
-  const sellAllowed = trend !== "UPTREND";
+  const buyAllowed  = trend !== "DOWNTREND" && (isNaN(rsi) || rsi <= RSI_OVERSOLD);
+  const sellAllowed = trend !== "UPTREND"   && (isNaN(rsi) || rsi >= RSI_OVERBOUGHT);
 
   if ((inBuyZone || approachingBuy) && buyAllowed) {
     signal = "BUY";
@@ -874,17 +907,21 @@ export function computeLevels(
       ? `[${tfLabel}] Price is at the sell zone around pivot R1 (${fmt(pivots.r1)}). ${trend === "DOWNTREND" ? "Downtrend in force — distribution zone." : "EMA trend neutral — look for a bearish rejection candle to confirm short entry."}`
       : `[${tfLabel}] Price is within ${fmt(sellZoneLow - currentPrice)} of the sell zone (${fmt(sellZoneLow)}–${fmt(sellZoneHigh)}). Stage a limit sell order near R1 ${fmt(pivots.r1)}.`;
   } else if (inBuyZone && !buyAllowed) {
-    // Price is in the buy zone but the trend filter blocks the long. Show a
-    // pending sell setup at R1 instead so the trader sees the next opportunity.
     signal = "WAIT";
-    signalReason = `[${tfLabel}] Price is in the buy zone (${fmt(buyZoneLow)}–${fmt(buyZoneHigh)}) but EMA21 < EMA50 (downtrend) — counter-trend longs filtered out. Wait for trend to flip or for price to reach the sell zone (${fmt(sellZoneLow)}–${fmt(sellZoneHigh)}).`;
+    const rsiNote = !isNaN(rsi) && rsi > RSI_OVERSOLD
+      ? ` RSI ${rsi.toFixed(0)} not yet oversold (need ≤${RSI_OVERSOLD}) — wait for exhaustion before entering long.`
+      : ` EMA21 < EMA50 (downtrend) — counter-trend long filtered out.`;
+    signalReason = `[${tfLabel}] Price is in the buy zone (${fmt(buyZoneLow)}–${fmt(buyZoneHigh)}) but conditions not met.${rsiNote}`;
     entryPrice = round(pivots.r1);
     stopLoss = round(sellZoneHigh + atr * 0.5);
     takeProfit1 = round(floorTarget(entryPrice, stopLoss, pivots.pivot, MIN_RR_TP1, "SELL"));
     takeProfit2 = round(floorTarget(entryPrice, stopLoss, buyZoneHigh, MIN_RR_TP2, "SELL"));
   } else if (inSellZone && !sellAllowed) {
     signal = "WAIT";
-    signalReason = `[${tfLabel}] Price is in the sell zone (${fmt(sellZoneLow)}–${fmt(sellZoneHigh)}) but EMA21 > EMA50 (uptrend) — counter-trend shorts filtered out. Wait for trend to flip or for price to reach the buy zone (${fmt(buyZoneLow)}–${fmt(buyZoneHigh)}).`;
+    const rsiNote = !isNaN(rsi) && rsi < RSI_OVERBOUGHT
+      ? ` RSI ${rsi.toFixed(0)} not yet overbought (need ≥${RSI_OVERBOUGHT}) — wait for exhaustion before shorting.`
+      : ` EMA21 > EMA50 (uptrend) — counter-trend short filtered out.`;
+    signalReason = `[${tfLabel}] Price is in the sell zone (${fmt(sellZoneLow)}–${fmt(sellZoneHigh)}) but conditions not met.${rsiNote}`;
     entryPrice = round(pivots.s1);
     stopLoss = round(buyZoneLow - atr * 0.5);
     takeProfit1 = round(floorTarget(entryPrice, stopLoss, pivots.pivot, MIN_RR_TP1, "BUY"));
@@ -1007,6 +1044,7 @@ export function computeLevels(
     pivot: pivots.pivot,
     trend,
     trendStrength,
+    rsi: isNaN(rsi) ? undefined : rsi,
     lastUpdated: new Date().toISOString(),
     positionSizing,
   };

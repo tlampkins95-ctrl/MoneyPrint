@@ -275,6 +275,8 @@ export interface LevelsData {
   trend: LevelsDataTrend;
   /** 0-100 strength score */
   trendStrength: number;
+  /** RSI-14 value (0-100). BUY signals require ≤40; SELL signals require ≥60. */
+  rsi?: number;
   lastUpdated: string;
   positionSizing?: PositionSizing;
 }

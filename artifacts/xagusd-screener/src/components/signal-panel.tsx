@@ -811,34 +811,80 @@ export function SignalPanel({
               <span className="w-1.5 h-1.5 rounded-full bg-zinc-600 inline-block" />
               MARKET STRUCTURE
             </div>
-            <div className="flex items-center justify-between bg-[#111] border border-zinc-800 rounded-lg px-4 py-3">
-              <div className="flex items-center gap-2">
-                {data.trend === "UPTREND" && <TrendingUp className="text-[#00c950] w-4 h-4" />}
-                {data.trend === "DOWNTREND" && <TrendingDown className="text-[#e53e3e] w-4 h-4" />}
-                {data.trend === "RANGING" && <ArrowRight className="text-amber-500 w-4 h-4" />}
-                <span className={cn(
-                  "font-bold text-sm tracking-wider",
-                  data.trend === "UPTREND" ? "text-[#00c950]" :
-                  data.trend === "DOWNTREND" ? "text-[#e53e3e]" : "text-amber-500"
-                )}>
-                  {data.trend}
-                </span>
-              </div>
-              <div className="flex items-center gap-2 w-28">
-                <div className="flex-1 h-1.5 bg-zinc-900 rounded-full overflow-hidden">
-                  <div
-                    className={cn(
-                      "h-full rounded-full transition-all duration-500",
-                      data.trend === "UPTREND" ? "bg-[#00c950]" :
-                      data.trend === "DOWNTREND" ? "bg-[#e53e3e]" : "bg-amber-500"
-                    )}
-                    style={{ width: `${data.trendStrength}%` }}
-                  />
+            <div className="rounded-lg overflow-hidden border border-zinc-800 bg-[#111] divide-y divide-zinc-800/60">
+              {/* Trend row */}
+              <div className="flex items-center justify-between px-4 py-3">
+                <div className="flex items-center gap-2">
+                  {data.trend === "UPTREND" && <TrendingUp className="text-[#00c950] w-4 h-4" />}
+                  {data.trend === "DOWNTREND" && <TrendingDown className="text-[#e53e3e] w-4 h-4" />}
+                  {data.trend === "RANGING" && <ArrowRight className="text-amber-500 w-4 h-4" />}
+                  <span className={cn(
+                    "font-bold text-sm tracking-wider",
+                    data.trend === "UPTREND" ? "text-[#00c950]" :
+                    data.trend === "DOWNTREND" ? "text-[#e53e3e]" : "text-amber-500"
+                  )}>
+                    {data.trend}
+                  </span>
                 </div>
-                <span className="text-xs font-bold text-zinc-400 w-5 text-right">
-                  {data.trendStrength}
-                </span>
+                <div className="flex items-center gap-2 w-28">
+                  <div className="flex-1 h-1.5 bg-zinc-900 rounded-full overflow-hidden">
+                    <div
+                      className={cn(
+                        "h-full rounded-full transition-all duration-500",
+                        data.trend === "UPTREND" ? "bg-[#00c950]" :
+                        data.trend === "DOWNTREND" ? "bg-[#e53e3e]" : "bg-amber-500"
+                      )}
+                      style={{ width: `${data.trendStrength}%` }}
+                    />
+                  </div>
+                  <span className="text-xs font-bold text-zinc-400 w-5 text-right">
+                    {data.trendStrength}
+                  </span>
+                </div>
               </div>
+
+              {/* RSI-14 row */}
+              {data.rsi != null && (() => {
+                const rsiVal = data.rsi!;
+                const rsiZone =
+                  rsiVal <= 30 ? "OVERSOLD"
+                  : rsiVal <= 40 ? "BUY ZONE"
+                  : rsiVal >= 70 ? "OVERBOUGHT"
+                  : rsiVal >= 60 ? "SELL ZONE"
+                  : "NEUTRAL";
+                const rsiColor =
+                  rsiVal <= 40 ? "#00c950"
+                  : rsiVal >= 60 ? "#e53e3e"
+                  : "#a1a1aa";
+                const rsiBarColor =
+                  rsiVal <= 40 ? "bg-[#00c950]"
+                  : rsiVal >= 60 ? "bg-[#e53e3e]"
+                  : "bg-zinc-500";
+                return (
+                  <div className="flex items-center justify-between px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-sans font-semibold text-zinc-400">RSI-14</span>
+                      <span
+                        className="text-[9px] font-bold tracking-widest px-1.5 py-0.5 rounded"
+                        style={{ color: rsiColor, backgroundColor: `${rsiColor}18` }}
+                      >
+                        {rsiZone}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 w-28">
+                      <div className="flex-1 h-1.5 bg-zinc-900 rounded-full overflow-hidden">
+                        <div
+                          className={cn("h-full rounded-full transition-all duration-500", rsiBarColor)}
+                          style={{ width: `${rsiVal}%` }}
+                        />
+                      </div>
+                      <span className="text-xs font-bold w-7 text-right tabular-nums" style={{ color: rsiColor }}>
+                        {rsiVal.toFixed(1)}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           </div>
 
