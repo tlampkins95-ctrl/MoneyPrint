@@ -17,6 +17,72 @@ type SignalKind = "BUY" | "SELL" | "WAIT";
 interface TrackedState {
   signal: SignalKind;
   lastAlertAt: number;
+  // Gate tracking — set when a valid signal is present but 1h hasn't aligned yet
+  gateBlockedSince?: number;
+  gateBlockedSignal?: SignalKind;
+  lastAlertChannels?: string[];
+}
+
+export interface NotifierSymbolStatus {
+  symbol: Symbol;
+  timeframe: Timeframe;
+  trackedSignal: SignalKind;
+  lastAlertAt: number | null;
+  lastAlertAgo: string | null;
+  lastAlertChannels: string[] | null;
+  gateBlocked: boolean;
+  gateBlockedSince: number | null;
+  gateBlockedSignal: SignalKind | null;
+  gateBlockedFor: string | null;
+}
+
+export interface NotifierStatus {
+  enabled: boolean;
+  telegramOn: boolean;
+  webPushOn: boolean;
+  pollIntervalMs: number;
+  symbols: NotifierSymbolStatus[];
+}
+
+function fmtAgo(ms: number): string {
+  const s = Math.floor((Date.now() - ms) / 1000);
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ${m % 60}m ago`;
+  return `${Math.floor(h / 24)}d ${h % 24}h ago`;
+}
+
+export function getNotifierStatus(): NotifierStatus {
+  const telegramOn = isTelegramEnabled();
+  const webPushOn = isWebPushEnabled();
+  const symbols: NotifierSymbolStatus[] = [];
+  for (const symbol of ALL_SYMBOLS) {
+    for (const tf of TRACKED_TIMEFRAMES) {
+      const k = key(symbol, tf);
+      const s = stateMap.get(k);
+      symbols.push({
+        symbol,
+        timeframe: tf,
+        trackedSignal: s?.signal ?? "WAIT",
+        lastAlertAt: s?.lastAlertAt && s.lastAlertAt > 0 ? s.lastAlertAt : null,
+        lastAlertAgo: s?.lastAlertAt && s.lastAlertAt > 0 ? fmtAgo(s.lastAlertAt) : null,
+        lastAlertChannels: s?.lastAlertChannels ?? null,
+        gateBlocked: Boolean(s?.gateBlockedSince),
+        gateBlockedSince: s?.gateBlockedSince ?? null,
+        gateBlockedSignal: s?.gateBlockedSignal ?? null,
+        gateBlockedFor: s?.gateBlockedSince ? fmtAgo(s.gateBlockedSince) : null,
+      });
+    }
+  }
+  return {
+    enabled: telegramOn || webPushOn,
+    telegramOn,
+    webPushOn,
+    pollIntervalMs: POLL_INTERVAL_MS,
+    symbols,
+  };
 }
 
 // Only alert on 30m — the entry timeframe. 1h and daily are alignment gates.
