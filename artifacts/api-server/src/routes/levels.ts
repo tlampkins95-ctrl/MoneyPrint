@@ -293,7 +293,20 @@ router.get("/active-signals", async (req: Request, res: Response) => {
                   accountSize, riskPct / 100, minCollateral, maxLeverage, mt5Lots,
                 );
                 if (higherResult.signal !== levels.signal) {
-                  return { ok: false, symbol, timeframe };
+                  // Gate blocked the signal — this is a valid data feed result,
+                  // not a failure. Suppress to WAIT so it doesn't appear in the
+                  // active-signals list but doesn't pollute the failure counter.
+                  return {
+                    ok: true,
+                    symbol,
+                    timeframe,
+                    levels: {
+                      ...levels,
+                      signal: "WAIT" as const,
+                      tradeState: levels.tradeState === "WAIT" ? "WAIT" as const : levels.tradeState,
+                      signalReason: `[${timeframe}] BUY setup suppressed — 1h says ${higherResult.signal ?? "WAIT"}. Wait for 1h to align before entering.`,
+                    },
+                  };
                 }
               }
             } catch {
