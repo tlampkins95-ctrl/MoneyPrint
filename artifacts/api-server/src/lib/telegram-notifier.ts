@@ -45,29 +45,33 @@ export function buildAlertContext(
   return { symbol, timeframe, tfLabel, levels, link };
 }
 
-async function sendTelegramMessage(text: string): Promise<void> {
+async function sendTelegramMessage(text: string, photoUrl?: string): Promise<void> {
   const token = process.env["TELEGRAM_BOT_TOKEN"];
   const chatId = process.env["TELEGRAM_CHAT_ID"];
   if (!token || !chatId) return;
 
+  // Telegram caption limit is 1024 chars. If text fits, send as photo+caption.
+  // Otherwise fall back to plain text message.
+  const usePhoto = photoUrl && text.length <= 1024;
+
   try {
-    const res = await fetch(
-      `https://api.telegram.org/bot${token}/sendMessage`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chat_id: chatId,
-          text,
-          parse_mode: "HTML",
-          disable_web_page_preview: true,
-        }),
-        signal: AbortSignal.timeout(8000),
-      },
-    );
+    const url = usePhoto
+      ? `https://api.telegram.org/bot${token}/sendPhoto`
+      : `https://api.telegram.org/bot${token}/sendMessage`;
+
+    const body = usePhoto
+      ? JSON.stringify({ chat_id: chatId, photo: photoUrl, caption: text, parse_mode: "HTML" })
+      : JSON.stringify({ chat_id: chatId, text, parse_mode: "HTML", disable_web_page_preview: true });
+
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body,
+      signal: AbortSignal.timeout(8000),
+    });
     if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      logger.warn({ status: res.status, body }, "Telegram sendMessage failed");
+      const resBody = await res.text().catch(() => "");
+      logger.warn({ status: res.status, body: resBody }, "Telegram send failed");
     }
   } catch (err) {
     logger.warn({ err }, "Telegram sendMessage error");
@@ -134,5 +138,10 @@ export async function sendTelegramAlert(ctx: AlertContext): Promise<void> {
     lines.push("", `<a href="${link}">📈 Open chart →</a>`);
   }
 
-  await sendTelegramMessage(lines.join("\n"));
+  const prodDomain = process.env["REPLIT_DOMAINS"]?.split(",")[0]?.trim();
+  const devDomain = process.env["REPLIT_DEV_DOMAIN"]?.trim();
+  const host = prodDomain || devDomain;
+  const logoUrl = host ? `https://${host}/logo.png` : undefined;
+
+  await sendTelegramMessage(lines.join("\n"), logoUrl);
 }
