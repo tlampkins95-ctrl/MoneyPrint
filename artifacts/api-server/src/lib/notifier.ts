@@ -212,7 +212,7 @@ async function checkSymbol(
             : higherCandles;
         const higherResult = computeLevelsStable(adjHigher, spot, "1h", symbol);
         if (higherResult.signal !== levels.signal) {
-          logger.debug(
+          logger.info(
             { symbol, timeframe, signal: levels.signal, higherSignal: higherResult.signal },
             "Signal alert suppressed (1h gate — higher TF disagrees)",
           );
@@ -283,7 +283,7 @@ async function checkSymbol(
     }
 
     if (transitioned && cooldownActive && prev) {
-      logger.debug(
+      logger.info(
         {
           symbol,
           timeframe,
@@ -296,7 +296,7 @@ async function checkSymbol(
     }
 
     if (transitioned && alreadyInSameDirection) {
-      logger.debug(
+      logger.info(
         {
           symbol,
           timeframe,
