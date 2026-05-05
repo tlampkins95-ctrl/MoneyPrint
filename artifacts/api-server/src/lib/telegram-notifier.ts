@@ -115,22 +115,7 @@ export async function sendTelegramAlert(ctx: AlertContext): Promise<void> {
     `Trend: <b>${levels.trend}</b> (${levels.trendStrength})`,
   ];
 
-  if (ach && ps) {
-    lines.push(
-      `<b>Jupiter setup:</b> $${ach.collateral.toFixed(2)} col × <b>${ach.leverage.toFixed(1)}x</b> lev → ${ach.positionSize} ${ps.positionSizeUnit} ($${ach.notional.toFixed(0)} notional)`,
-    );
-    lines.push(
-      `Account: $${ps.accountSize} · Intended risk: ${ps.riskPct.toFixed(1)}% ($${ps.riskAmount.toFixed(2)})`,
-    );
-    if (ach.belowMinimum) {
-      lines.push(
-        `⚠️ Min collateral forces ${ach.actualRiskPct.toFixed(2)}% actual risk`,
-      );
-    }
-    if (ach.warning) {
-      lines.push(`⚠️ ${escapeHtml(ach.warning)}`);
-    }
-  } else if (ps) {
+  if (ps) {
     const sizeLine =
       ps.leverage !== undefined
         ? `Size: <b>${ps.positionSize} ${ps.positionSizeUnit}</b> · <b>${ps.leverage}x</b> lev · $${ps.notional.toFixed(0)} notional`
