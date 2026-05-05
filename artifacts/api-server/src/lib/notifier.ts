@@ -250,15 +250,15 @@ async function checkSymbol(
           `Entry ${fmtN(levels.entryPrice)} · SL ${fmtN(levels.stopLoss)}`,
           `TP1 ${fmtN(levels.takeProfit1)} · TP2 ${fmtN(levels.takeProfit2)}`,
         ];
-        const iconUrl = link ? new URL(link).origin + "/logo.png" : undefined;
+        const origin = link ? new URL(link).origin : null;
         tasks.push(
           broadcastWebPush({
             title: `${sideEmoji} ${sideWord} ${m.label}`,
             body: lines.join("\n"),
             url: link ?? "/",
             tag: `${symbol}-${timeframe}`,
-            icon: iconUrl,
-            badge: iconUrl,
+            icon: origin ? `${origin}/notification-icon.png` : undefined,
+            badge: origin ? `${origin}/notification-badge.png` : undefined,
             requireInteraction: timeframe === "1d",
           }),
         );
