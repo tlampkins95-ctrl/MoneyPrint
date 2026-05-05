@@ -1630,8 +1630,8 @@ export function computeLevelsStable(
     const useLiveSpot = timeframe !== "1d";
     const spotTagged = useLiveSpot && (
       preTriggerCheck.signal === "BUY"
-        ? fresh.currentPrice <= preTriggerCheck.entryPrice
-        : fresh.currentPrice >= preTriggerCheck.entryPrice
+        ? fresh.currentPrice < preTriggerCheck.entryPrice
+        : fresh.currentPrice > preTriggerCheck.entryPrice
     );
     if (spotTagged || wasEntryTagged(preTriggerCheck, candles)) {
       preTriggerCheck.triggered = true;
@@ -1717,13 +1717,15 @@ export function computeLevelsStable(
 
   // No active trade. If fresh is BUY/SELL, snapshot it as the new active trade.
   if (fresh.signal === "BUY" || fresh.signal === "SELL") {
-    // If price is already at/past the limit at fire time, the order would
-    // fill immediately. BUY: limit fills when price drops to S1, so a
-    // currentPrice ≤ entry means it's already there. SELL: mirror.
+    // If price is already strictly past the limit at fire time, the order
+    // fills immediately. Use strict inequality so that when entryPrice is
+    // clamped to currentPrice (max(R1, price) for SELL / min(S1, price) for
+    // BUY), equality does NOT auto-trigger — price must actually move through
+    // the level after the signal appears.
     const triggered =
       fresh.signal === "BUY"
-        ? fresh.currentPrice <= fresh.entryPrice
-        : fresh.currentPrice >= fresh.entryPrice;
+        ? fresh.currentPrice < fresh.entryPrice
+        : fresh.currentPrice > fresh.entryPrice;
     // Capture the in-progress candle's range as a baseline, so subsequent
     // wick extensions (and only those) can prove a real post-snapshot fill.
     const lastCandle = candles[candles.length - 1];
