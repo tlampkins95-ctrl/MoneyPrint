@@ -20,4 +20,5 @@ export const GetLevelsSymbol = {
   BTCUSD: "BTCUSD",
   ETHUSD: "ETHUSD",
   SKYAIUSDT: "SKYAIUSDT",
+  ZECUSD: "ZECUSD",
 } as const;

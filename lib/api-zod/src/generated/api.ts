@@ -49,6 +49,7 @@ export const GetLevelsQueryParams = zod.object({
       "BTCUSD",
       "ETHUSD",
       "SKYAIUSDT",
+      "ZECUSD",
     ])
     .default(getLevelsQuerySymbolDefault)
     .describe("Trading instrument"),
@@ -356,6 +357,7 @@ export const GetBacktestQueryParams = zod.object({
       "BTCUSD",
       "ETHUSD",
       "SKYAIUSDT",
+      "ZECUSD",
     ])
     .default(getBacktestQuerySymbolDefault)
     .describe("Trading instrument"),
@@ -487,6 +489,7 @@ export const GetActiveSignalsResponse = zod.object({
             "BTCUSD",
             "ETHUSD",
             "SKYAIUSDT",
+            "ZECUSD",
           ]),
           timeframe: zod.enum(["15m", "30m", "1h", "1d"]),
           levels: zod.object({
@@ -857,6 +860,7 @@ export const GetPriceHistoryQueryParams = zod.object({
       "BTCUSD",
       "ETHUSD",
       "SKYAIUSDT",
+      "ZECUSD",
     ])
     .default(getPriceHistoryQuerySymbolDefault)
     .describe("Trading instrument"),

@@ -20,4 +20,5 @@ export const GetBacktestSymbol = {
   BTCUSD: "BTCUSD",
   ETHUSD: "ETHUSD",
   SKYAIUSDT: "SKYAIUSDT",
+  ZECUSD: "ZECUSD",
 } as const;

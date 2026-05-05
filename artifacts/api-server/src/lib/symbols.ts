@@ -8,7 +8,8 @@ export type Symbol =
   | "GBPJPY"
   | "BTCUSD"
   | "ETHUSD"
-  | "SKYAIUSDT";
+  | "SKYAIUSDT"
+  | "ZECUSD";
 
 export interface SymbolMeta {
   yahoo: string;
@@ -158,6 +159,20 @@ export const SYMBOLS: Record<Symbol, SymbolMeta> = {
     phemexSpotPriceScale: 8,
     gateioSpot: "SKYAI_USDT",
     venue: "Phemex · spot",
+  },
+  ZECUSD: {
+    yahoo: "ZEC-USD",
+    tvSymbol: "PHEMEX:ZECUSDT",
+    tvScrapePath: "/symbols/ZECUSDT/?exchange=PHEMEX",
+    label: "Zcash / USDT (Phemex)",
+    decimals: 2,
+    prefix: "$",
+    coinbase: "ZEC-USD",
+    okxPerp: "ZEC-USDT-SWAP",
+    phemexPerp: "ZECUSDT",
+    phemexMinQty: 0.01,
+    phemexQtyStep: 0.01,
+    venue: "PHEMEX · USDT perp",
   },
 };
 

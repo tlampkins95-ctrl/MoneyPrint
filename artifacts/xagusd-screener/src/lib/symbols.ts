@@ -8,7 +8,8 @@ export type Symbol =
   | "GBPJPY"
   | "BTCUSD"
   | "ETHUSD"
-  | "SKYAIUSDT";
+  | "SKYAIUSDT"
+  | "ZECUSD";
 
 export interface SymbolMeta {
   tv: string;
@@ -31,6 +32,7 @@ export const SYMBOLS: Record<Symbol, SymbolMeta> = {
   BTCUSD: { tv: "PHEMEX:BTCUSDT", short: "BTC/USD", long: "Bitcoin (Phemex)",  badge: "₿", decimals: 1, prefix: "$", venue: "PHEMEX · USDT perp" },
   ETHUSD: { tv: "PHEMEX:ETHUSDT", short: "ETH/USD", long: "Ethereum (Phemex)", badge: "Ξ", decimals: 2, prefix: "$", venue: "PHEMEX · USDT perp" },
   SKYAIUSDT: { tv: "PHEMEX:SKYAIUSDT", short: "SKY/USDT", long: "SKYAI (Phemex spot)", badge: "SK", decimals: 4, prefix: "$", venue: "Phemex · spot" },
+  ZECUSD:    { tv: "PHEMEX:ZECUSDT",   short: "ZEC/USD",  long: "Zcash (Phemex)",      badge: "ZE", decimals: 2, prefix: "$", venue: "PHEMEX · USDT perp" },
 };
 
 export const ALL_SYMBOLS: Symbol[] = Object.keys(SYMBOLS) as Symbol[];
