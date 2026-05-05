@@ -150,8 +150,12 @@ async function checkSymbol(
             { symbol, timeframe, signal: levels.signal, higherSignal: higherResult.signal },
             "Signal alert suppressed (1h gate — higher TF disagrees)",
           );
+          // Keep the PREVIOUS signal in stateMap — not the new one. If we
+          // record levels.signal here (e.g. BUY), the next tick sees BUY→BUY
+          // and never fires. By preserving prev's signal (e.g. WAIT), the
+          // transition fires correctly the moment 1h aligns.
           stateMap.set(k, {
-            signal: levels.signal,
+            signal: prev?.signal ?? "WAIT",
             lastAlertAt: prev?.lastAlertAt ?? 0,
           });
           return;
