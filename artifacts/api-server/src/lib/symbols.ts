@@ -46,6 +46,9 @@ export interface SymbolMeta {
   // Pyth Hermes price-feed IDs (mainnet). Used as the primary spot source for
   // crypto so the Now-price line agrees with jup.ag's chart and oracle marks.
   pythFeedId?: string;
+  // Gate.io spot currency pair (e.g. "SKYAI_USDT"). Used as the candle source
+  // for tokens not listed on OKX or Yahoo Finance.
+  gateioSpot?: string;
   venue?: string;
 }
 
@@ -153,6 +156,7 @@ export const SYMBOLS: Record<Symbol, SymbolMeta> = {
     coinbase: "SKYAI-USD",
     phemexSpot: "sSKYAIUSDT",
     phemexSpotPriceScale: 8,
+    gateioSpot: "SKYAI_USDT",
     venue: "Phemex · spot",
   },
 };

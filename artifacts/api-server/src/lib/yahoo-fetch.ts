@@ -67,6 +67,56 @@ export async function fetchCandlesForTimeframe(
   return promise;
 }
 
+// Gate.io v4 spot candlesticks. Used for tokens not on OKX perps or Yahoo Finance
+// (e.g. SKYAIUSDT). Returns ascending-sorted candles, max 1000 per request.
+// Row format: [timestamp_s, vol_quote, open, high, low, close, vol_base, is_closed]
+const GATEIO_BASE = "https://api.gateio.ws/api/v4";
+const GATEIO_INTERVAL: Record<Timeframe, string> = {
+  "15m": "15m",
+  "30m": "30m",
+  "1h":  "1h",
+  "1d":  "1d",
+};
+// Gate.io caps at 1000 per request; for small-cap tokens that's usually enough
+// for all indicators (EMA200 needs 200+ bars, RSI/MACD need ~35).
+const GATEIO_LIMIT = 1000;
+
+async function fetchGateioCandles(
+  currencyPair: string,
+  timeframe: Timeframe,
+): Promise<CandleRaw[]> {
+  const interval = GATEIO_INTERVAL[timeframe];
+  const url = `${GATEIO_BASE}/spot/candlesticks?currency_pair=${encodeURIComponent(currencyPair)}&interval=${interval}&limit=${GATEIO_LIMIT}`;
+  const response = await fetch(url, {
+    headers: { "User-Agent": "Mozilla/5.0 (compatible; Forex-Screener/1.0)" },
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!response.ok) throw new Error(`Gate.io fetch failed: ${response.status}`);
+  const json = (await response.json()) as string[][];
+  const isIntraday = timeframe !== "1d";
+  const candles: CandleRaw[] = [];
+  for (const row of json) {
+    const ts  = Number(row[0]) * 1000; // Gate.io returns seconds
+    const o   = parseFloat(row[2]);
+    const h   = parseFloat(row[3]);
+    const l   = parseFloat(row[4]);
+    const c   = parseFloat(row[5]);
+    const v   = parseFloat(row[6]);
+    if (!isFinite(ts) || !isFinite(o) || !isFinite(h) || !isFinite(l) || !isFinite(c)) continue;
+    const iso = new Date(ts).toISOString();
+    candles.push({
+      date:   isIntraday ? iso : iso.split("T")[0],
+      open:   o,
+      high:   h,
+      low:    l,
+      close:  c,
+      volume: isFinite(v) ? v : 0,
+    });
+  }
+  // Gate.io returns oldest-first (ascending) — already correct order.
+  return candles;
+}
+
 async function doFetch(
   symbol: Symbol,
   timeframe: Timeframe,
@@ -79,6 +129,14 @@ async function doFetch(
   const perpSymbol = SYMBOLS[symbol].okxPerp;
   if (perpSymbol) {
     const candles = await fetchOkxPerpCandles(perpSymbol, timeframe);
+    cache.set(key, { candles, timestamp: now });
+    return candles;
+  }
+
+  // Gate.io spot candles — for tokens not on OKX or Yahoo (e.g. SKYAIUSDT).
+  const gateioSymbol = SYMBOLS[symbol].gateioSpot;
+  if (gateioSymbol) {
+    const candles = await fetchGateioCandles(gateioSymbol, timeframe);
     cache.set(key, { candles, timestamp: now });
     return candles;
   }
