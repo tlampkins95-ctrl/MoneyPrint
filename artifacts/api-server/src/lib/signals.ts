@@ -289,6 +289,34 @@ function findSwingHighLow(candles: CandleRaw[], lookback = 60) {
   };
 }
 
+// Standard pivot points use the PREVIOUS DAY's high, low, and close — not the
+// previous intraday bar. Using a single 30m bar's range (1-3 pips) produces
+// zones so tight that price is always caught between them, causing permanent WAIT.
+// This function groups intraday candles by UTC date, finds the last completed day
+// (not today's in-progress session), and returns that day's aggregated H/L/C.
+function getDailyPivotCandle(
+  candles: CandleRaw[],
+): { high: number; low: number; close: number } | null {
+  const byDate = new Map<string, CandleRaw[]>();
+  for (const c of candles) {
+    // c.date is ISO "2026-05-04T14:30:00.000Z" for intraday — take the date part.
+    const date = c.date.slice(0, 10);
+    const bucket = byDate.get(date);
+    if (bucket) bucket.push(c);
+    else byDate.set(date, [c]);
+  }
+  const dates = Array.from(byDate.keys()).sort();
+  // Need at least 2 days: one completed (prev) + one in progress (today).
+  if (dates.length < 2) return null;
+  const prevDate = dates[dates.length - 2];
+  const bars = byDate.get(prevDate)!;
+  return {
+    high:  Math.max(...bars.map((c) => c.high)),
+    low:   Math.min(...bars.map((c) => c.low)),
+    close: bars[bars.length - 1].close,
+  };
+}
+
 // MACD(12,26,9) histogram. Returns array aligned with `closes` (NaN until warm).
 // Used as momentum-turn confirmation: only fade S1 when histogram is ticking UP
 // (selling pressure cooling), only fade R1 when ticking DOWN (buying pressure
@@ -875,7 +903,14 @@ export function computeLevels(
   const priceChange = round(currentPrice - prev.close);
   const priceChangePct = Math.round((priceChange / prev.close) * 10000) / 100;
 
-  const pivots = calcPivots(prev.high, prev.low, prev.close, round);
+  // For intraday timeframes, pivot points must be anchored to the previous
+  // DAILY session's H/L/C — not the previous intraday bar. A single 30m bar
+  // has a range of 1-5 pips, producing zones so tight they are permanently
+  // straddled and nothing ever fires. Fall back to prev bar only if we don't
+  // have at least two distinct calendar days in the candle history.
+  const dailyPivotSrc = timeframe !== "1d" ? getDailyPivotCandle(candles) : null;
+  const pivotSrc = dailyPivotSrc ?? { high: prev.high, low: prev.low, close: prev.close };
+  const pivots = calcPivots(pivotSrc.high, pivotSrc.low, pivotSrc.close, round);
   const { swingHigh, swingLow } = findSwingHighLow(candles, 60);
   const fibs = calcFibLevels(swingHigh, swingLow, round);
   const atr = calcATR(candles, 14);
@@ -899,8 +934,8 @@ export function computeLevels(
   // Without RSI confirmation, a BUY fires whenever price touches S1 even in
   // a waterfall sell-off, and a SELL fires at R1 even during a strong rally.
   const rsi = calcRSI(closes);
-  const RSI_OVERSOLD  = 40; // below this → momentum confirms BUY zone bounce
-  const RSI_OVERBOUGHT = 60; // above this → momentum confirms SELL zone rejection
+  const RSI_OVERSOLD  = 45; // below this → momentum confirms BUY zone bounce
+  const RSI_OVERBOUGHT = 55; // above this → momentum confirms SELL zone rejection
 
   // MACD(12,26,9) histogram momentum gate. Only fade S1 when the histogram
   // has ticked UP over the prior completed bar (selling pressure cooling).
