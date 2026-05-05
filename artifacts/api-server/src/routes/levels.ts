@@ -12,7 +12,7 @@ import {
   type Timeframe,
 } from "../lib/yahoo-fetch";
 import { SYMBOLS, makeRounder, ALL_SYMBOLS, type Symbol } from "../lib/symbols";
-import { computeLevelsStable, fetchSpotPrice, applyFuturesBasis, seedActiveTrades } from "../lib/signals";
+import { computeLevelsStable, fetchSpotPrice, applyFuturesBasis, seedActiveTrades, clearActiveTrade } from "../lib/signals";
 
 // Only 30m is tracked in the active-signals overview. It's the entry
 // timeframe — 1h and daily are alignment gates, not signals in their own right.
@@ -372,6 +372,18 @@ router.post("/admin/seed-trades", (req: Request, res: Response) => {
   }
   const count = seedActiveTrades(body);
   res.json({ ok: true, seeded: count });
+});
+
+// DELETE /api/admin/active-trade?symbol=XAUUSD&timeframe=30m
+router.delete("/admin/active-trade", (req: Request, res: Response) => {
+  const secret = process.env["ADMIN_SECRET"];
+  if (!secret) { res.status(503).json({ error: "Admin endpoint not configured" }); return; }
+  const provided = req.headers["x-admin-secret"];
+  if (provided !== secret) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const { symbol, timeframe } = req.query as { symbol?: string; timeframe?: string };
+  if (!symbol || !timeframe) { res.status(400).json({ error: "symbol and timeframe required" }); return; }
+  clearActiveTrade(symbol as Symbol, timeframe as Timeframe);
+  res.json({ ok: true, cleared: `${symbol}::${timeframe}` });
 });
 
 export default router;
