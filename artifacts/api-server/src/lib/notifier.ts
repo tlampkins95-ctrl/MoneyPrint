@@ -189,10 +189,20 @@ async function checkSymbol(
     // mathematically open. WAIT does not invalidate the active trade by
     // design, so checking the store is the source of truth for "am I
     // already in this?".
+    //
+    // IMPORTANT: only suppress if we actually sent an alert for this trade.
+    // If the active trade was opened AFTER the last alert (or no alert was
+    // ever sent), the /api/levels page-load created the snapshot before the
+    // notifier ran — suppressing here means the user NEVER gets the alert.
+    const tradeAlreadyAlerted =
+      prev != null &&
+      prev.lastAlertAt > 0 &&
+      (activeTradeBeforeCompute?.openedAt ?? 0) <= prev.lastAlertAt;
     const alreadyInSameDirection =
       !isSeedSnapshot &&
       activeTradeBeforeCompute?.signal === levels.signal &&
-      (levels.signal === "BUY" || levels.signal === "SELL");
+      (levels.signal === "BUY" || levels.signal === "SELL") &&
+      tradeAlreadyAlerted;
 
     if (transitioned && !cooldownActive && !alreadyInSameDirection) {
       // Gate: for pending 30m signals, 1h must agree before alerting.
