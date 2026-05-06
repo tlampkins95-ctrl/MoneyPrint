@@ -529,9 +529,13 @@ function buildQualityWarnings(args: {
       `Thin profit factor (${profitFactor}) — the edge barely covers the losers. Live slippage and commissions may eat it.`,
     );
   }
-  if (winRate < 55 && totalTrades >= 20) {
+  if (winRate < 45 && totalTrades >= 15) {
     warnings.push(
-      `Win rate (${winRate}%) is on the low side for a mean-reversion strategy that takes 1× risk to ~1× reward at TP1.`,
+      `⚠ Poor win rate (${winRate}%) — this setup has a negative historical edge. Avoid trading it live.`,
+    );
+  } else if (winRate < 55 && totalTrades >= 20) {
+    warnings.push(
+      `Win rate (${winRate}%) is on the low side. Treat results as marginal rather than a reliable edge.`,
     );
   }
   if (totalReturnR > 0 && maxDrawdownR > totalReturnR) {

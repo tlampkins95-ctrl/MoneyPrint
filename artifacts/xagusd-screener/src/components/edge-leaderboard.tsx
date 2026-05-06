@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useGetBacktest } from "@workspace/api-client-react";
-import { ChevronDown, ChevronRight, Trophy, Loader2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Trophy, Loader2, AlertTriangle } from "lucide-react";
 import { ALL_SYMBOLS, SYMBOLS, type Symbol } from "@/lib/symbols";
 import { cn } from "@/lib/utils";
 
@@ -291,9 +291,14 @@ export function EdgeLeaderboard({
                                 <span className="text-zinc-700 text-[10px]">—</span>
                               ) : (
                                 <>
-                                  <span className="font-bold text-[12px] leading-none">
-                                    {cell.winRate.toFixed(1)}%
-                                  </span>
+                                  <div className="flex items-center gap-0.5 leading-none">
+                                    {cell.winRate < 45 && cell.tradeCount >= 15 && (
+                                      <AlertTriangle className="w-2.5 h-2.5 text-rose-400 shrink-0" />
+                                    )}
+                                    <span className="font-bold text-[12px] leading-none">
+                                      {cell.winRate.toFixed(1)}%
+                                    </span>
+                                  </div>
                                   <span className={cn("text-[9px] leading-none", returnColor(cell.totalReturnR))}>
                                     {cell.totalReturnR > 0 ? "+" : ""}
                                     {cell.totalReturnR.toFixed(1)}R
@@ -332,6 +337,10 @@ export function EdgeLeaderboard({
               <div className="flex items-center gap-1.5">
                 <span className="w-3 h-3 rounded bg-rose-950/30 border border-rose-800/40 inline-block" />
                 &lt;50% WR (negative)
+              </div>
+              <div className="flex items-center gap-1.5">
+                <AlertTriangle className="w-3 h-3 text-rose-400" />
+                &#x25b3; = poor win rate (&lt;45%, avoid)
               </div>
               <div className="flex items-center gap-1.5">
                 <Trophy className="w-3 h-3 text-amber-400" />
