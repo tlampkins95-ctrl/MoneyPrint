@@ -1119,17 +1119,18 @@ export function computeLevels(
         takeProfit1 = round(floorTarget(entryPrice, stopLoss, pivots.pivot, MIN_RR_TP1, "SELL"));
         takeProfit2 = round(floorTarget(entryPrice, stopLoss, buyZoneHigh, MIN_RR_TP2, "SELL"));
       } else if (breakoutBuyOk) {
-        // Momentum breakout: price cleared R2 with RSI + MACD + EMA trend aligned.
-        // Market-entry BUY; R2 flips to support, SL just below it.
+        // Momentum breakout: price cleared R2 with RSI + EMA trend aligned.
+        // Market-entry BUY; SL is 1×ATR below entry so risk scales with fill price,
+        // not with how far price has run from R2.
         signal = "BUY";
         signalType = "BREAKOUT";
         entryPrice = round(currentPrice);
-        stopLoss = round(pivots.r2 - atr * 0.5);
+        stopLoss = round(entryPrice - atr);
         // TP must always be above entry — if price has already blown past R3, fall
         // back to ATR multiples above entry so TP1/TP2 are never below entry.
         takeProfit1 = round(Math.max(pivots.r3, entryPrice + atr));
         takeProfit2 = round(Math.max(pivots.r3 + atr, entryPrice + atr * 2));
-        signalReason = `[${tfLabel}] BREAKOUT BUY: Price (${fmt(currentPrice)}) cleared R2 ${fmt(pivots.r2)} on momentum (RSI ${rsi.toFixed(0)}, price > EMA21). R2 now support — market entry, SL below R2, TP1 = ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)}.`;
+        signalReason = `[${tfLabel}] BREAKOUT BUY: Price (${fmt(currentPrice)}) cleared R2 ${fmt(pivots.r2)} on momentum (RSI ${rsi.toFixed(0)}, price > EMA21). Market entry, SL ${fmt(stopLoss)} (1×ATR below entry), TP1 = ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)}.`;
       } else {
         // Price is above R2, no breakout confirmation — show pending BUY at S1 on a pullback.
         entryPrice = round(pivots.s1);
@@ -1148,17 +1149,18 @@ export function computeLevels(
         takeProfit1 = round(floorTarget(entryPrice, stopLoss, pivots.pivot, MIN_RR_TP1, "BUY"));
         takeProfit2 = round(floorTarget(entryPrice, stopLoss, sellZoneLow, MIN_RR_TP2, "BUY"));
       } else if (breakdownSellOk) {
-        // Momentum breakdown: price broke S2 with RSI + MACD + EMA trend aligned.
-        // Market-entry SELL; S2 flips to resistance, SL just above it.
+        // Momentum breakdown: price broke S2 with RSI + EMA trend aligned.
+        // Market-entry SELL; SL is 1×ATR above entry so risk scales with fill price,
+        // not with how far price has fallen from S2.
         signal = "SELL";
         signalType = "BREAKOUT";
         entryPrice = round(currentPrice);
-        stopLoss = round(pivots.s2 + atr * 0.5);
+        stopLoss = round(entryPrice + atr);
         // TP must always be below entry — if price has already blown past S3, fall
         // back to ATR multiples below entry so TP1/TP2 are never above entry.
         takeProfit1 = round(Math.min(pivots.s3, entryPrice - atr));
         takeProfit2 = round(Math.min(pivots.s3 - atr, entryPrice - atr * 2));
-        signalReason = `[${tfLabel}] BREAKDOWN SELL: Price (${fmt(currentPrice)}) broke S2 ${fmt(pivots.s2)} on momentum (RSI ${rsi.toFixed(0)}, price < EMA21). S2 now resistance — market entry, SL above S2, TP1 = ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)}.`;
+        signalReason = `[${tfLabel}] BREAKDOWN SELL: Price (${fmt(currentPrice)}) broke S2 ${fmt(pivots.s2)} on momentum (RSI ${rsi.toFixed(0)}, price < EMA21). Market entry, SL ${fmt(stopLoss)} (1×ATR above entry), TP1 = ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)}.`;
       } else {
         // Price is below S2, no breakdown confirmation — show pending SELL at R1 on a bounce.
         entryPrice = round(pivots.r1);
