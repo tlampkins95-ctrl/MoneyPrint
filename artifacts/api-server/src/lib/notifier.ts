@@ -87,6 +87,9 @@ export function getNotifierStatus(): NotifierStatus {
 
 // Alert on 30m, 1h (intraday entries) and 1d (catches major daily moves like metals pumps).
 const TRACKED_TIMEFRAMES: Timeframe[] = ["30m", "1h", "1d"];
+// Only seed-alert on 30m at startup/restart. 1h and 1d seeds create a barrage
+// on every redeploy — they'll still alert on genuine transitions during polling.
+const SEED_TIMEFRAMES = new Set<Timeframe>(["30m"]);
 const POLL_INTERVAL_MS = 60_000;
 
 const COOLDOWN_BY_TIMEFRAME: Record<Timeframe, number> = {
@@ -170,7 +173,9 @@ async function checkSymbol(
     // one-time snapshot alert instead of silently missing the trade. WAIT
     // signals at seed time are still suppressed — there's nothing to
     // alert on.
-    const isSeedSnapshot = !prev && (levels.signal === "BUY" || levels.signal === "SELL");
+    // Seeds only fire for SEED_TIMEFRAMES (30m). 1h/1d first-observations just
+    // record state silently — they'll alert on genuine transitions during polling.
+    const isSeedSnapshot = !prev && SEED_TIMEFRAMES.has(timeframe) && (levels.signal === "BUY" || levels.signal === "SELL");
     const transitioned =
       isSeedSnapshot ||
       (!!prev &&
@@ -357,7 +362,7 @@ async function checkTrendingSymbol(
     const levels = computeLevelsStable(candles, spot, timeframe, symbolKey, tMeta);
     const now = Date.now();
 
-    const isSeedSnapshot = !prev && (levels.signal === "BUY" || levels.signal === "SELL");
+    const isSeedSnapshot = !prev && SEED_TIMEFRAMES.has(timeframe) && (levels.signal === "BUY" || levels.signal === "SELL");
     const transitioned =
       isSeedSnapshot ||
       (!!prev && prev.signal !== levels.signal && (levels.signal === "BUY" || levels.signal === "SELL"));

@@ -1129,7 +1129,7 @@ export function computeLevels(
         // back to ATR multiples above entry so TP1/TP2 are never below entry.
         takeProfit1 = round(Math.max(pivots.r3, entryPrice + atr));
         takeProfit2 = round(Math.max(pivots.r3 + atr, entryPrice + atr * 2));
-        signalReason = `[${tfLabel}] BREAKOUT BUY: Price (${fmt(currentPrice)}) cleared R2 ${fmt(pivots.r2)} on momentum (RSI ${rsi.toFixed(0)}, MACD positive+rising, EMA21>50). R2 now support — market entry, SL below R2, TP1 = ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)}.`;
+        signalReason = `[${tfLabel}] BREAKOUT BUY: Price (${fmt(currentPrice)}) cleared R2 ${fmt(pivots.r2)} on momentum (RSI ${rsi.toFixed(0)}, price > EMA21). R2 now support — market entry, SL below R2, TP1 = ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)}.`;
       } else {
         // Price is above R2, no breakout confirmation — show pending BUY at S1 on a pullback.
         entryPrice = round(pivots.s1);
@@ -1158,7 +1158,7 @@ export function computeLevels(
         // back to ATR multiples below entry so TP1/TP2 are never above entry.
         takeProfit1 = round(Math.min(pivots.s3, entryPrice - atr));
         takeProfit2 = round(Math.min(pivots.s3 - atr, entryPrice - atr * 2));
-        signalReason = `[${tfLabel}] BREAKDOWN SELL: Price (${fmt(currentPrice)}) broke S2 ${fmt(pivots.s2)} on momentum (RSI ${rsi.toFixed(0)}, MACD negative+falling, EMA21<50). S2 now resistance — market entry, SL above S2, TP1 = ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)}.`;
+        signalReason = `[${tfLabel}] BREAKDOWN SELL: Price (${fmt(currentPrice)}) broke S2 ${fmt(pivots.s2)} on momentum (RSI ${rsi.toFixed(0)}, price < EMA21). S2 now resistance — market entry, SL above S2, TP1 = ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)}.`;
       } else {
         // Price is below S2, no breakdown confirmation — show pending SELL at R1 on a bounce.
         entryPrice = round(pivots.r1);
