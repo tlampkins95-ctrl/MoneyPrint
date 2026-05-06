@@ -869,6 +869,76 @@ export const UnsubscribePushResponse = zod.object({
 });
 
 /**
+ * Returns historically closed trades logged by the signal engine (SL hits, TP2 hits, BE-trail closes, direction reversals, and missed pending orders).
+ * @summary Closed trade history with P&L tracking
+ */
+export const getTradeHistoryQueryLimitDefault = 100;
+export const getTradeHistoryQueryLimitMax = 500;
+
+export const GetTradeHistoryQueryParams = zod.object({
+  symbol: zod.coerce
+    .string()
+    .optional()
+    .describe(
+      "Filter by symbol key (e.g. XAGUSD). Returns all symbols if omitted.",
+    ),
+  limit: zod.coerce
+    .number()
+    .min(1)
+    .max(getTradeHistoryQueryLimitMax)
+    .default(getTradeHistoryQueryLimitDefault)
+    .describe("Maximum number of records to return, newest first."),
+});
+
+export const GetTradeHistoryResponse = zod.object({
+  trades: zod.array(
+    zod.object({
+      id: zod.number(),
+      key: zod.string().describe("Composite key (e.g. XAGUSD::30m)"),
+      symbol: zod.string(),
+      timeframe: zod.string(),
+      signal: zod.enum(["BUY", "SELL"]),
+      signalType: zod.enum(["PIVOT_BOUNCE", "BREAKOUT"]),
+      entryPrice: zod.number(),
+      stopLoss: zod.number(),
+      takeProfit1: zod.number(),
+      takeProfit2: zod.number(),
+      riskRewardRatio: zod.number(),
+      exitPrice: zod.number(),
+      outcome: zod
+        .enum(["SL", "BE_TRAIL", "TP2", "REVERSED", "MISSED"])
+        .describe(
+          "SL=stop hit, BE_TRAIL=closed flat after TP1 trail, TP2=full target, REVERSED=signal flipped, MISSED=pending never filled",
+        ),
+      rMultiple: zod
+        .number()
+        .describe("Profit\/loss in units of initial risk (R)"),
+      tp1Hit: zod
+        .boolean()
+        .describe("Whether TP1 was reached before the trade closed"),
+      openedAt: zod
+        .number()
+        .optional()
+        .describe("Unix ms timestamp when the signal was first staged"),
+      closedAt: zod
+        .number()
+        .describe("Unix ms timestamp when the trade was closed"),
+    }),
+  ),
+  totalTrades: zod.number(),
+  totalR: zod
+    .number()
+    .describe(
+      "Cumulative R-multiple across all returned trades (excludes MISSED)",
+    ),
+  winCount: zod
+    .number()
+    .describe("Trades that closed at TP2 or BE_TRAIL (partial win)"),
+  lossCount: zod.number().describe("Trades that hit the full SL"),
+  lastUpdated: zod.string(),
+});
+
+/**
  * @summary Get price history aligned to live OANDA spot
  */
 export const getPriceHistoryQuerySymbolDefault = `XAGUSD`;

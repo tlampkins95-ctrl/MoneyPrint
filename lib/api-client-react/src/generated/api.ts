@@ -23,12 +23,14 @@ import type {
   GetBacktestParams,
   GetLevelsParams,
   GetPriceHistoryParams,
+  GetTradeHistoryParams,
   HealthStatus,
   LevelsData,
   PriceHistory,
   PushSubscribeResponse,
   PushSubscriptionPayload,
   PushUnsubscribeRequest,
+  TradeHistoryResponse,
   TrendingSymbolsResponse,
   VapidPublicKey,
 } from "./api.schemas";
@@ -730,6 +732,101 @@ export const useUnsubscribePush = <
 > => {
   return useMutation(getUnsubscribePushMutationOptions(options));
 };
+
+/**
+ * Returns historically closed trades logged by the signal engine (SL hits, TP2 hits, BE-trail closes, direction reversals, and missed pending orders).
+ * @summary Closed trade history with P&L tracking
+ */
+export const getGetTradeHistoryUrl = (params?: GetTradeHistoryParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/trade-history?${stringifiedParams}`
+    : `/api/trade-history`;
+};
+
+export const getTradeHistory = async (
+  params?: GetTradeHistoryParams,
+  options?: RequestInit,
+): Promise<TradeHistoryResponse> => {
+  return customFetch<TradeHistoryResponse>(getGetTradeHistoryUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetTradeHistoryQueryKey = (params?: GetTradeHistoryParams) => {
+  return [`/api/trade-history`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetTradeHistoryQueryOptions = <
+  TData = Awaited<ReturnType<typeof getTradeHistory>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetTradeHistoryParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getTradeHistory>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetTradeHistoryQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getTradeHistory>>> = ({
+    signal,
+  }) => getTradeHistory(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getTradeHistory>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetTradeHistoryQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getTradeHistory>>
+>;
+export type GetTradeHistoryQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Closed trade history with P&L tracking
+ */
+
+export function useGetTradeHistory<
+  TData = Awaited<ReturnType<typeof getTradeHistory>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetTradeHistoryParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getTradeHistory>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetTradeHistoryQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
 
 /**
  * @summary Get price history aligned to live OANDA spot

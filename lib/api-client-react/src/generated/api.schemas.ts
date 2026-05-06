@@ -394,6 +394,74 @@ export interface BacktestTrade {
   barsHeld: number;
 }
 
+export type ClosedTradeSignal =
+  (typeof ClosedTradeSignal)[keyof typeof ClosedTradeSignal];
+
+export const ClosedTradeSignal = {
+  BUY: "BUY",
+  SELL: "SELL",
+} as const;
+
+export type ClosedTradeSignalType =
+  (typeof ClosedTradeSignalType)[keyof typeof ClosedTradeSignalType];
+
+export const ClosedTradeSignalType = {
+  PIVOT_BOUNCE: "PIVOT_BOUNCE",
+  BREAKOUT: "BREAKOUT",
+} as const;
+
+/**
+ * SL=stop hit, BE_TRAIL=closed flat after TP1 trail, TP2=full target, REVERSED=signal flipped, MISSED=pending never filled
+ */
+export type ClosedTradeOutcome =
+  (typeof ClosedTradeOutcome)[keyof typeof ClosedTradeOutcome];
+
+export const ClosedTradeOutcome = {
+  SL: "SL",
+  BE_TRAIL: "BE_TRAIL",
+  TP2: "TP2",
+  REVERSED: "REVERSED",
+  MISSED: "MISSED",
+} as const;
+
+export interface ClosedTrade {
+  id: number;
+  /** Composite key (e.g. XAGUSD::30m) */
+  key: string;
+  symbol: string;
+  timeframe: string;
+  signal: ClosedTradeSignal;
+  signalType: ClosedTradeSignalType;
+  entryPrice: number;
+  stopLoss: number;
+  takeProfit1: number;
+  takeProfit2: number;
+  riskRewardRatio: number;
+  exitPrice: number;
+  /** SL=stop hit, BE_TRAIL=closed flat after TP1 trail, TP2=full target, REVERSED=signal flipped, MISSED=pending never filled */
+  outcome: ClosedTradeOutcome;
+  /** Profit/loss in units of initial risk (R) */
+  rMultiple: number;
+  /** Whether TP1 was reached before the trade closed */
+  tp1Hit: boolean;
+  /** Unix ms timestamp when the signal was first staged */
+  openedAt?: number;
+  /** Unix ms timestamp when the trade was closed */
+  closedAt: number;
+}
+
+export interface TradeHistoryResponse {
+  trades: ClosedTrade[];
+  totalTrades: number;
+  /** Cumulative R-multiple across all returned trades (excludes MISSED) */
+  totalR: number;
+  /** Trades that closed at TP2 or BE_TRAIL (partial win) */
+  winCount: number;
+  /** Trades that hit the full SL */
+  lossCount: number;
+  lastUpdated: string;
+}
+
 export interface BacktestResult {
   symbol: string;
   startDate: string;
@@ -556,6 +624,19 @@ export type GetActiveSignalsParams = {
    * @maximum 100
    */
   mt5Lots?: number;
+};
+
+export type GetTradeHistoryParams = {
+  /**
+   * Filter by symbol key (e.g. XAGUSD). Returns all symbols if omitted.
+   */
+  symbol?: string;
+  /**
+   * Maximum number of records to return, newest first.
+   * @minimum 1
+   * @maximum 500
+   */
+  limit?: number;
 };
 
 export type GetPriceHistoryParams = {

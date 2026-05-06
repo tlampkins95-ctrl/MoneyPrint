@@ -253,6 +253,36 @@ paths:
               schema:
                 $ref: "#/components/schemas/PushSubscribeResponse"
 
+  /trade-history:
+    get:
+      operationId: getTradeHistory
+      tags: [signals]
+      summary: Closed trade history with P&L tracking
+      description: Returns historically closed trades logged by the signal engine (SL hits, TP2 hits, BE-trail closes, direction reversals, and missed pending orders).
+      parameters:
+        - in: query
+          name: symbol
+          schema:
+            type: string
+          required: false
+          description: Filter by symbol key (e.g. XAGUSD). Returns all symbols if omitted.
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 100
+          required: false
+          description: Maximum number of records to return, newest first.
+      responses:
+        "200":
+          description: Closed trade history
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TradeHistoryResponse"
+
   /price-history:
     get:
       operationId: getPriceHistory
@@ -819,6 +849,98 @@ components:
         - outcome
         - rMultiple
         - barsHeld
+
+    ClosedTrade:
+      type: object
+      properties:
+        id:
+          type: integer
+        key:
+          type: string
+          description: Composite key (e.g. XAGUSD::30m)
+        symbol:
+          type: string
+        timeframe:
+          type: string
+        signal:
+          type: string
+          enum: [BUY, SELL]
+        signalType:
+          type: string
+          enum: [PIVOT_BOUNCE, BREAKOUT]
+        entryPrice:
+          type: number
+        stopLoss:
+          type: number
+        takeProfit1:
+          type: number
+        takeProfit2:
+          type: number
+        riskRewardRatio:
+          type: number
+        exitPrice:
+          type: number
+        outcome:
+          type: string
+          enum: [SL, BE_TRAIL, TP2, REVERSED, MISSED]
+          description: "SL=stop hit, BE_TRAIL=closed flat after TP1 trail, TP2=full target, REVERSED=signal flipped, MISSED=pending never filled"
+        rMultiple:
+          type: number
+          description: Profit/loss in units of initial risk (R)
+        tp1Hit:
+          type: boolean
+          description: Whether TP1 was reached before the trade closed
+        openedAt:
+          type: integer
+          description: Unix ms timestamp when the signal was first staged
+        closedAt:
+          type: integer
+          description: Unix ms timestamp when the trade was closed
+      required:
+        - id
+        - key
+        - symbol
+        - timeframe
+        - signal
+        - signalType
+        - entryPrice
+        - stopLoss
+        - takeProfit1
+        - takeProfit2
+        - riskRewardRatio
+        - exitPrice
+        - outcome
+        - rMultiple
+        - tp1Hit
+        - closedAt
+
+    TradeHistoryResponse:
+      type: object
+      properties:
+        trades:
+          type: array
+          items:
+            $ref: "#/components/schemas/ClosedTrade"
+        totalTrades:
+          type: integer
+        totalR:
+          type: number
+          description: Cumulative R-multiple across all returned trades (excludes MISSED)
+        winCount:
+          type: integer
+          description: Trades that closed at TP2 or BE_TRAIL (partial win)
+        lossCount:
+          type: integer
+          description: Trades that hit the full SL
+        lastUpdated:
+          type: string
+      required:
+        - trades
+        - totalTrades
+        - totalR
+        - winCount
+        - lossCount
+        - lastUpdated
 
     BacktestResult:
       type: object

@@ -1333,11 +1333,122 @@ function getPool(): Pool | null {
   return _pgPool;
 }
 
+// ─── Closed trade history ─────────────────────────────────────────────────────
+// Every time a trade closes (SL, TP2, BE trail, direction flip, or missed) we
+// insert a row here so the UI can display a running P&L journal.
+
+async function initClosedTradesTable(): Promise<void> {
+  const pool = getPool();
+  if (!pool) return;
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS closed_trades (
+        id           SERIAL PRIMARY KEY,
+        key          TEXT NOT NULL,
+        symbol       TEXT NOT NULL,
+        timeframe    TEXT NOT NULL,
+        signal       TEXT NOT NULL,
+        signal_type  TEXT NOT NULL,
+        entry_price  DOUBLE PRECISION NOT NULL,
+        stop_loss    DOUBLE PRECISION NOT NULL,
+        take_profit1 DOUBLE PRECISION NOT NULL,
+        take_profit2 DOUBLE PRECISION NOT NULL,
+        risk_reward_ratio DOUBLE PRECISION NOT NULL,
+        exit_price   DOUBLE PRECISION NOT NULL,
+        outcome      TEXT NOT NULL,
+        r_multiple   DOUBLE PRECISION NOT NULL,
+        tp1_hit      BOOLEAN NOT NULL DEFAULT false,
+        opened_at    BIGINT,
+        closed_at    BIGINT NOT NULL,
+        created_at   TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+  } catch {
+    // best-effort — table already exists or DB unavailable
+  }
+}
+
+export type ClosedOutcome = "SL" | "BE_TRAIL" | "TP2" | "REVERSED" | "MISSED";
+
+// Call before activeTrades.delete() to record the outcome in the DB.
+// forceOutcome is used for REVERSED and MISSED paths; the isInvalidated path
+// auto-derives the outcome from the trade's state.
+function logClosedTrade(
+  trade: ActiveTrade,
+  symbolKey: string,
+  timeframe: Timeframe,
+  exitPrice: number,
+  forceOutcome?: ClosedOutcome,
+): void {
+  const pool = getPool();
+  if (!pool) return;
+
+  const isBuy = trade.signal === "BUY";
+
+  let outcome: ClosedOutcome;
+  if (forceOutcome) {
+    outcome = forceOutcome;
+  } else {
+    // isInvalidated path — determine SL vs TP2 vs BE_TRAIL
+    const hitTp2 = isBuy ? exitPrice >= trade.takeProfit2 : exitPrice <= trade.takeProfit2;
+    if (hitTp2) {
+      outcome = "TP2";
+    } else if (trade.tp1Hit && trade.stopLoss === trade.entryPrice) {
+      outcome = "BE_TRAIL";
+    } else {
+      outcome = "SL";
+    }
+  }
+
+  // Compute R-multiple using the same original-risk logic as describeFrozenTrade
+  const trailedToBE = trade.tp1Hit && trade.stopLoss === trade.entryPrice;
+  const originalRisk =
+    trailedToBE && trade.riskRewardRatio > 0
+      ? Math.abs(trade.takeProfit1 - trade.entryPrice) / trade.riskRewardRatio
+      : Math.abs(trade.entryPrice - trade.stopLoss);
+  const rawPnl = isBuy ? exitPrice - trade.entryPrice : trade.entryPrice - exitPrice;
+  const rMultiple = outcome === "MISSED" ? 0 : originalRisk > 0 ? rawPnl / originalRisk : 0;
+
+  const k = tradeKey(symbolKey, timeframe);
+
+  void pool
+    .query(
+      `INSERT INTO closed_trades
+         (key, symbol, timeframe, signal, signal_type,
+          entry_price, stop_loss, take_profit1, take_profit2,
+          risk_reward_ratio, exit_price, outcome, r_multiple,
+          tp1_hit, opened_at, closed_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+      [
+        k,
+        symbolKey,
+        timeframe,
+        trade.signal,
+        trade.signalType ?? "PIVOT_BOUNCE",
+        trade.entryPrice,
+        trade.stopLoss,
+        trade.takeProfit1,
+        trade.takeProfit2,
+        trade.riskRewardRatio,
+        exitPrice,
+        outcome,
+        rMultiple,
+        trade.tp1Hit,
+        trade.openedAt ?? null,
+        Date.now(),
+      ],
+    )
+    .catch(() => {
+      // best-effort
+    });
+}
+
 // On startup: load any trades from the DB that are missing from the local file.
 // This recovers from fresh deployments where the JSON file starts empty.
 async function syncFromDb(): Promise<void> {
   const pool = getPool();
   if (!pool) return;
+  await initClosedTradesTable();
   try {
     const res = await pool.query<{ key: string; data: Record<string, unknown> }>(
       "SELECT key, data FROM active_trades",
@@ -1571,7 +1682,9 @@ export function classifyTradeState(trade: ActiveTrade, currentPrice: number): Tr
   const beyondSl = isBuy ? currentPrice <= trade.stopLoss : currentPrice >= trade.stopLoss;
   const inProfit = isBuy ? currentPrice > trade.entryPrice : currentPrice < trade.entryPrice;
   if (beyondTp2) return "FILLED_TP2";
-  if (beyondTp1) return "FILLED_TP1";
+  // Use the persisted tp1Hit flag so that once TP1 is reached the state stays
+  // FILLED_TP1 even if price subsequently retraces back below TP1.
+  if (trade.tp1Hit || beyondTp1) return "FILLED_TP1";
   if (beyondSl) return "FILLED_SL";
   if (inProfit) return "FILLED_PROFIT";
   return "FILLED_DRAWDOWN";
@@ -1680,6 +1793,7 @@ export function computeLevelsStable(
 
   // Invalidate if SL or TP2 hit.
   if (existing && isInvalidated(existing, fresh.currentPrice)) {
+    logClosedTrade(existing, symbolKey, timeframe, fresh.currentPrice);
     activeTrades.delete(k);
     persistActiveTrades();
   }
@@ -1694,6 +1808,7 @@ export function computeLevelsStable(
     (fresh.signal === "BUY" || fresh.signal === "SELL") &&
     fresh.signal !== stillActiveBeforeFlip.signal
   ) {
+    logClosedTrade(stillActiveBeforeFlip, symbolKey, timeframe, fresh.currentPrice, "REVERSED");
     activeTrades.delete(k);
     persistActiveTrades();
   }
@@ -1737,6 +1852,7 @@ export function computeLevelsStable(
         ? fresh.currentPrice >= missedCheck.takeProfit1
         : fresh.currentPrice <= missedCheck.takeProfit1;
     if (reachedTp1) {
+      logClosedTrade(missedCheck, symbolKey, timeframe, fresh.currentPrice, "MISSED");
       activeTrades.delete(k);
       persistActiveTrades();
     }

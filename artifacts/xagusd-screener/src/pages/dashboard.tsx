@@ -4,6 +4,7 @@ import { SignalPanel } from "@/components/signal-panel";
 import { BacktestPanel } from "@/components/backtest-panel";
 import { EdgeLeaderboard } from "@/components/edge-leaderboard";
 import { ActiveSignalsOverview } from "@/components/active-signals-overview";
+import { TradeHistoryPanel } from "@/components/trade-history-panel";
 import {
   TimeframeSelector,
   type Timeframe,
@@ -146,6 +147,12 @@ export default function Dashboard() {
             setSymbol(s);
             setTimeframe(t);
           }}
+        />
+
+        {/* Trade journal — closed trade history with P&L */}
+        <TradeHistoryPanel
+          selectedSymbol={symbol}
+          onSelect={(s) => setSymbol(s)}
         />
 
         {/* Backtest section */}
