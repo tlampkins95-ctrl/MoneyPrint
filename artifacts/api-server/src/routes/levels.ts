@@ -18,9 +18,9 @@ import {
   fetchSpotForDynamic,
 } from "../lib/trending-discovery";
 
-// Only 30m is tracked in the active-signals overview. It's the entry
-// timeframe — 1h and daily are alignment gates, not signals in their own right.
-const OVERVIEW_TIMEFRAMES: Timeframe[] = ["30m"];
+// All meaningful timeframes shown in the active-signals overview.
+// 30m = primary intraday entry, 1h = higher-TF confirmation/swing, 1d = major daily moves.
+const OVERVIEW_TIMEFRAMES: Timeframe[] = ["30m", "1h", "1d"];
 
 const router: IRouter = Router();
 
@@ -42,6 +42,10 @@ const TF_GATES: Partial<Record<Timeframe, TfGate[]>> = {
     { higherTf: "1h", mode: "require_agree" }, // 1h must confirm direction
     { higherTf: "1d", mode: "block_oppose"  }, // daily must not oppose
   ],
+  "1h": [
+    { higherTf: "1d", mode: "block_oppose"  }, // daily must not oppose 1h signal
+  ],
+  // "1d": no gates — daily is the highest tracked TF
 };
 
 router.get("/levels", async (req: Request, res: Response) => {
@@ -307,42 +311,46 @@ router.get("/active-signals", async (req: Request, res: Response) => {
               mt5Lots,
             );
 
-            // Gate: for pending 30m signals, 1h must agree before showing.
+            // Apply TF_GATES for this timeframe (filled trades bypass gates).
             const isFilledTrade =
               levels.tradeState !== "WAIT" && levels.tradeState !== "PENDING";
-            if (
-              timeframe === "30m" &&
-              !isFilledTrade &&
-              (levels.signal === "BUY" || levels.signal === "SELL")
-            ) {
-              try {
-                const rawHigher = await fetchCandlesForTimeframe(symbol, "1h");
-                if (rawHigher.length >= 2) {
-                  const adjRound2 = makeRounder(SYMBOLS[symbol].decimals);
-                  const adjHigher =
-                    spot != null && SYMBOLS[symbol].hasFuturesBasis
-                      ? applyFuturesBasis(rawHigher, spot, adjRound2)
-                      : rawHigher;
-                  const higherResult = computeLevelsStable(
-                    adjHigher, spot, "1h", symbol, SYMBOLS[symbol],
-                    accountSize, riskPct / 100, minCollateral, maxLeverage, mt5Lots,
-                  );
-                  if (higherResult.signal !== levels.signal) {
-                    return {
-                      ok: true,
-                      symbolKey,
-                      timeframe,
-                      levels: {
-                        ...levels,
-                        signal: "WAIT" as const,
-                        tradeState: levels.tradeState === "WAIT" ? "WAIT" as const : levels.tradeState,
-                        signalReason: `[${timeframe}] BUY setup suppressed — 1h says ${higherResult.signal ?? "WAIT"}. Wait for 1h to align before entering.`,
-                      },
-                    };
+            if (!isFilledTrade && (levels.signal === "BUY" || levels.signal === "SELL")) {
+              const gates = TF_GATES[timeframe] ?? [];
+              for (const gate of gates) {
+                try {
+                  const rawHigher = await fetchCandlesForTimeframe(symbol, gate.higherTf);
+                  if (rawHigher.length >= 2) {
+                    const adjRound2 = makeRounder(SYMBOLS[symbol].decimals);
+                    const adjHigher =
+                      spot != null && SYMBOLS[symbol].hasFuturesBasis
+                        ? applyFuturesBasis(rawHigher, spot, adjRound2)
+                        : rawHigher;
+                    const higherResult = computeLevelsStable(
+                      adjHigher, spot, gate.higherTf, symbol, SYMBOLS[symbol],
+                      accountSize, riskPct / 100, minCollateral, maxLeverage, mt5Lots,
+                    );
+                    const opposite = levels.signal === "BUY" ? "SELL" : "BUY";
+                    const suppressed =
+                      gate.mode === "require_agree"
+                        ? higherResult.signal !== levels.signal
+                        : higherResult.signal === opposite;
+                    if (suppressed) {
+                      return {
+                        ok: true,
+                        symbolKey,
+                        timeframe,
+                        levels: {
+                          ...levels,
+                          signal: "WAIT" as const,
+                          tradeState: "WAIT" as const,
+                          signalReason: `[${timeframe}] ${levels.signal} suppressed — ${gate.higherTf} says ${higherResult.signal ?? "WAIT"}. Wait for alignment.`,
+                        },
+                      };
+                    }
                   }
+                } catch {
+                  // gate fetch failed — include the signal anyway
                 }
-              } catch {
-                // gate fetch failed — include the signal anyway
               }
             }
             return { ok: true, symbolKey, timeframe, levels };
