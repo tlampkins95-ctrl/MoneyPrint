@@ -206,17 +206,18 @@ function runBreakoutBacktest(candles: CandleRaw[], timeframe: Timeframe, symbol:
     // SELL: histogram negative and falling.
     const macdSellOk = !macdWarm || (hNow < 0 && hNow < hPrev1);
 
-    // Breakout trigger: today's bar's HIGH exceeds yesterday's R2 (intrabar cross).
-    // Using the high (rather than only the open) captures all cases where price
-    // touched or pierced R2 during the bar, not just gap-up opens.
-    // Fill rule: if bar opened above R2 (gap-up), fill at open; otherwise fill
-    // at R2 itself (limit-order assumption at the level).
-    const breakoutTriggered = today.high > r2;
-    const breakoutEntry     = Math.max(today.open, r2);
-    // Breakdown trigger: today's bar's LOW falls below yesterday's S2.
-    // Fill rule: if bar opened below S2 (gap-down), fill at open; otherwise fill at S2.
-    const breakdownTriggered = today.low < s2;
-    const breakdownEntry     = Math.min(today.open, s2);
+    // Breakout trigger: today's bar must CLOSE above R2.
+    // Requiring a close (not just a wick through the level) eliminates the
+    // false-breakout problem where price spikes to R2 intrabar then reverses —
+    // those bars would trigger entry and immediately hit SL on the same candle,
+    // producing near-zero win rates. A close above R2 is the standard
+    // confirmation that a genuine breakout has occurred.
+    // Entry: today's close (market-on-close). Exit loop starts on the NEXT bar.
+    const breakoutTriggered = today.close > r2;
+    const breakoutEntry     = today.close;
+    // Breakdown trigger: today's bar must CLOSE below S2.
+    const breakdownTriggered = today.close < s2;
+    const breakdownEntry     = today.close;
 
     const canBuy  = breakoutTriggered  && buyAllowed  && trendBullish && rsiBuyOk  && macdBuyOk;
     const canSell = breakdownTriggered && sellAllowed && trendBearish && rsiSellOk && macdSellOk;
@@ -226,15 +227,19 @@ function runBreakoutBacktest(candles: CandleRaw[], timeframe: Timeframe, symbol:
     else if (canSell && !canBuy) direction = "SELL";
     if (!direction) { i++; continue; }
 
-    // Entry uses the level-consistent fill price computed above.
+    // Entry is the close of the signal bar. Skip if next bar unavailable.
+    if (i + 1 >= candles.length) { i++; continue; }
     const entry = direction === "BUY" ? breakoutEntry : breakdownEntry;
+
+    // SL: one full ATR from entry (matches live signal sizing).
+    // TP1: the structural next level (R3 for buys, S3 for sells).
     let stopLoss: number, tp1: number, tp2: number;
     if (direction === "BUY") {
-      stopLoss = round(r2 - atr * 0.5);
+      stopLoss = round(entry - atr);
       tp1 = r3;
       tp2 = round(r3 + atr);
     } else {
-      stopLoss = round(s2 + atr * 0.5);
+      stopLoss = round(entry + atr);
       tp1 = s3;
       tp2 = round(s3 - atr);
     }
@@ -247,7 +252,8 @@ function runBreakoutBacktest(candles: CandleRaw[], timeframe: Timeframe, symbol:
     let barsHeld = 0;
     let exitIdx = i;
 
-    for (let j = i; j < Math.min(candles.length, i + maxHold + 1); j++) {
+    // Start exit loop on the next bar — we entered at today's close.
+    for (let j = i + 1; j < Math.min(candles.length, i + maxHold + 1); j++) {
       const bar = candles[j];
       barsHeld = j - i + 1;
       exitIdx = j;
