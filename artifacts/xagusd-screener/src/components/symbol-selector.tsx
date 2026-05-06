@@ -52,6 +52,7 @@ export function SymbolSelector({
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const trending = useTrendingSymbols();
+  const symbolChanges = useSymbolChanges();
 
   useEffect(() => {
     if (!open) return;
@@ -132,9 +133,16 @@ export function SymbolSelector({
                       {m.long}
                     </div>
                   </div>
-                  {isActive && (
+                  {WATCHLIST_SYMBOLS.has(sym) && symbolChanges[sym] != null ? (
+                    <span className={cn(
+                      "text-[10px] font-mono font-bold shrink-0",
+                      (symbolChanges[sym] ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400",
+                    )}>
+                      {(symbolChanges[sym] ?? 0) >= 0 ? "+" : ""}{(symbolChanges[sym] ?? 0).toFixed(1)}%
+                    </span>
+                  ) : isActive ? (
                     <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse shrink-0" />
-                  )}
+                  ) : null}
                 </button>
               );
             })}

@@ -462,27 +462,34 @@ router.get("/trending-symbols", (_req: Request, res: Response) => {
   });
 });
 
-// GET /api/symbol-changes — 24h % change for watchlist static symbols (SKYAI, ZEC).
-// Computed from the last two 1d closes so no extra data source is needed.
-const CHANGE_WATCHLIST: Symbol[] = ["SKYAIUSDT", "ZECUSD"];
+// GET /api/symbol-changes — 24h % change for watchlist symbols via CMC quotes.
+// Maps our internal symbol key → CMC ticker symbol.
+const CMC_WATCHLIST: Record<string, string> = {
+  SKYAIUSDT: "SKYAI",
+  ZECUSD: "ZEC",
+};
 router.get("/symbol-changes", async (_req: Request, res: Response) => {
-  const changes: Record<string, number | null> = {};
-  await Promise.all(
-    CHANGE_WATCHLIST.map(async (sym) => {
-      try {
-        const candles = await fetchCandlesForTimeframe(sym, "1d");
-        if (candles.length >= 2) {
-          const prev = candles[candles.length - 2].close;
-          const curr = candles[candles.length - 1].close;
-          changes[sym] = ((curr - prev) / prev) * 100;
-        } else {
-          changes[sym] = null;
-        }
-      } catch {
-        changes[sym] = null;
-      }
-    }),
+  const changes: Record<string, number | null> = Object.fromEntries(
+    Object.keys(CMC_WATCHLIST).map((k) => [k, null]),
   );
+  const apiKey = process.env["COINMARKETCAP_API_KEY"];
+  if (apiKey) {
+    try {
+      const tickers = Object.values(CMC_WATCHLIST).join(",");
+      const url = `https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest?symbol=${tickers}&convert=USD`;
+      const r = await fetch(url, {
+        headers: { "X-CMC_PRO_API_KEY": apiKey, Accept: "application/json" },
+        signal: AbortSignal.timeout(8_000),
+      });
+      if (r.ok) {
+        const json = (await r.json()) as { data?: Record<string, { quote: { USD: { percent_change_24h: number } } }> };
+        for (const [symKey, cmcTicker] of Object.entries(CMC_WATCHLIST)) {
+          const entry = json.data?.[cmcTicker];
+          changes[symKey] = entry?.quote?.USD?.percent_change_24h ?? null;
+        }
+      }
+    } catch { /* return nulls */ }
+  }
   res.json({ changes });
 });
 
