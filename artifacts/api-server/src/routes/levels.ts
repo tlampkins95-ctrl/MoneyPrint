@@ -85,10 +85,14 @@ router.get("/levels", async (req: Request, res: Response) => {
       ]);
     }
 
-    // Also fetch higher-TF candles for gate checks (only for static symbols; dynamic coins skip gates).
-    const higherTfCandlesArr = isStaticSymbol
-      ? await Promise.all(uniqueHigherTfs.map((tf) => fetchCandlesForTimeframe(rawSymbol as Symbol, tf)))
-      : [];
+    // Fetch higher-TF candles for gate checks — applies to both static and dynamic symbols.
+    const higherTfCandlesArr = await Promise.all(
+      uniqueHigherTfs.map((tf) =>
+        isStaticSymbol
+          ? fetchCandlesForTimeframe(rawSymbol as Symbol, tf)
+          : fetchCandlesForDynamic(trendingMeta!.okxPerp!, tf),
+      ),
+    );
     const higherTfMap = new Map(
       uniqueHigherTfs.map((tf, i) => [tf, higherTfCandlesArr[i] ?? []]),
     );
@@ -118,10 +122,10 @@ router.get("/levels", async (req: Request, res: Response) => {
       mt5Lots,
     );
 
-    // ── Multi-gate alignment check (static symbols only) ──────────────────────
+    // ── Multi-gate alignment check (applies to both static and dynamic symbols) ─
     const isFilledTrade =
       result.tradeState !== "WAIT" && result.tradeState !== "PENDING";
-    if (isStaticSymbol && !isFilledTrade && (result.signal === "BUY" || result.signal === "SELL")) {
+    if (!isFilledTrade && (result.signal === "BUY" || result.signal === "SELL")) {
       for (const gate of gates) {
         const rawHigher = higherTfMap.get(gate.higherTf);
         if (!rawHigher || rawHigher.length < 2) continue;
@@ -337,7 +341,7 @@ router.get("/active-signals", async (req: Request, res: Response) => {
             }
             return { ok: true, symbolKey, timeframe, levels };
           } else {
-            // Dynamic trending coin.
+            // Dynamic trending coin — same gate logic as static.
             const tMeta = trendingNow.find((t) => t.symbolKey === combo.symbolKey);
             if (!tMeta) return { ok: false, symbolKey, timeframe };
             const [candles, spot] = await Promise.all([
@@ -357,6 +361,40 @@ router.get("/active-signals", async (req: Request, res: Response) => {
               maxLeverage,
               mt5Lots,
             );
+
+            // Gate: for pending 30m signals, 1h must agree before showing.
+            const dynFilledTrade =
+              levels.tradeState !== "WAIT" && levels.tradeState !== "PENDING";
+            if (
+              timeframe === "30m" &&
+              !dynFilledTrade &&
+              (levels.signal === "BUY" || levels.signal === "SELL")
+            ) {
+              try {
+                const rawHigher = await fetchCandlesForDynamic(tMeta.okxPerp!, "1h");
+                if (rawHigher.length >= 2) {
+                  const higherResult = computeLevelsStable(
+                    rawHigher, spot, "1h", combo.symbolKey, tMeta,
+                    accountSize, riskPct / 100, minCollateral, maxLeverage, mt5Lots,
+                  );
+                  if (higherResult.signal !== levels.signal) {
+                    return {
+                      ok: true,
+                      symbolKey,
+                      timeframe,
+                      levels: {
+                        ...levels,
+                        signal: "WAIT" as const,
+                        tradeState: levels.tradeState === "WAIT" ? "WAIT" as const : levels.tradeState,
+                        signalReason: `[${timeframe}] ${levels.signal} setup suppressed — 1h says ${higherResult.signal ?? "WAIT"}. Wait for 1h to align before entering.`,
+                      },
+                    };
+                  }
+                }
+              } catch {
+                // gate fetch failed — include signal anyway
+              }
+            }
             return { ok: true, symbolKey, timeframe, levels };
           }
         } catch (err) {

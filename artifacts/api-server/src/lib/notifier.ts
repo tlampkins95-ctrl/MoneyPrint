@@ -343,9 +343,11 @@ async function checkTrendingSymbol(
     const { getTrendingSymbols, fetchCandlesForDynamic, fetchSpotForDynamic } = await import("./trending-discovery");
     const tMeta = getTrendingSymbols().find((t) => t.symbolKey === symbolKey);
     if (!tMeta) return; // expired or not in cache
-    const [candles, spot] = await Promise.all([
+    const higherTf = HIGHER_TIMEFRAME[timeframe];
+    const [candles, spot, higherCandles] = await Promise.all([
       fetchCandlesForDynamic(tMeta.okxPerp!, timeframe),
       fetchSpotForDynamic(tMeta.okxPerp!),
+      higherTf ? fetchCandlesForDynamic(tMeta.okxPerp!, higherTf) : Promise.resolve([]),
     ]);
     if (candles.length < 2) return;
 
@@ -368,6 +370,30 @@ async function checkTrendingSymbol(
     const cooldownActive = !!prev && now - prev.lastAlertAt < cooldownMs;
 
     if (transitioned && !cooldownActive) {
+      // Gate: pending signals must be confirmed by the next higher TF before alerting.
+      // 30m is gated by 1h; 1h is gated by 1d. Filled trades are exempt.
+      const isFilledTrade =
+        levels.tradeState !== "WAIT" && levels.tradeState !== "PENDING";
+      if (
+        higherTf != null &&
+        !isFilledTrade &&
+        (levels.signal === "BUY" || levels.signal === "SELL") &&
+        higherCandles.length >= 2
+      ) {
+        const higherResult = computeLevelsStable(higherCandles, spot, higherTf, symbolKey, tMeta);
+        if (higherResult.signal !== levels.signal) {
+          logger.info(
+            { symbolKey, timeframe, signal: levels.signal, higherTf, higherSignal: higherResult.signal },
+            "Trending signal alert suppressed (higher TF gate disagrees)",
+          );
+          stateMap.set(k, {
+            signal: prev?.signal ?? "WAIT",
+            lastAlertAt: prev?.lastAlertAt ?? 0,
+          });
+          return;
+        }
+      }
+
       const tfLabel = TIMEFRAME_LABEL[timeframe];
       const link = buildAppLink(symbolKey, timeframe);
       const ctx = buildAlertContext(symbolKey, tMeta, timeframe, tfLabel, levels, link);

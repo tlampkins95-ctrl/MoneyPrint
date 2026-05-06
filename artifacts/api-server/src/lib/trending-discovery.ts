@@ -166,6 +166,8 @@ interface PhemexPerpProduct {
   minOrderQtyRq?: string;
   lotSize?: string;        // coin-margined fallback
   minOrderQty?: string;
+  contractSizeRq?: string; // contract size in base asset (USDT-margined)
+  priceScaleRq?: string;   // price tick scale
 }
 
 async function fetchCoinGeckoGainers(): Promise<CoinGeckoMarket[]> {
