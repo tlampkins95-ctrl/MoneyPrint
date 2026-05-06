@@ -354,7 +354,7 @@ async function loadTrendingFromDb(pool: Pool): Promise<void> {
       rank: number;
       discovered_at: Date;
       expires_at: Date;
-    }>("SELECT * FROM trending_symbols WHERE expires_at > NOW() ORDER BY rank ASC");
+    }>("SELECT * FROM trending_symbols WHERE expires_at > NOW() ORDER BY price_change_24h DESC");
 
     trendingCache.length = 0;
     for (const row of res.rows) {
@@ -481,7 +481,7 @@ async function runDiscovery(pool: Pool): Promise<void> {
         trendingCache.push({ ...meta, expiresAt: now + TRENDING_TTL_MS });
       }
     }
-    trendingCache.sort((a, b) => (b.change24h ?? 0) - (a.change24h ?? 0));
+    trendingCache.sort((a, b) => (b.priceChange24h ?? 0) - (a.priceChange24h ?? 0));
 
     await persistTrendingToDb(discovered, pool);
   } catch (err) {

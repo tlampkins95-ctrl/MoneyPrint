@@ -444,7 +444,7 @@ router.get("/active-signals", async (req: Request, res: Response) => {
 
 // GET /api/trending-symbols — list of dynamically-discovered trending coins.
 router.get("/trending-symbols", (_req: Request, res: Response) => {
-  const symbols = getTrendingSymbols();
+  const symbols = getTrendingSymbols().slice().sort((a, b) => (b.priceChange24h ?? 0) - (a.priceChange24h ?? 0));
   const now = Date.now();
   res.json({
     symbols: symbols.map((t) => ({
