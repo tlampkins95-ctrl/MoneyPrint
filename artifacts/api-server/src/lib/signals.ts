@@ -1362,6 +1362,24 @@ async function syncFromDb(): Promise<void> {
       merged++;
     }
     if (merged > 0) persistActiveTrades(); // flush merged DB state to local file
+
+    // ── One-time purge: drop BREAKOUT trades whose stored R:R < 1.0 ──────────
+    // These were recorded before the ATR-based SL formula was introduced.
+    // The riskRewardRatio field reflects TP1/risk at snapshot time; anything
+    // below 1.0 is a structurally bad entry that will re-register cleanly on
+    // the next signal cycle with the corrected formula.
+    let purged = 0;
+    for (const [k, trade] of activeTrades) {
+      if (trade.signalType === "BREAKOUT" && trade.riskRewardRatio < 1.0) {
+        activeTrades.delete(k);
+        purged++;
+      }
+    }
+    if (purged > 0) {
+      persistActiveTrades(); // writes the cleaned set back to disk AND DB
+      // eslint-disable-next-line no-console
+      console.warn(`[signals] Purged ${purged} stale low-RR BREAKOUT trade(s) on startup`);
+    }
   } catch {
     // DB unreachable — proceed with file-only state.
   }
