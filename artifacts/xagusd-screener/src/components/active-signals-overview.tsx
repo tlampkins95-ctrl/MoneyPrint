@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useGetActiveSignals, getGetActiveSignalsQueryKey } from "@workspace/api-client-react";
+import { useGetActiveSignals, getGetActiveSignalsQueryKey, useGetBacktest } from "@workspace/api-client-react";
 import type { LevelsDataTradeState } from "@workspace/api-client-react";
 import { TrendingUp, TrendingDown, RefreshCw, AlertTriangle, Target, ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -143,6 +143,13 @@ function SignalRow(p: RowProps) {
   const sideColor = isBuy ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/40" : "bg-rose-500/15 text-rose-400 border-rose-500/40";
   const sideBar = isBuy ? "bg-emerald-500" : "bg-rose-500";
 
+  const { data: btData } = useGetBacktest(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    { symbol: p.symbol as any, timeframe: p.timeframe, signalType: p.signalType ?? "PIVOT_BOUNCE" },
+    { query: { staleTime: 5 * 60 * 1000, refetchOnWindowFocus: false } as never },
+  );
+  const poorWinRate = !!btData && btData.totalTrades >= 15 && btData.winRate < 45;
+
   return (
     <button
       onClick={p.onClick}
@@ -177,6 +184,15 @@ function SignalRow(p: RowProps) {
         {p.signalType === "BREAKOUT" && (
           <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold tracking-widest bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
             ◈ BKT
+          </span>
+        )}
+        {poorWinRate && btData && (
+          <span
+            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold tracking-widest bg-rose-950/60 text-rose-300 border border-rose-700/50"
+            title={`Poor historical win rate: ${btData.winRate.toFixed(1)}% over ${btData.totalTrades} trades`}
+          >
+            <AlertTriangle className="w-2.5 h-2.5" />
+            {btData.winRate.toFixed(0)}% WR
           </span>
         )}
       </div>

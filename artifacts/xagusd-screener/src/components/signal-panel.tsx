@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useGetLevels, getGetLevelsQueryKey } from "@workspace/api-client-react";
+import { useGetLevels, getGetLevelsQueryKey, useGetBacktest } from "@workspace/api-client-react";
 import { format } from "date-fns";
 import { RefreshCw, TrendingUp, TrendingDown, ArrowRight, AlertTriangle, Wallet, Settings, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -83,6 +83,21 @@ export function SignalPanel({
     await refetch();
     setLastRefreshed(new Date());
   };
+
+  const isActiveSignal = data?.signal === "BUY" || data?.signal === "SELL";
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const btPivot = useGetBacktest(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    { symbol: symbol as any, timeframe, signalType: "PIVOT_BOUNCE" },
+    { query: { staleTime: 5 * 60 * 1000, refetchOnWindowFocus: false, enabled: isActiveSignal && data?.signalType !== "BREAKOUT" } as never },
+  );
+  const btBreakout = useGetBacktest(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    { symbol: symbol as any, timeframe, signalType: "BREAKOUT" },
+    { query: { staleTime: 5 * 60 * 1000, refetchOnWindowFocus: false, enabled: isActiveSignal && data?.signalType === "BREAKOUT" } as never },
+  );
+  const btData = data?.signalType === "BREAKOUT" ? btBreakout.data : btPivot.data;
+  const poorWinRate = !!btData && btData.totalTrades >= 15 && btData.winRate < 45;
 
   useEffect(() => {
     if (data?.lastUpdated) setLastRefreshed(new Date(data.lastUpdated));
@@ -231,6 +246,12 @@ export function SignalPanel({
                 ↕ PIVOT BOUNCE
               </span>
             )
+          )}
+          {poorWinRate && btData && (
+            <div className="mt-2 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-950/60 border border-rose-700/50 text-rose-300 text-[10px] font-mono font-semibold tracking-wide">
+              <AlertTriangle className="w-3 h-3 shrink-0" />
+              Poor historical win rate ({btData.winRate.toFixed(1)}% over {btData.totalTrades} trades) — low edge setup
+            </div>
           )}
           <p className="mt-2 text-sm font-medium leading-snug max-w-xs bg-black/20 rounded-lg px-3 py-2">
             {data.signalReason}
