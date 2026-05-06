@@ -206,13 +206,17 @@ function runBreakoutBacktest(candles: CandleRaw[], timeframe: Timeframe, symbol:
     // SELL: histogram negative and falling.
     const macdSellOk = !macdWarm || (hNow < 0 && hNow < hPrev1);
 
-    // Breakout trigger: today's bar opens above R2 (computed from yesterday = prev).
-    // This mirrors the live signal: currentPrice > pivots.r2.
-    // "prev.close > r2" is structurally impossible (R2 is always above prev.high),
-    // so we evaluate today's opening price against yesterday's calculated R2 level.
-    const breakoutTriggered = today.open > r2;
-    // Breakdown trigger: today's bar opens below S2 (computed from yesterday).
-    const breakdownTriggered = today.open < s2;
+    // Breakout trigger: today's bar's HIGH exceeds yesterday's R2 (intrabar cross).
+    // Using the high (rather than only the open) captures all cases where price
+    // touched or pierced R2 during the bar, not just gap-up opens.
+    // Fill rule: if bar opened above R2 (gap-up), fill at open; otherwise fill
+    // at R2 itself (limit-order assumption at the level).
+    const breakoutTriggered = today.high > r2;
+    const breakoutEntry     = Math.max(today.open, r2);
+    // Breakdown trigger: today's bar's LOW falls below yesterday's S2.
+    // Fill rule: if bar opened below S2 (gap-down), fill at open; otherwise fill at S2.
+    const breakdownTriggered = today.low < s2;
+    const breakdownEntry     = Math.min(today.open, s2);
 
     const canBuy  = breakoutTriggered  && buyAllowed  && trendBullish && rsiBuyOk  && macdBuyOk;
     const canSell = breakdownTriggered && sellAllowed && trendBearish && rsiSellOk && macdSellOk;
@@ -222,8 +226,8 @@ function runBreakoutBacktest(candles: CandleRaw[], timeframe: Timeframe, symbol:
     else if (canSell && !canBuy) direction = "SELL";
     if (!direction) { i++; continue; }
 
-    // Market entry at open of the bar following the trigger.
-    const entry = today.open;
+    // Entry uses the level-consistent fill price computed above.
+    const entry = direction === "BUY" ? breakoutEntry : breakdownEntry;
     let stopLoss: number, tp1: number, tp2: number;
     if (direction === "BUY") {
       stopLoss = round(r2 - atr * 0.5);
