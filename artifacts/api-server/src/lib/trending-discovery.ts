@@ -412,7 +412,7 @@ async function runDiscovery(pool: Pool): Promise<void> {
       if (EXCLUDED_TICKERS.has(ticker)) continue;
 
       const change = coin.quote.USD.percent_change_24h ?? 0;
-      if (change <= 0) continue; // only gainers
+      if (change < 1) continue; // only coins up ≥1% in 24h
 
       const okxKey = `${ticker}-USDT-SWAP`;
       if (!okxMap.has(okxKey)) continue; // need OKX for candle data
@@ -481,7 +481,7 @@ async function runDiscovery(pool: Pool): Promise<void> {
         trendingCache.push({ ...meta, expiresAt: now + TRENDING_TTL_MS });
       }
     }
-    trendingCache.sort((a, b) => a.rank - b.rank);
+    trendingCache.sort((a, b) => (b.change24h ?? 0) - (a.change24h ?? 0));
 
     await persistTrendingToDb(discovered, pool);
   } catch (err) {
