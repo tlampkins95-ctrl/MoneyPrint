@@ -41,6 +41,31 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+// ─── OKX concurrency limiter ──────────────────────────────────────────────────
+// OKX rate-limits by IP. Firing 48+ parallel candle fetches causes 429 bursts.
+// This semaphore caps concurrent fetchOkxPerpCandles calls to 5 at a time so
+// the full notifier poll completes without triggering rate limits.
+const MAX_OKX_CONCURRENT = 5;
+let okxSlotsTaken = 0;
+const okxWaiters: Array<() => void> = [];
+
+function acquireOkxSlot(): Promise<void> {
+  if (okxSlotsTaken < MAX_OKX_CONCURRENT) {
+    okxSlotsTaken++;
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => okxWaiters.push(resolve));
+}
+
+function releaseOkxSlot(): void {
+  const next = okxWaiters.shift();
+  if (next) {
+    next();
+  } else {
+    okxSlotsTaken--;
+  }
+}
+
 // OKX rate limits are per-IP per-2s window. On 429 (or 5xx) back off and retry
 // a few times so a transient burst doesn't surface as a user-visible 500.
 async function okxGet(path: string): Promise<string[][]> {
@@ -78,6 +103,18 @@ async function okxGet(path: string): Promise<string[][]> {
 }
 
 export async function fetchOkxPerpCandles(
+  instId: string,
+  timeframe: string,
+): Promise<CandleRaw[]> {
+  await acquireOkxSlot();
+  try {
+    return await _fetchOkxPerpCandles(instId, timeframe);
+  } finally {
+    releaseOkxSlot();
+  }
+}
+
+async function _fetchOkxPerpCandles(
   instId: string,
   timeframe: string,
 ): Promise<CandleRaw[]> {
