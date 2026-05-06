@@ -25,6 +25,23 @@ function useTrendingSymbols(): TrendingItem[] {
   return items;
 }
 
+function useSymbolChanges(): Record<string, number | null> {
+  const [changes, setChanges] = useState<Record<string, number | null>>({});
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${import.meta.env.BASE_URL}api/symbol-changes`)
+      .then((r) => r.json())
+      .then((data: { changes: Record<string, number | null> }) => {
+        if (!cancelled) setChanges(data.changes ?? {});
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+  return changes;
+}
+
+const WATCHLIST_SYMBOLS = new Set(["SKYAIUSDT", "ZECUSD"]);
+
 export function SymbolSelector({
   value,
   onChange,

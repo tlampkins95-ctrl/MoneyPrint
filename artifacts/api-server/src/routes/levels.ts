@@ -462,6 +462,30 @@ router.get("/trending-symbols", (_req: Request, res: Response) => {
   });
 });
 
+// GET /api/symbol-changes — 24h % change for watchlist static symbols (SKYAI, ZEC).
+// Computed from the last two 1d closes so no extra data source is needed.
+const CHANGE_WATCHLIST: Symbol[] = ["SKYAIUSDT", "ZECUSD"];
+router.get("/symbol-changes", async (_req: Request, res: Response) => {
+  const changes: Record<string, number | null> = {};
+  await Promise.all(
+    CHANGE_WATCHLIST.map(async (sym) => {
+      try {
+        const candles = await fetchCandlesForTimeframe(sym, "1d");
+        if (candles.length >= 2) {
+          const prev = candles[candles.length - 2].close;
+          const curr = candles[candles.length - 1].close;
+          changes[sym] = ((curr - prev) / prev) * 100;
+        } else {
+          changes[sym] = null;
+        }
+      } catch {
+        changes[sym] = null;
+      }
+    }),
+  );
+  res.json({ changes });
+});
+
 // ─── Admin seed endpoint ──────────────────────────────────────────────────────
 router.post("/admin/seed-trades", (req: Request, res: Response) => {
   const secret = process.env["ADMIN_SECRET"];
