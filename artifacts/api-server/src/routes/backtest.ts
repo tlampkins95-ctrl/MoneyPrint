@@ -144,21 +144,17 @@ function runBacktest(candles: CandleRaw[], timeframe: Timeframe, symbol: Symbol)
   const trades: Trade[] = [];
   const maxHold = MAX_HOLD_BARS[timeframe];
 
-  // Precompute EMA21/EMA50 series for the trend filter. Mirrors the live
-  // signal logic: only allow BUY when EMA21 ≥ EMA50 (uptrend / ranging),
-  // only allow SELL when EMA21 ≤ EMA50 (downtrend / ranging). Counter-trend
-  // pivot bounces have the worst expectancy historically.
+  // Mirrors live signal gates: EMA200 regime + RSI exhaustion + MACD turn.
+  // EMA21/50 trend direction is NOT a gate — same reasoning as live signals:
+  // EMA21 > EMA50 during a pump is caused by the pump itself, which would
+  // suppress the exact sell-zone reversal setups we want to capture.
   const closes = candles.map((c) => c.close);
-  const ema21 = calcEMASeries(closes, 21);
-  const ema50 = calcEMASeries(closes, 50);
   const ema200 = calcEMASeries(closes, 200);
   const rsi14 = calcRSISeries(closes, 14);
   const macdHist = calcMACDHist(closes, 12, 26, 9);
-  const TREND_THRESHOLD = 0.001; // 0.1% gap counts as a real trend, smaller is "ranging"
-  // RSI mean-reversion gates. Synced with live signal thresholds (40/60).
-  // Stricter than 45/55 — fewer trades but each has genuine exhaustion behind it.
-  const RSI_BUY_MAX = 40;
-  const RSI_SELL_MIN = 60;
+  // Synced with live signal thresholds.
+  const RSI_BUY_MAX = 45;
+  const RSI_SELL_MIN = 55;
 
   let i = 15;
 
@@ -176,36 +172,17 @@ function runBacktest(candles: CandleRaw[], timeframe: Timeframe, symbol: Symbol)
     const sellZoneHigh = round(r1 + halfWidth);
     const atr = calcATR(candles, i - 1, 14);
 
-    // Trend gate from EMAs at i-1 (no lookahead).
-    //
-    // The 200 EMA is the primary regime filter (close ≥ 200 = bull regime,
-    // close ≤ 200 = bear regime) — this is the dominant institutional trend
-    // bias and it does NOT clash with the mean-reversion setup, because
-    // it's a statement about price location, not short-term EMA stack.
-    //
-    // The 21/50 spread is intentionally NOT AND-ed with the 200 EMA gate.
-    // A bounce-at-S1 in an uptrend almost always coincides with EMA21
-    // dipping below EMA50 (that IS the pullback) — AND-ing them filters
-    // out the cleanest setups. So 21/50 is used only as a fallback regime
-    // proxy on the early portion of the series before EMA200 has 200 bars
-    // of history. On the daily timeframe we skip the 200 gate entirely
-    // because the available daily history is barely long enough to warm
-    // it up, leaving almost no tradable bars.
-    const e21 = ema21[i - 1] ?? 0;
-    const e50 = ema50[i - 1] ?? 0;
+    // EMA200 regime gate — mirrors live signal logic.
+    // When warm, price ≥ EMA200 = bull regime (buys allowed),
+    // price ≤ EMA200 = bear regime (sells allowed).
+    // When not warm (early bars or daily TF), allow both directions —
+    // EMA21/50 is NOT used as a fallback because EMA21 > EMA50 during
+    // a pump is caused by the pump itself, suppressing sell-zone setups.
     const e200 = ema200[i - 1];
     const ema200Warm = i - 1 >= 200 && Number.isFinite(e200) && e200 > 0;
     const useEma200 = ema200Warm && timeframe !== "1d";
-    let buyAllowed: boolean;
-    let sellAllowed: boolean;
-    if (useEma200) {
-      buyAllowed = prev.close >= e200;
-      sellAllowed = prev.close <= e200;
-    } else {
-      const gap = e50 > 0 ? (e21 - e50) / e50 : 0;
-      buyAllowed = gap >= -TREND_THRESHOLD;
-      sellAllowed = gap <= TREND_THRESHOLD;
-    }
+    const buyAllowed  = !useEma200 || prev.close >= e200;
+    const sellAllowed = !useEma200 || prev.close <= e200;
 
     // Realistic fill: a touch must actually reach the level itself, not just
     // overlap the zone. Also the bar's open must be on the "right" side of
