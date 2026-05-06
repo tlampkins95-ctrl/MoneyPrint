@@ -181,7 +181,7 @@ paths:
       operationId: getTrendingSymbols
       tags: [signals]
       summary: Get currently-trending coins discovered from CoinGecko gainers + OKX
-      description: Returns the top trending coins that have OKX USDT SWAP instruments. Updated hourly. Coins expire after 24 hours.
+      description: Returns the top trending coins validated against CoinGecko gainers, OKX USDT SWAP instruments (for candle data), and Phemex USDT-perp listing (for trading). Updated every 4 hours. Coins expire after 8 hours (cooldown window preserves active-trade context after a coin drops out of the gainers list).
       responses:
         "200":
           description: Trending symbols

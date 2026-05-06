@@ -440,9 +440,13 @@ async function runDiscovery(pool: Pool): Promise<void> {
       "Trending coins discovered",
     );
 
-    // Merge into in-memory cache: update existing entries (preserve discoveredAt),
-    // add new ones.
+    // Merge into in-memory cache:
+    // - Coins that appear in this discovery cycle get their rank/change/expiresAt
+    //   refreshed but their discoveredAt preserved.
+    // - Coins that dropped out of the discovery set are kept in cache until their
+    //   expiresAt (8h cooldown) so active trades on dropped coins aren't orphaned.
     const existingMap = new Map(trendingCache.map((t) => [t.symbolKey, t]));
+    const discoveredKeys = new Set(discovered.map((d) => d.symbolKey));
     for (const d of discovered) {
       const existing = existingMap.get(d.symbolKey);
       existingMap.set(d.symbolKey, {
@@ -450,12 +454,11 @@ async function runDiscovery(pool: Pool): Promise<void> {
         discoveredAt: existing ? existing.discoveredAt : d.discoveredAt,
       });
     }
-    // Remove coins that no longer appear in the discovered list (their TTL will
-    // handle DB expiry; remove from memory immediately so we don't show stale rows).
-    const discoveredKeys = new Set(discovered.map((d) => d.symbolKey));
+    const now = Date.now();
     trendingCache.length = 0;
-    for (const [key, meta] of existingMap) {
-      if (discoveredKeys.has(key) && meta.expiresAt > Date.now()) {
+    for (const [, meta] of existingMap) {
+      // Keep re-discovered coins and coins still within their 8h TTL window.
+      if (discoveredKeys.has(meta.symbolKey) || meta.expiresAt > now) {
         trendingCache.push(meta);
       }
     }

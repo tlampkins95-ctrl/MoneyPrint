@@ -102,7 +102,11 @@ export function BacktestPanel({
   const staticSymbol = Object.values(GetBacktestSymbol).includes(symbol as GetBacktestSymbol)
     ? (symbol as GetBacktestSymbol)
     : undefined;
-  const { data, isLoading, error } = useGetBacktest({ symbol: staticSymbol, timeframe });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, isLoading, error } = useGetBacktest(
+    { symbol: staticSymbol, timeframe },
+    { query: { enabled: !!staticSymbol } as any },
+  );
   const [tradesOpen, setTradesOpen] = useState(false);
 
   // Persisted collapse state, default open. The shell renders the header even
