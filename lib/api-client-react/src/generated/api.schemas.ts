@@ -89,6 +89,17 @@ export const LevelsDataSignal = {
 } as const;
 
 /**
+ * Which signal mode generated this signal. PIVOT_BOUNCE = price is at S1/R1 zone and bouncing (classic pivot fade). BREAKOUT = price cleared R2 (BUY) or broke S2 (SELL) with confirmed momentum — RSI 55-78, MACD positive+rising, EMA21>50, above EMA200.
+ */
+export type LevelsDataSignalType =
+  (typeof LevelsDataSignalType)[keyof typeof LevelsDataSignalType];
+
+export const LevelsDataSignalType = {
+  PIVOT_BOUNCE: "PIVOT_BOUNCE",
+  BREAKOUT: "BREAKOUT",
+} as const;
+
+/**
  * Machine-readable trade lifecycle state. WAIT = no setup. PENDING = limit staged but not yet tagged. FILLED_DRAWDOWN/PROFIT = position open between entry and SL/TP1. FILLED_TP1/TP2/SL = price has reached that level (TP2/SL trigger invalidation on the next tick). Always prefer this over parsing signalReason text.
  */
 export type LevelsDataTradeState =
@@ -251,6 +262,8 @@ export interface LevelsData {
   priceChangePct: number;
   /** Single clear trade signal */
   signal: LevelsDataSignal;
+  /** Which signal mode generated this signal. PIVOT_BOUNCE = price is at S1/R1 zone and bouncing (classic pivot fade). BREAKOUT = price cleared R2 (BUY) or broke S2 (SELL) with confirmed momentum — RSI 55-78, MACD positive+rising, EMA21>50, above EMA200. */
+  signalType: LevelsDataSignalType;
   /** Plain-language explanation of why this signal was generated */
   signalReason: string;
   /** Machine-readable trade lifecycle state. WAIT = no setup. PENDING = limit staged but not yet tagged. FILLED_DRAWDOWN/PROFIT = position open between entry and SL/TP1. FILLED_TP1/TP2/SL = price has reached that level (TP2/SL trigger invalidation on the next tick). Always prefer this over parsing signalReason text. */
@@ -473,6 +486,10 @@ export type GetBacktestParams = {
    * Bar timeframe used for the backtest
    */
   timeframe?: GetBacktestTimeframe;
+  /**
+   * Which signal mode to backtest. PIVOT_BOUNCE = classic S1/R1 fade (default). BREAKOUT = momentum breakout above R2 / breakdown below S2.
+   */
+  signalType?: GetBacktestSignalType;
 };
 
 export type GetBacktestSymbol =
@@ -500,6 +517,14 @@ export const GetBacktestTimeframe = {
   "30m": "30m",
   "1h": "1h",
   "1d": "1d",
+} as const;
+
+export type GetBacktestSignalType =
+  (typeof GetBacktestSignalType)[keyof typeof GetBacktestSignalType];
+
+export const GetBacktestSignalType = {
+  PIVOT_BOUNCE: "PIVOT_BOUNCE",
+  BREAKOUT: "BREAKOUT",
 } as const;
 
 export type GetActiveSignalsParams = {

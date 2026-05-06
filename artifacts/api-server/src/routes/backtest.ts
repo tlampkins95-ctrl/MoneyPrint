@@ -17,18 +17,28 @@ interface BacktestCacheEntry {
 const cache = new Map<string, BacktestCacheEntry>();
 const CACHE_TTL_MS = 10 * 60 * 1000;
 
-function cacheKey(symbol: Symbol, timeframe: Timeframe): string {
-  return `${symbol}::${timeframe}`;
+function cacheKey(symbol: Symbol, timeframe: Timeframe, signalType: string): string {
+  return `${symbol}::${timeframe}::${signalType}`;
 }
 
 // ─── Math ────────────────────────────────────────────────────────────────────
 
 function calcPivots(high: number, low: number, close: number, round: (n: number) => number) {
   const pivot = (high + low + close) / 3;
+  const r1 = 2 * pivot - low;
+  const s1 = 2 * pivot - high;
+  const r2 = pivot + (high - low);
+  const s2 = pivot - (high - low);
+  const r3 = high + 2 * (pivot - low);
+  const s3 = low - 2 * (high - pivot);
   return {
     pivot: round(pivot),
-    r1: round(2 * pivot - low),
-    s1: round(2 * pivot - high),
+    r1: round(r1),
+    s1: round(s1),
+    r2: round(r2),
+    s2: round(s2),
+    r3: round(r3),
+    s3: round(s3),
   };
 }
 
@@ -136,6 +146,151 @@ function calcRSISeries(closes: number[], period = 14): number[] {
     out[i] = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
   }
   return out;
+}
+
+function runBreakoutBacktest(candles: CandleRaw[], timeframe: Timeframe, symbol: Symbol): Trade[] {
+  const meta = SYMBOLS[symbol];
+  const round = makeRounder(meta.decimals);
+  const trades: Trade[] = [];
+  const maxHold = MAX_HOLD_BARS[timeframe];
+
+  const closes = candles.map((c) => c.close);
+  const ema200 = calcEMASeries(closes, 200);
+  const ema21  = calcEMASeries(closes, 21);
+  const ema50  = calcEMASeries(closes, 50);
+  const rsi14  = calcRSISeries(closes, 14);
+  const macdHist = calcMACDHist(closes, 12, 26, 9);
+
+  // Synced with live BREAKOUT signal thresholds.
+  const RSI_BUY_MIN = 55;
+  const RSI_BUY_MAX = 78;
+  const RSI_SELL_MIN = 22;
+  const RSI_SELL_MAX = 45;
+
+  let i = 50;
+
+  while (i < candles.length) {
+    const prev = candles[i - 1];
+    const today = candles[i];
+
+    const { r2, r3, s2, s3 } = calcPivots(prev.high, prev.low, prev.close, round);
+    const atr = calcATR(candles, i - 1, 14);
+    if (atr <= 0) { i++; continue; }
+
+    const e200 = ema200[i - 1];
+    const e21  = ema21[i - 1];
+    const e50  = ema50[i - 1];
+    const ema200Warm = i - 1 >= 200 && Number.isFinite(e200) && e200 > 0;
+    const ema5050Warm = i - 1 >= 50 && Number.isFinite(e21) && Number.isFinite(e50);
+    const useEma200 = ema200Warm && timeframe !== "1d";
+
+    // Trend direction gates (EMA21 vs EMA50) — required for BREAKOUT mode.
+    const trendBullish = !ema5050Warm || e21 > e50;
+    const trendBearish = !ema5050Warm || e21 < e50;
+
+    // EMA200 regime: above = bull bias (buys allowed), below = bear bias.
+    const buyAllowed  = !useEma200 || prev.close > e200;
+    const sellAllowed = !useEma200 || prev.close < e200;
+
+    const rsiVal  = rsi14[i - 1];
+    const rsiWarm = Number.isFinite(rsiVal);
+    const rsiBuyOk  = !rsiWarm || (rsiVal >= RSI_BUY_MIN && rsiVal <= RSI_BUY_MAX);
+    const rsiSellOk = !rsiWarm || (rsiVal >= RSI_SELL_MIN && rsiVal <= RSI_SELL_MAX);
+
+    const hNow  = macdHist[i - 1];
+    const hPrev1 = macdHist[i - 2];
+    const hPrev2 = macdHist[i - 3];
+    const macdWarm = Number.isFinite(hNow) && Number.isFinite(hPrev1) && Number.isFinite(hPrev2);
+    // BUY: histogram positive and rising (momentum accelerating up).
+    const macdBuyOk  = !macdWarm || (hNow > 0 && hNow > hPrev1);
+    // SELL: histogram negative and falling.
+    const macdSellOk = !macdWarm || (hNow < 0 && hNow < hPrev1);
+
+    // Breakout trigger: prev bar closed above R2 (breakout bar), today is entry bar.
+    const breakoutTriggered = prev.close > r2;
+    // Breakdown trigger: prev bar closed below S2.
+    const breakdownTriggered = prev.close < s2;
+
+    const canBuy  = breakoutTriggered  && buyAllowed  && trendBullish && rsiBuyOk  && macdBuyOk;
+    const canSell = breakdownTriggered && sellAllowed && trendBearish && rsiSellOk && macdSellOk;
+
+    let direction: "BUY" | "SELL" | null = null;
+    if (canBuy && !canSell) direction = "BUY";
+    else if (canSell && !canBuy) direction = "SELL";
+    if (!direction) { i++; continue; }
+
+    // Market entry at open of the bar following the trigger.
+    const entry = today.open;
+    let stopLoss: number, tp1: number, tp2: number;
+    if (direction === "BUY") {
+      stopLoss = round(r2 - atr * 0.5);
+      tp1 = r3;
+      tp2 = round(r3 + atr);
+    } else {
+      stopLoss = round(s2 + atr * 0.5);
+      tp1 = s3;
+      tp2 = round(s3 - atr);
+    }
+    const risk = Math.abs(entry - stopLoss);
+    if (risk <= 0) { i++; continue; }
+
+    let exitDate = today.date;
+    let exitPrice = entry;
+    let outcome: Trade["outcome"] = "EXPIRED";
+    let barsHeld = 0;
+    let exitIdx = i;
+
+    for (let j = i; j < Math.min(candles.length, i + maxHold + 1); j++) {
+      const bar = candles[j];
+      barsHeld = j - i + 1;
+      exitIdx = j;
+      if (direction === "BUY") {
+        const slHit  = bar.low  <= stopLoss;
+        const tp1Hit = bar.high >= tp1;
+        const tp2Hit = bar.high >= tp2;
+        if (slHit && (tp1Hit || tp2Hit)) { outcome = "SL"; exitPrice = stopLoss; exitDate = bar.date; break; }
+        if (slHit)  { outcome = "SL";  exitPrice = stopLoss; exitDate = bar.date; break; }
+        if (tp2Hit) { outcome = "TP2"; exitPrice = tp2; exitDate = bar.date; break; }
+        if (tp1Hit) { outcome = "TP1"; exitPrice = tp1; exitDate = bar.date; break; }
+      } else {
+        const slHit  = bar.high >= stopLoss;
+        const tp1Hit = bar.low  <= tp1;
+        const tp2Hit = bar.low  <= tp2;
+        if (slHit && (tp1Hit || tp2Hit)) { outcome = "SL"; exitPrice = stopLoss; exitDate = bar.date; break; }
+        if (slHit)  { outcome = "SL";  exitPrice = stopLoss; exitDate = bar.date; break; }
+        if (tp2Hit) { outcome = "TP2"; exitPrice = tp2; exitDate = bar.date; break; }
+        if (tp1Hit) { outcome = "TP1"; exitPrice = tp1; exitDate = bar.date; break; }
+      }
+    }
+
+    if (outcome === "EXPIRED") {
+      const lastBar = candles[Math.min(candles.length - 1, i + maxHold)];
+      exitPrice = lastBar.close;
+      exitDate = lastBar.date;
+      exitIdx = Math.min(candles.length - 1, i + maxHold);
+    }
+
+    const pnl = direction === "BUY" ? exitPrice - entry : entry - exitPrice;
+    const rMultiple = Math.round((pnl / risk) * 100) / 100;
+
+    trades.push({
+      entryDate: today.date,
+      direction,
+      entry: round(entry),
+      stopLoss: round(stopLoss),
+      takeProfit1: round(tp1),
+      takeProfit2: round(tp2),
+      exitDate,
+      exitPrice: round(exitPrice),
+      outcome,
+      rMultiple,
+      barsHeld,
+    });
+
+    i = exitIdx + 1;
+  }
+
+  return trades;
 }
 
 function runBacktest(candles: CandleRaw[], timeframe: Timeframe, symbol: Symbol): Trade[] {
@@ -450,8 +605,9 @@ router.get("/backtest", async (req: Request, res: Response) => {
     const query = GetBacktestQueryParams.parse(req.query);
     const symbol = (query.symbol ?? "XAGUSD") as Symbol;
     const timeframe = (query.timeframe ?? "1d") as Timeframe;
+    const signalType: "PIVOT_BOUNCE" | "BREAKOUT" = (query.signalType as "PIVOT_BOUNCE" | "BREAKOUT") ?? "PIVOT_BOUNCE";
     const now = Date.now();
-    const key = cacheKey(symbol, timeframe);
+    const key = cacheKey(symbol, timeframe, signalType);
     const cached = cache.get(key);
     if (cached && now - cached.timestamp < CACHE_TTL_MS) {
       res.json(cached.data);
@@ -462,7 +618,9 @@ router.get("/backtest", async (req: Request, res: Response) => {
       res.status(503).json({ error: "Insufficient data for backtest" });
       return;
     }
-    const trades = runBacktest(candles, timeframe, symbol);
+    const trades = signalType === "BREAKOUT"
+      ? runBreakoutBacktest(candles, timeframe, symbol)
+      : runBacktest(candles, timeframe, symbol);
     const result = GetBacktestResponse.parse(aggregate(trades, candles, symbol));
     cache.set(key, { data: result, timestamp: now });
     res.json(result);

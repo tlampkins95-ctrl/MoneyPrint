@@ -28,9 +28,11 @@ interface CellStats {
 
 const STALE_TIME_MS = 5 * 60 * 1000;
 
-function useCell(symbol: Symbol, timeframe: Timeframe, enabled: boolean): CellStats {
+type SignalTypeMode = "PIVOT_BOUNCE" | "BREAKOUT";
+
+function useCell(symbol: Symbol, timeframe: Timeframe, enabled: boolean, signalType: SignalTypeMode): CellStats {
   const { data, isLoading, isError } = useGetBacktest(
-    { symbol, timeframe },
+    { symbol, timeframe, signalType },
     {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       query: { enabled, staleTime: STALE_TIME_MS, refetchOnWindowFocus: false } as any,
@@ -50,9 +52,11 @@ function useCell(symbol: Symbol, timeframe: Timeframe, enabled: boolean): CellSt
 
 function CellLoaders({
   enabled,
+  signalType,
   onCells,
 }: {
   enabled: boolean;
+  signalType: SignalTypeMode;
   onCells: (cells: CellStats[]) => void;
 }) {
   // 45 hooks (9 symbols × 5 tfs). React requires consistent hook order so we
@@ -61,7 +65,7 @@ function CellLoaders({
   for (const s of ALL_SYMBOLS) {
     for (const t of ALL_TIMEFRAMES) {
       // eslint-disable-next-line react-hooks/rules-of-hooks
-      cells.push(useCell(s, t, enabled));
+      cells.push(useCell(s, t, enabled, signalType));
     }
   }
   // Stable signature — only re-publish when something actually changed. Avoids
@@ -100,6 +104,7 @@ export function EdgeLeaderboard({
 }) {
   const [open, setOpen] = useState(true);
   const [sortKey, setSortKey] = useState<SortKey>("winRate");
+  const [signalType, setSignalType] = useState<SignalTypeMode>("PIVOT_BOUNCE");
   const [cells, setCells] = useState<CellStats[]>([]);
 
   const ranked = useMemo(() => {
@@ -124,7 +129,7 @@ export function EdgeLeaderboard({
   return (
     <div className="border border-border rounded-lg bg-card/50 backdrop-blur-md overflow-hidden">
       {open && (
-        <CellLoaders enabled={open} onCells={setCells} />
+        <CellLoaders enabled={open} signalType={signalType} onCells={setCells} />
       )}
 
       {/* Header */}
@@ -165,8 +170,8 @@ export function EdgeLeaderboard({
 
       {open && (
         <>
-          {/* Sort tabs */}
-          <div className="px-4 py-2 border-b border-border/30 flex items-center gap-2 text-[10px] font-mono">
+          {/* Sort tabs + mode toggle */}
+          <div className="px-4 py-2 border-b border-border/30 flex flex-wrap items-center gap-2 text-[10px] font-mono">
             <span className="text-muted-foreground">SORT BY:</span>
             {(
               [
@@ -189,8 +194,25 @@ export function EdgeLeaderboard({
                 {label}
               </button>
             ))}
-            <span className="ml-auto text-muted-foreground hidden sm:inline">
-              click any cell to load that setup
+            <span className="ml-auto flex items-center gap-1">
+              <span className="text-muted-foreground hidden sm:inline">MODE:</span>
+              {(["PIVOT_BOUNCE", "BREAKOUT"] as SignalTypeMode[]).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setSignalType(m)}
+                  className={cn(
+                    "px-2 py-0.5 rounded border transition-colors",
+                    signalType === m
+                      ? m === "BREAKOUT"
+                        ? "border-cyan-500/60 bg-cyan-500/10 text-cyan-300"
+                        : "border-primary/60 bg-primary/10 text-primary"
+                      : "border-border/40 text-muted-foreground hover:text-foreground hover:border-border",
+                  )}
+                >
+                  {m === "PIVOT_BOUNCE" ? "Pivot" : "◈ Breakout"}
+                </button>
+              ))}
             </span>
           </div>
 

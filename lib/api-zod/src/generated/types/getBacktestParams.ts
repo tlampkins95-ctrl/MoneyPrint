@@ -5,6 +5,7 @@
  * XAGUSD Screener API
  * OpenAPI spec version: 0.2.0
  */
+import type { GetBacktestSignalType } from "./getBacktestSignalType";
 import type { GetBacktestSymbol } from "./getBacktestSymbol";
 import type { GetBacktestTimeframe } from "./getBacktestTimeframe";
 
@@ -17,4 +18,8 @@ export type GetBacktestParams = {
    * Bar timeframe used for the backtest
    */
   timeframe?: GetBacktestTimeframe;
+  /**
+   * Which signal mode to backtest. PIVOT_BOUNCE = classic S1/R1 fade (default). BREAKOUT = momentum breakout above R2 / breakdown below S2.
+   */
+  signalType?: GetBacktestSignalType;
 };

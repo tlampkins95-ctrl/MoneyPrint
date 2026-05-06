@@ -56,6 +56,7 @@ interface RowProps {
   symbol: string;
   timeframe: Timeframe;
   signal: "BUY" | "SELL";
+  signalType?: "PIVOT_BOUNCE" | "BREAKOUT";
   signalReason: string;
   currentPrice: number;
   entryPrice: number;
@@ -173,6 +174,11 @@ function SignalRow(p: RowProps) {
           <Arrow className="w-3 h-3" />
           {p.signal}
         </span>
+        {p.signalType === "BREAKOUT" && (
+          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold tracking-widest bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
+            ◈ BKT
+          </span>
+        )}
       </div>
 
       {/* State line — the dynamic signalReason from describeFrozenTrade */}
@@ -397,6 +403,7 @@ export function ActiveSignalsOverview({
                       symbol={s.symbol}
                       timeframe={s.timeframe as Timeframe}
                       signal={s.levels.signal as "BUY" | "SELL"}
+                      signalType={s.levels.signalType as "PIVOT_BOUNCE" | "BREAKOUT" | undefined}
                       signalReason={s.levels.signalReason}
                       currentPrice={s.levels.currentPrice}
                       entryPrice={s.levels.entryPrice}
@@ -425,6 +432,7 @@ export function ActiveSignalsOverview({
                       symbol={s.symbol}
                       timeframe={s.timeframe as Timeframe}
                       signal={s.levels.signal as "BUY" | "SELL"}
+                      signalType={s.levels.signalType as "PIVOT_BOUNCE" | "BREAKOUT" | undefined}
                       signalReason={s.levels.signalReason}
                       currentPrice={s.levels.currentPrice}
                       entryPrice={s.levels.entryPrice}
@@ -453,6 +461,7 @@ export function ActiveSignalsOverview({
                       symbol={s.symbol}
                       timeframe={s.timeframe as Timeframe}
                       signal={s.levels.signal as "BUY" | "SELL"}
+                      signalType={s.levels.signalType as "PIVOT_BOUNCE" | "BREAKOUT" | undefined}
                       signalReason={s.levels.signalReason}
                       currentPrice={s.levels.currentPrice}
                       entryPrice={s.levels.entryPrice}

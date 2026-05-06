@@ -108,8 +108,9 @@ export async function sendTelegramAlert(ctx: AlertContext): Promise<void> {
       ? `+$${(ps.riskAmount * tp2R).toFixed(2)}`
       : "—";
 
+  const typeTag = levels.signalType === "BREAKOUT" ? " ◈ BREAKOUT" : "";
   const lines = [
-    `${sideEmoji} <b>${sideWord} ${escapeHtml(meta.label)}</b>`,
+    `${sideEmoji} <b>${sideWord}${typeTag} ${escapeHtml(meta.label)}</b>`,
     `<i>${tfLabel} · now ${fmt(meta, levels.currentPrice)}</i>`,
     "",
     `🎯 Entry  <b>${fmt(meta, levels.entryPrice)}</b>`,

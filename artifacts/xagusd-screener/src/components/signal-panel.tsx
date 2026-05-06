@@ -221,6 +221,11 @@ export function SignalPanel({
           >
             {data.signal}
           </div>
+          {data.signalType === "BREAKOUT" && (data.signal === "BUY" || data.signal === "SELL") && (
+            <span className="mt-1 px-3 py-0.5 text-[10px] font-bold tracking-widest rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/40">
+              ◈ BREAKOUT
+            </span>
+          )}
           <p className="mt-2 text-sm font-medium leading-snug max-w-xs bg-black/20 rounded-lg px-3 py-2">
             {data.signalReason}
           </p>

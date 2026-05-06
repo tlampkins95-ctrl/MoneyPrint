@@ -91,6 +91,11 @@ export const GetLevelsResponse = zod.object({
   signal: zod
     .enum(["BUY", "SELL", "WAIT"])
     .describe("Single clear trade signal"),
+  signalType: zod
+    .enum(["PIVOT_BOUNCE", "BREAKOUT"])
+    .describe(
+      "Which signal mode generated this signal. PIVOT_BOUNCE = price is at S1\/R1 zone and bouncing (classic pivot fade). BREAKOUT = price cleared R2 (BUY) or broke S2 (SELL) with confirmed momentum — RSI 55-78, MACD positive+rising, EMA21>50, above EMA200.",
+    ),
   signalReason: zod
     .string()
     .describe("Plain-language explanation of why this signal was generated"),
@@ -333,6 +338,7 @@ export const GetLevelsResponse = zod.object({
  */
 export const getBacktestQuerySymbolDefault = `XAGUSD`;
 export const getBacktestQueryTimeframeDefault = `1d`;
+export const getBacktestQuerySignalTypeDefault = `PIVOT_BOUNCE`;
 
 export const GetBacktestQueryParams = zod.object({
   symbol: zod
@@ -355,6 +361,12 @@ export const GetBacktestQueryParams = zod.object({
     .enum(["15m", "30m", "1h", "1d"])
     .default(getBacktestQueryTimeframeDefault)
     .describe("Bar timeframe used for the backtest"),
+  signalType: zod
+    .enum(["PIVOT_BOUNCE", "BREAKOUT"])
+    .default(getBacktestQuerySignalTypeDefault)
+    .describe(
+      "Which signal mode to backtest. PIVOT_BOUNCE = classic S1\/R1 fade (default). BREAKOUT = momentum breakout above R2 \/ breakdown below S2.",
+    ),
 });
 
 export const GetBacktestResponse = zod.object({
@@ -480,6 +492,11 @@ export const GetActiveSignalsResponse = zod.object({
             signal: zod
               .enum(["BUY", "SELL", "WAIT"])
               .describe("Single clear trade signal"),
+            signalType: zod
+              .enum(["PIVOT_BOUNCE", "BREAKOUT"])
+              .describe(
+                "Which signal mode generated this signal. PIVOT_BOUNCE = price is at S1\/R1 zone and bouncing (classic pivot fade). BREAKOUT = price cleared R2 (BUY) or broke S2 (SELL) with confirmed momentum — RSI 55-78, MACD positive+rising, EMA21>50, above EMA200.",
+              ),
             signalReason: zod
               .string()
               .describe(
@@ -773,7 +790,7 @@ export const GetActiveSignalsResponse = zod.object({
 });
 
 /**
- * Returns the top trending coins that have OKX USDT SWAP instruments. Updated hourly. Coins expire after 24 hours.
+ * Returns the top trending coins validated against CoinGecko gainers, OKX USDT SWAP instruments (for candle data), and Phemex USDT-perp listing (for trading). Updated every 4 hours. Coins expire after 8 hours (cooldown window preserves active-trade context after a coin drops out of the gainers list).
  * @summary Get currently-trending coins discovered from CoinGecko gainers + OKX
  */
 export const GetTrendingSymbolsResponse = zod.object({

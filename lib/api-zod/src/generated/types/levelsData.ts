@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.2.0
  */
 import type { LevelsDataSignal } from "./levelsDataSignal";
+import type { LevelsDataSignalType } from "./levelsDataSignalType";
 import type { LevelsDataTradeState } from "./levelsDataTradeState";
 import type { LevelsDataTrend } from "./levelsDataTrend";
 import type { PositionSizing } from "./positionSizing";
@@ -19,6 +20,8 @@ export interface LevelsData {
   priceChangePct: number;
   /** Single clear trade signal */
   signal: LevelsDataSignal;
+  /** Which signal mode generated this signal. PIVOT_BOUNCE = price is at S1/R1 zone and bouncing (classic pivot fade). BREAKOUT = price cleared R2 (BUY) or broke S2 (SELL) with confirmed momentum — RSI 55-78, MACD positive+rising, EMA21>50, above EMA200. */
+  signalType: LevelsDataSignalType;
   /** Plain-language explanation of why this signal was generated */
   signalReason: string;
   /** Machine-readable trade lifecycle state. WAIT = no setup. PENDING = limit staged but not yet tagged. FILLED_DRAWDOWN/PROFIT = position open between entry and SL/TP1. FILLED_TP1/TP2/SL = price has reached that level (TP2/SL trigger invalidation on the next tick). Always prefer this over parsing signalReason text. */

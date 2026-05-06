@@ -257,6 +257,7 @@ async function checkSymbol(
       if (isWebPushEnabled()) {
         const sideEmoji = levels.signal === "BUY" ? "🟢" : "🔴";
         const sideWord = levels.signal === "BUY" ? "BUY" : "SELL";
+        const typeTag = levels.signalType === "BREAKOUT" ? " ◈ BREAKOUT" : "";
         const m = SYMBOLS[symbol];
         const fmtN = (n: number) => `${m.prefix}${n.toFixed(m.decimals)}`;
         // Body keeps the most decision-relevant numbers within the
@@ -269,7 +270,7 @@ async function checkSymbol(
         const origin = link ? new URL(link).origin : null;
         tasks.push(
           broadcastWebPush({
-            title: `${sideEmoji} ${sideWord} ${m.label}`,
+            title: `${sideEmoji} ${sideWord}${typeTag} ${m.label}`,
             body: lines.join("\n"),
             url: link ?? "/",
             tag: `${symbol}-${timeframe}`,
@@ -402,6 +403,7 @@ async function checkTrendingSymbol(
       if (isWebPushEnabled()) {
         const sideEmoji = levels.signal === "BUY" ? "🟢" : "🔴";
         const sideWord = levels.signal === "BUY" ? "BUY" : "SELL";
+        const typeTagT = levels.signalType === "BREAKOUT" ? " ◈ BREAKOUT" : "";
         const fmtN = (n: number) => `$${n.toFixed(tMeta.decimals)}`;
         const lines = [
           `${tfLabel} · ${fmtN(levels.currentPrice)}`,
@@ -410,7 +412,7 @@ async function checkTrendingSymbol(
         ];
         tasks.push(
           broadcastWebPush({
-            title: `${sideEmoji} ${sideWord} ${symbolKey} (TRENDING)`,
+            title: `${sideEmoji} ${sideWord}${typeTagT} ${symbolKey} (TRENDING)`,
             body: lines.join("\n"),
             url: link ?? "/",
             tag: `${symbolKey}-${timeframe}`,

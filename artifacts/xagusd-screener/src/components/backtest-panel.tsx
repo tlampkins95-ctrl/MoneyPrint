@@ -92,6 +92,8 @@ function StatCard({
   );
 }
 
+type SignalTypeMode = "PIVOT_BOUNCE" | "BREAKOUT";
+
 // Inner component: only mounted when symbol is a known static symbol.
 // Keeping the hook call in this component avoids the `enabled: false` typing
 // workaround — if the component doesn't mount, the hook never runs.
@@ -102,7 +104,17 @@ function BacktestPanelInner({
   symbol: GetBacktestSymbol;
   timeframe: Timeframe;
 }) {
-  const { data, isLoading, error } = useGetBacktest({ symbol, timeframe });
+  const [signalType, setSignalType] = useState<SignalTypeMode>(() => {
+    if (typeof window === "undefined") return "PIVOT_BOUNCE";
+    return (window.localStorage.getItem("screener.backtest.signalType") as SignalTypeMode | null) ?? "PIVOT_BOUNCE";
+  });
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("screener.backtest.signalType", signalType);
+    }
+  }, [signalType]);
+
+  const { data, isLoading, error } = useGetBacktest({ symbol, timeframe, signalType });
   const [tradesOpen, setTradesOpen] = useState(false);
 
   // Persisted collapse state, default open. The shell renders the header even
@@ -118,9 +130,30 @@ function BacktestPanelInner({
   }, [collapsed]);
   const toggle = () => setCollapsed((v) => !v);
 
+  const modeToggle = (
+    <div className="flex items-center gap-1 text-[10px] font-mono">
+      {(["PIVOT_BOUNCE", "BREAKOUT"] as SignalTypeMode[]).map((m) => (
+        <button
+          key={m}
+          type="button"
+          onClick={(e) => { e.stopPropagation(); setSignalType(m); }}
+          className={`px-2 py-0.5 rounded border transition-colors ${
+            signalType === m
+              ? m === "BREAKOUT"
+                ? "border-cyan-500/60 bg-cyan-500/10 text-cyan-300"
+                : "border-primary/60 bg-primary/10 text-primary"
+              : "border-border/40 text-muted-foreground hover:text-foreground hover:border-border"
+          }`}
+        >
+          {m === "PIVOT_BOUNCE" ? "Pivot" : "◈ Breakout"}
+        </button>
+      ))}
+    </div>
+  );
+
   if (isLoading) {
     return (
-      <BacktestShell timeframe={timeframe} subtitle="loading…" collapsed={collapsed} onToggle={toggle}>
+      <BacktestShell timeframe={timeframe} subtitle={modeToggle} collapsed={collapsed} onToggle={toggle}>
         <div className="p-6 flex items-center justify-center text-muted-foreground text-sm font-mono">
           Running backtest…
         </div>
@@ -129,7 +162,7 @@ function BacktestPanelInner({
   }
   if (error || !data) {
     return (
-      <BacktestShell timeframe={timeframe} subtitle="error" collapsed={collapsed} onToggle={toggle}>
+      <BacktestShell timeframe={timeframe} subtitle={modeToggle} collapsed={collapsed} onToggle={toggle}>
         <div className="p-6 bg-rose-950/20 text-rose-300 text-sm font-mono">
           Backtest failed to load.
         </div>
@@ -145,7 +178,7 @@ function BacktestPanelInner({
   return (
     <BacktestShell
       timeframe={timeframe}
-      subtitle={`${data.totalBars} bars · ${data.totalTrades} trades`}
+      subtitle={<span className="flex items-center gap-2">{modeToggle}<span className="text-muted-foreground text-[10px] font-mono">{data.totalBars} bars · {data.totalTrades} trades</span></span>}
       collapsed={collapsed}
       onToggle={toggle}
     >

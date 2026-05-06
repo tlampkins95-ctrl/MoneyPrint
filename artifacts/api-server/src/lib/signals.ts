@@ -970,6 +970,30 @@ export function computeLevels(
   const ema200BuyOk  = !useEma200Gate || prev.close >= prevEma200;
   const ema200SellOk = !useEma200Gate || prev.close <= prevEma200;
 
+  // Breakout / breakdown momentum gates. Fire when price has clearly cleared
+  // R2 (BUY) or broken below S2 (SELL) with confirmed trend momentum:
+  //   • RSI 55–78 for breakout (above neutral, not yet overbought/blown-out)
+  //   • RSI 22–45 for breakdown (below neutral, not yet oversold/climactic)
+  //   • MACD histogram positive AND rising (breakout) / negative AND falling (breakdown)
+  //     → requires two consecutive completed bars both in the same direction
+  //   • EMA21 > EMA50 (trend aligned for breakout) / EMA21 < EMA50 (breakdown)
+  //   • EMA200 regime gate (same as pivot-bounce, bypassed on 1d)
+  // These only fire inside the WAIT else-branch, ensuring pivot-bounce setups
+  // (which have a more precise zone entry) always take priority.
+  const breakoutBuyOk =
+    currentPrice > pivots.r2 &&
+    !isNaN(rsi) && rsi >= 55 && rsi <= 78 &&
+    macdWarm && histPrev1 > 0 && histPrev1 > histPrev2 &&
+    last21 > last50 &&
+    (!useEma200Gate || currentPrice > prevEma200);
+
+  const breakdownSellOk =
+    currentPrice < pivots.s2 &&
+    !isNaN(rsi) && rsi >= 22 && rsi <= 45 &&
+    macdWarm && histPrev1 < 0 && histPrev1 < histPrev2 &&
+    last21 < last50 &&
+    (!useEma200Gate || currentPrice < prevEma200);
+
   const zoneGap = pivots.r1 - pivots.s1;
   const halfWidth = round(zoneGap * 0.2);
   const buyZoneLow = round(pivots.s1 - halfWidth);
@@ -983,6 +1007,7 @@ export function computeLevels(
   const approachingSell = !inSellZone && currentPrice < sellZoneLow && (sellZoneLow - currentPrice) < atr * 0.5;
 
   let signal: "BUY" | "SELL" | "WAIT" = "WAIT";
+  let signalType: "PIVOT_BOUNCE" | "BREAKOUT" = "PIVOT_BOUNCE";
   let signalReason = "";
   let entryPrice = currentPrice;
   let stopLoss = currentPrice;
@@ -1083,8 +1108,18 @@ export function computeLevels(
         stopLoss = round(pivots.r2 + atr * 0.5);
         takeProfit1 = round(floorTarget(entryPrice, stopLoss, pivots.pivot, MIN_RR_TP1, "SELL"));
         takeProfit2 = round(floorTarget(entryPrice, stopLoss, buyZoneHigh, MIN_RR_TP2, "SELL"));
+      } else if (breakoutBuyOk) {
+        // Momentum breakout: price cleared R2 with RSI + MACD + EMA trend aligned.
+        // Market-entry BUY; R2 flips to support, SL just below it.
+        signal = "BUY";
+        signalType = "BREAKOUT";
+        entryPrice = round(currentPrice);
+        stopLoss = round(pivots.r2 - atr * 0.5);
+        takeProfit1 = round(pivots.r3);
+        takeProfit2 = round(pivots.r3 + atr);
+        signalReason = `[${tfLabel}] BREAKOUT BUY: Price (${fmt(currentPrice)}) cleared R2 ${fmt(pivots.r2)} on momentum (RSI ${rsi.toFixed(0)}, MACD positive+rising, EMA21>50). R2 now support — market entry, SL below R2, TP1 = R3 ${fmt(pivots.r3)}, TP2 ${fmt(round(pivots.r3 + atr))}.`;
       } else {
-        // Price is above R2 — show pending BUY at S1 on a pullback (entry below current ✓)
+        // Price is above R2, no breakout confirmation — show pending BUY at S1 on a pullback.
         entryPrice = round(pivots.s1);
         stopLoss = round(buyZoneLow - atr * 0.5);
         takeProfit1 = round(floorTarget(entryPrice, stopLoss, pivots.pivot, MIN_RR_TP1, "BUY"));
@@ -1100,9 +1135,18 @@ export function computeLevels(
         stopLoss = round(pivots.s2 - atr * 0.5);
         takeProfit1 = round(floorTarget(entryPrice, stopLoss, pivots.pivot, MIN_RR_TP1, "BUY"));
         takeProfit2 = round(floorTarget(entryPrice, stopLoss, sellZoneLow, MIN_RR_TP2, "BUY"));
+      } else if (breakdownSellOk) {
+        // Momentum breakdown: price broke S2 with RSI + MACD + EMA trend aligned.
+        // Market-entry SELL; S2 flips to resistance, SL just above it.
+        signal = "SELL";
+        signalType = "BREAKOUT";
+        entryPrice = round(currentPrice);
+        stopLoss = round(pivots.s2 + atr * 0.5);
+        takeProfit1 = round(pivots.s3);
+        takeProfit2 = round(pivots.s3 - atr);
+        signalReason = `[${tfLabel}] BREAKDOWN SELL: Price (${fmt(currentPrice)}) broke S2 ${fmt(pivots.s2)} on momentum (RSI ${rsi.toFixed(0)}, MACD negative+falling, EMA21<50). S2 now resistance — market entry, SL above S2, TP1 = S3 ${fmt(pivots.s3)}, TP2 ${fmt(round(pivots.s3 - atr))}.`;
       } else {
-        // Price is below S2 — no valid buy level below current; show pending SELL at R1
-        // on a dead-cat bounce instead (entry above current ✓)
+        // Price is below S2, no breakdown confirmation — show pending SELL at R1 on a bounce.
         entryPrice = round(pivots.r1);
         stopLoss = round(sellZoneHigh + atr * 0.5);
         takeProfit1 = round(floorTarget(entryPrice, stopLoss, pivots.pivot, MIN_RR_TP1, "SELL"));
@@ -1177,6 +1221,7 @@ export function computeLevels(
     priceChange,
     priceChangePct,
     signal,
+    signalType,
     signalReason,
     tradeState,
     entryPrice,
@@ -1214,6 +1259,7 @@ type Levels = ReturnType<typeof computeLevels>;
 
 interface ActiveTrade {
   signal: "BUY" | "SELL";
+  signalType?: "PIVOT_BOUNCE" | "BREAKOUT";
   signalReason: string;
   entryPrice: number;
   stopLoss: number;
@@ -1286,6 +1332,10 @@ async function syncFromDb(): Promise<void> {
       const v = row.data as Partial<ActiveTrade>;
       activeTrades.set(row.key, {
         ...(v as ActiveTrade),
+        signalType:
+          v.signalType === "PIVOT_BOUNCE" || v.signalType === "BREAKOUT"
+            ? v.signalType
+            : "PIVOT_BOUNCE",
         triggered: typeof v.triggered === "boolean" ? v.triggered : false,
         openedPrice: typeof v.openedPrice === "number" ? v.openedPrice : (v.entryPrice ?? 0),
         openedCandleStartTs:
@@ -1320,6 +1370,10 @@ function loadActiveTradesFromDisk(): void {
       if (needsMigration) didMigrate = true;
       const migrated: ActiveTrade = {
         ...(v as ActiveTrade),
+        signalType:
+          v.signalType === "PIVOT_BOUNCE" || v.signalType === "BREAKOUT"
+            ? v.signalType
+            : "PIVOT_BOUNCE",
         triggered: typeof v.triggered === "boolean" ? v.triggered : false,
         openedPrice:
           typeof v.openedPrice === "number" ? v.openedPrice : (v.entryPrice ?? 0),
@@ -1680,6 +1734,7 @@ export function computeLevelsStable(
     return {
       ...fresh,
       signal: stillActive.signal,
+      signalType: stillActive.signalType ?? "PIVOT_BOUNCE",
       // Recompute the explanation against current price — the frozen text is
       // a lie the moment price walks away from the original zone.
       signalReason: describeFrozenTrade(stillActive, fresh.currentPrice, timeframe, symbolKey, meta),
@@ -1732,6 +1787,7 @@ export function computeLevelsStable(
     const openedCandleHigh = lastCandle ? lastCandle.high : -Infinity;
     const newTrade: ActiveTrade = {
       signal: fresh.signal,
+      signalType: fresh.signalType,
       signalReason: fresh.signalReason,
       entryPrice: fresh.entryPrice,
       stopLoss: fresh.stopLoss,
@@ -1820,6 +1876,10 @@ export function seedActiveTrades(raw: Record<string, unknown>): number {
     const p = v as Partial<ActiveTrade>;
     activeTrades.set(k, {
       ...(p as ActiveTrade),
+      signalType:
+        p.signalType === "PIVOT_BOUNCE" || p.signalType === "BREAKOUT"
+          ? p.signalType
+          : "PIVOT_BOUNCE",
       triggered: typeof p.triggered === "boolean" ? p.triggered : false,
       openedPrice: typeof p.openedPrice === "number" ? p.openedPrice : (p.entryPrice ?? 0),
       openedCandleStartTs: typeof p.openedCandleStartTs === "number" ? p.openedCandleStartTs : (p.openedAt ?? 0),
