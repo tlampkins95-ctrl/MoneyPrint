@@ -18,9 +18,8 @@ import {
   fetchSpotForDynamic,
 } from "../lib/trending-discovery";
 
-// All meaningful timeframes shown in the active-signals overview.
-// 30m = primary intraday entry, 1h = higher-TF confirmation/swing, 1d = major daily moves.
-const OVERVIEW_TIMEFRAMES: Timeframe[] = ["30m", "1h", "1d"];
+// 30m is the primary entry timeframe. 1h/1d are used as confirmation gates only.
+const OVERVIEW_TIMEFRAMES: Timeframe[] = ["30m"];
 
 const router: IRouter = Router();
 
