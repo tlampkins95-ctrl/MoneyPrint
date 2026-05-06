@@ -991,15 +991,19 @@ export function computeLevels(
 
   const tfLabel = TIMEFRAME_LABELS[timeframe];
 
-  // Entry gate: RSI exhaustion confirms the zone is genuinely tapped out.
-  // EMA21/50 trend, MACD momentum, and EMA200 regime are intentionally NOT
-  // gates — they are all momentum-following indicators that confirm the pump
-  // (or dump) itself, not the reversal. Using them as gates suppresses the
-  // exact setups we want: shorting overbought RSI at pivot resistance during
-  // a pump, or buying oversold RSI at pivot support during a dump.
-  // Zone confluence (pivot + Fib + Camarilla) is the primary filter.
-  const buyAllowed  = isNaN(rsi) || rsi <= RSI_OVERSOLD;
-  const sellAllowed = isNaN(rsi) || rsi >= RSI_OVERBOUGHT;
+  // Entry gates: RSI exhaustion + MACD momentum turn + EMA200 regime.
+  // EMA21/50 trend direction is intentionally NOT a gate — when price pumps
+  // into the sell zone, EMA21 > EMA50 as a direct result of the pump itself,
+  // which suppresses the exact reversal setup we want. MACD and EMA200 are
+  // kept as gates: MACD confirms momentum is turning at the zone; EMA200
+  // confirms the broader institutional regime. Neither moves in lockstep
+  // with a short-term pump the way EMA21/50 does.
+  const buyAllowed  = (isNaN(rsi) || rsi <= RSI_OVERSOLD)
+    && macdBuyOk
+    && ema200BuyOk;
+  const sellAllowed = (isNaN(rsi) || rsi >= RSI_OVERBOUGHT)
+    && macdSellOk
+    && ema200SellOk;
 
   if ((inBuyZone || approachingBuy) && buyAllowed) {
     signal = "BUY";
@@ -1031,9 +1035,14 @@ export function computeLevels(
       : `[${tfLabel}] Price is within ${fmt(sellZoneLow - currentPrice)} of the sell zone (${fmt(sellZoneLow)}–${fmt(sellZoneHigh)}). Stage a limit sell order near R1 ${fmt(pivots.r1)}.`;
   } else if (inBuyZone && !buyAllowed) {
     signal = "WAIT";
-    const blockNote = !isNaN(rsi) && rsi > RSI_OVERSOLD
-      ? ` RSI ${rsi.toFixed(0)} not yet oversold (need ≤${RSI_OVERSOLD}) — wait for exhaustion.`
-      : ` Conditions not yet met.`;
+    const blockNote =
+      useEma200Gate && !ema200BuyOk
+        ? ` Price below EMA200 (${fmt(prevEma200)}) — institutional bear bias, fade suppressed.`
+        : !isNaN(rsi) && rsi > RSI_OVERSOLD
+        ? ` RSI ${rsi.toFixed(0)} not yet oversold (need ≤${RSI_OVERSOLD}) — wait for exhaustion.`
+        : macdWarm && !macdBuyOk
+        ? ` MACD histogram still falling — selling momentum not yet cooling. Wait for the turn.`
+        : ` Conditions not yet met.`;
     signalReason = `[${tfLabel}] Price is in the buy zone (${fmt(buyZoneLow)}–${fmt(buyZoneHigh)}) but conditions not met.${blockNote}`;
     // Entry stays inside the buy zone — show a pending BUY at S1, not a SELL.
     // Swapping to a SELL entry (old code used R1) was a direction inversion bug:
@@ -1044,9 +1053,14 @@ export function computeLevels(
     takeProfit2 = round(floorTarget(entryPrice, stopLoss, sellZoneLow, MIN_RR_TP2, "BUY"));
   } else if (inSellZone && !sellAllowed) {
     signal = "WAIT";
-    const blockNote = !isNaN(rsi) && rsi < RSI_OVERBOUGHT
-      ? ` RSI ${rsi.toFixed(0)} not yet overbought (need ≥${RSI_OVERBOUGHT}) — wait for exhaustion.`
-      : ` Conditions not yet met.`;
+    const blockNote =
+      useEma200Gate && !ema200SellOk
+        ? ` Price above EMA200 (${fmt(prevEma200)}) — institutional bull bias, fade suppressed.`
+        : !isNaN(rsi) && rsi < RSI_OVERBOUGHT
+        ? ` RSI ${rsi.toFixed(0)} not yet overbought (need ≥${RSI_OVERBOUGHT}) — wait for exhaustion.`
+        : macdWarm && !macdSellOk
+        ? ` MACD histogram still rising — buying momentum not yet cooling. Wait for the turn.`
+        : ` Conditions not yet met.`;
     signalReason = `[${tfLabel}] Price is in the sell zone (${fmt(sellZoneLow)}–${fmt(sellZoneHigh)}) but conditions not met.${blockNote}`;
     // Entry stays inside the sell zone — show a pending SELL at R1, not a BUY.
     // The old code showed a BUY at S1 while price was at resistance — direction inversion.
