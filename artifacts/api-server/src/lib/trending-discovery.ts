@@ -146,12 +146,14 @@ const TRENDING_TTL_MS = 8 * 60 * 60 * 1000;
 // Refresh interval: every 4 hours.
 const DISCOVERY_INTERVAL_MS = 4 * 60 * 60 * 1000;
 
-interface CoinGeckoMarket {
-  id: string;
+interface CmcQuote {
+  percent_change_24h: number;
+  price: number;
+}
+
+interface CmcCoin {
   symbol: string;
-  name: string;
-  price_change_percentage_24h: number | null;
-  current_price: number | null;
+  quote: { USD: CmcQuote };
 }
 
 interface OkxInstrument {
@@ -170,24 +172,34 @@ interface PhemexPerpProduct {
   priceScaleRq?: string;   // price tick scale
 }
 
-async function fetchCoinGeckoGainers(): Promise<CoinGeckoMarket[]> {
+// Fetch top gainers from CoinMarketCap's /v1/cryptocurrency/listings/latest
+// sorted by percent_change_24h descending.  Requires COINMARKETCAP_API_KEY.
+async function fetchCmcGainers(): Promise<CmcCoin[]> {
+  const apiKey = process.env["COINMARKETCAP_API_KEY"];
+  if (!apiKey) {
+    logger.warn("COINMARKETCAP_API_KEY not set — skipping CMC gainers fetch");
+    return [];
+  }
   try {
     const url =
-      "https://api.coingecko.com/api/v3/coins/markets" +
-      "?vs_currency=usd&order=price_change_percentage_24h_desc" +
-      "&per_page=100&page=1&price_change_percentage=24h";
+      "https://pro-api.coinmarketcap.com/v1/cryptocurrency/listings/latest" +
+      "?limit=200&sort=percent_change_24h&sort_dir=desc&cryptocurrency_type=coins" +
+      "&convert=USD";
     const res = await fetch(url, {
-      headers: { "User-Agent": "Mozilla/5.0 (compatible; Forex-Screener/1.0)" },
+      headers: {
+        "X-CMC_PRO_API_KEY": apiKey,
+        Accept: "application/json",
+      },
       signal: AbortSignal.timeout(10_000),
     });
     if (!res.ok) {
-      logger.warn({ status: res.status }, "CoinGecko gainers fetch failed");
+      logger.warn({ status: res.status }, "CMC gainers fetch failed");
       return [];
     }
-    const data = (await res.json()) as CoinGeckoMarket[];
-    return Array.isArray(data) ? data : [];
+    const json = (await res.json()) as { data?: CmcCoin[] };
+    return Array.isArray(json.data) ? json.data : [];
   } catch (err) {
-    logger.warn({ err }, "CoinGecko fetch error");
+    logger.warn({ err }, "CMC fetch error");
     return [];
   }
 }
@@ -376,13 +388,13 @@ async function runDiscovery(pool: Pool): Promise<void> {
 
     // Fetch all three sources in parallel.
     const [gainers, okxMap, phemexMap] = await Promise.all([
-      fetchCoinGeckoGainers(),
+      fetchCmcGainers(),
       fetchOkxSwapInstruments(),
       fetchPhemexPerpProducts(),
     ]);
 
     if (gainers.length === 0) {
-      logger.warn("CoinGecko returned no data — skipping discovery cycle");
+      logger.warn("CMC returned no data — skipping discovery cycle");
       return;
     }
 
@@ -399,7 +411,7 @@ async function runDiscovery(pool: Pool): Promise<void> {
       const ticker = coin.symbol.toUpperCase();
       if (EXCLUDED_TICKERS.has(ticker)) continue;
 
-      const change = coin.price_change_percentage_24h ?? 0;
+      const change = coin.quote.USD.percent_change_24h ?? 0;
       if (change <= 0) continue; // only gainers
 
       const okxKey = `${ticker}-USDT-SWAP`;
@@ -409,7 +421,7 @@ async function runDiscovery(pool: Pool): Promise<void> {
       const phemexInst = phemexMap.get(phemexKey);
       if (!phemexInst) continue; // must be listed as a Phemex USDT-perp
 
-      const price = coin.current_price ?? 1;
+      const price = coin.quote.USD.price ?? 1;
       const decimals = inferDecimals(price);
       const expiresAt = Date.now() + TRENDING_TTL_MS;
       const discoveredAt = Date.now(); // will be preserved in DB on conflict
