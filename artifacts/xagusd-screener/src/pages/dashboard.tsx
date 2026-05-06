@@ -15,23 +15,23 @@ import { getSymbolMeta } from "@/lib/symbols";
 import { cn } from "@/lib/utils";
 
 const VALID_TIMEFRAMES: readonly Timeframe[] = ["15m", "30m", "1h", "1d"];
+type Tab = "signals" | "journal";
 
-// Read ?symbol=…&timeframe=… so notification links and shared URLs deep-link
-// straight to the right chart. Accepts any non-empty symbol string so that
-// trending-coin deep-links work (e.g. ?symbol=TONUSDT).
-function readInitial(): { symbol: string; timeframe: Timeframe } {
+function readInitial(): { symbol: string; timeframe: Timeframe; tab: Tab } {
   if (typeof window === "undefined") {
-    return { symbol: "XAGUSD", timeframe: "1d" };
+    return { symbol: "XAGUSD", timeframe: "1d", tab: "signals" };
   }
   const params = new URLSearchParams(window.location.search);
   const s = params.get("symbol");
   const t = params.get("timeframe");
+  const tab = params.get("tab");
   return {
     symbol: s && s.trim().length > 0 ? s.trim() : "XAGUSD",
     timeframe:
       t && (VALID_TIMEFRAMES as readonly string[]).includes(t)
         ? (t as Timeframe)
         : "1d",
+    tab: tab === "journal" ? "journal" : "signals",
   };
 }
 
@@ -41,6 +41,7 @@ export default function Dashboard() {
   const initial = readInitial();
   const [symbol, setSymbol] = useState<string>(initial.symbol);
   const [timeframe, setTimeframe] = useState<Timeframe>(initial.timeframe);
+  const [tab, setTab] = useState<Tab>(initial.tab);
   const [signalExpanded, setSignalExpanded] = useState<boolean>(() => {
     if (typeof window === "undefined") return true;
     return window.localStorage.getItem(LS_EXPANDED) !== "0";
@@ -58,9 +59,10 @@ export default function Dashboard() {
     const params = new URLSearchParams(window.location.search);
     params.set("symbol", symbol);
     params.set("timeframe", timeframe);
+    params.set("tab", tab);
     const next = `${window.location.pathname}?${params.toString()}${window.location.hash}`;
     window.history.replaceState(null, "", next);
-  }, [symbol, timeframe]);
+  }, [symbol, timeframe, tab]);
 
   return (
     <div
@@ -69,9 +71,7 @@ export default function Dashboard() {
         backgroundImage: `linear-gradient(rgba(10,10,10,0.30), rgba(10,10,10,0.40)), url(${import.meta.env.BASE_URL}terminal-bg.png)`,
       }}
     >
-      {/* Top Navbar — relative + high z-index creates a stacking context that
-          sits above the TradingView iframe in <main>, so the symbol dropdown
-          isn't covered by the chart. */}
+      {/* Top Navbar */}
       <header className="relative z-[60] h-12 border-b border-border/60 bg-card/60 backdrop-blur-md flex items-center px-4 shrink-0 justify-between">
         <div className="flex items-center gap-3">
           <img
@@ -89,74 +89,101 @@ export default function Dashboard() {
           </h1>
         </div>
         <div className="flex items-center gap-3 text-xs font-mono">
-          <SymbolSelector value={symbol} onChange={setSymbol} />
-          <TimeframeSelector value={timeframe} onChange={setTimeframe} />
+          {tab === "signals" && (
+            <>
+              <SymbolSelector value={symbol} onChange={setSymbol} />
+              <TimeframeSelector value={timeframe} onChange={setTimeframe} />
+            </>
+          )}
           <PushNotificationsToggle />
           <div className="hidden sm:flex items-center gap-1.5 border-l pl-3 border-border/50">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
             <span className="text-muted-foreground">LIVE</span>
           </div>
-          <span className="text-muted-foreground border-l pl-3 border-border/50 hidden md:inline-block">
-            {getSymbolMeta(symbol).tv}
-          </span>
+          {tab === "signals" && (
+            <span className="text-muted-foreground border-l pl-3 border-border/50 hidden md:inline-block">
+              {getSymbolMeta(symbol).tv}
+            </span>
+          )}
         </div>
       </header>
 
+      {/* Tab bar */}
+      <nav className="relative z-[59] shrink-0 flex items-center gap-0 border-b border-border/60 bg-card/40 backdrop-blur-md px-4">
+        {(["signals", "journal"] as Tab[]).map((t) => (
+          <button
+            key={t}
+            type="button"
+            onClick={() => setTab(t)}
+            className={cn(
+              "relative px-4 py-2.5 text-[11px] font-bold tracking-[0.18em] transition-colors",
+              tab === t
+                ? "text-foreground"
+                : "text-zinc-500 hover:text-zinc-300",
+            )}
+            style={{ fontFamily: "var(--app-font-display)" }}
+          >
+            {t === "signals" ? "SIGNALS" : "JOURNAL"}
+            {tab === t && (
+              <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-primary rounded-t-full" />
+            )}
+          </button>
+        ))}
+      </nav>
+
       {/* Main Content Area */}
       <main className="flex-1 p-2 md:p-3 flex flex-col gap-2 md:gap-3">
-        {/* Top row: chart + signal panel.
-            Mobile: explicit chart/panel heights so flex-1 inside <main> doesn't
-            balloon the chart to fill the whole viewport. Desktop (lg+): the
-            row grows to 900px so the panel's WAIT card + trade ticket + zone
-            watch + position-sizing controls + EXACT TRADE block all fit on
-            BUY/SELL without internal scroll. Panel widened to 42% (chart 58%)
-            so trade-ticket rows and PHEMEX collateral×lev grid don't truncate
-            on the right edge. Mobile panel height bumped to match. */}
-        <div className="flex flex-col lg:flex-row gap-2 md:gap-3 lg:h-[1080px]">
-          <div className="w-full h-[420px] md:h-[480px] lg:w-[58%] lg:h-auto lg:flex-1 lg:min-h-0">
-            <TradingViewChart symbol={symbol} timeframe={timeframe} />
-          </div>
-          <div className={cn(
-            "w-full lg:w-[42%] lg:h-auto lg:min-h-0",
-            signalExpanded ? "h-[920px]" : "h-auto",
-          )}>
-            <SignalPanel
-              symbol={symbol}
-              timeframe={timeframe}
-              expanded={signalExpanded}
-              onExpandedChange={setSignalExpanded}
+        {tab === "signals" && (
+          <>
+            {/* Chart + signal panel */}
+            <div className="flex flex-col lg:flex-row gap-2 md:gap-3 lg:h-[1080px]">
+              <div className="w-full h-[420px] md:h-[480px] lg:w-[58%] lg:h-auto lg:flex-1 lg:min-h-0">
+                <TradingViewChart symbol={symbol} timeframe={timeframe} />
+              </div>
+              <div className={cn(
+                "w-full lg:w-[42%] lg:h-auto lg:min-h-0",
+                signalExpanded ? "h-[920px]" : "h-auto",
+              )}>
+                <SignalPanel
+                  symbol={symbol}
+                  timeframe={timeframe}
+                  expanded={signalExpanded}
+                  onExpandedChange={setSignalExpanded}
+                />
+              </div>
+            </div>
+
+            {/* Active signals overview */}
+            <ActiveSignalsOverview
+              selectedSymbol={symbol}
+              selectedTimeframe={timeframe}
+              onSelect={(s, t) => {
+                setSymbol(s);
+                setTimeframe(t);
+              }}
             />
-          </div>
-        </div>
 
-        {/* Active signals overview — every live BUY/SELL across symbols × timeframes */}
-        <ActiveSignalsOverview
-          selectedSymbol={symbol}
-          selectedTimeframe={timeframe}
-          onSelect={(s, t) => {
-            setSymbol(s);
-            setTimeframe(t);
-          }}
-        />
+            {/* Edge leaderboard */}
+            <EdgeLeaderboard
+              selectedSymbol={symbol}
+              selectedTimeframe={timeframe}
+              onSelect={(s, t) => {
+                setSymbol(s);
+                setTimeframe(t);
+              }}
+            />
 
-        {/* Edge leaderboard — best win rate across all symbol × timeframe combos */}
-        <EdgeLeaderboard
-          selectedSymbol={symbol}
-          selectedTimeframe={timeframe}
-          onSelect={(s, t) => {
-            setSymbol(s);
-            setTimeframe(t);
-          }}
-        />
+            {/* Backtest section */}
+            <BacktestPanel symbol={symbol} timeframe={timeframe} />
+          </>
+        )}
 
-        {/* Trade journal — closed trade history with P&L */}
-        <TradeHistoryPanel
-          selectedSymbol={symbol}
-          onSelect={(s) => setSymbol(s)}
-        />
-
-        {/* Backtest section */}
-        <BacktestPanel symbol={symbol} timeframe={timeframe} />
+        {tab === "journal" && (
+          <TradeHistoryPanel
+            selectedSymbol={symbol}
+            onSelect={(s) => setSymbol(s)}
+          />
+        )}
       </main>
     </div>
   );
