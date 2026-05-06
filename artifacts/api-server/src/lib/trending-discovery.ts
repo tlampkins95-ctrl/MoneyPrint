@@ -5,16 +5,17 @@ import type { CandleRaw, Timeframe } from "./yahoo-fetch";
 import type { SymbolMeta } from "./symbols";
 import { logger } from "./logger";
 
-// ─── Trending symbol meta (runtime, not persisted) ───────────────────────────
+// ─── Trending symbol meta (runtime) ──────────────────────────────────────────
 export interface TrendingMeta extends SymbolMeta {
   symbolKey: string;
   baseAsset: string;
   priceChange24h: number;
   rank: number;
   expiresAt: number;
+  discoveredAt: number; // true first-seen timestamp
 }
 
-// In-memory cache of currently-trending coins (loaded from DB on boot, refreshed hourly).
+// In-memory cache of currently-trending coins (loaded from DB on boot, refreshed every 4h).
 const trendingCache: TrendingMeta[] = [];
 
 export function getTrendingSymbols(): TrendingMeta[] {
@@ -84,7 +85,7 @@ export async function fetchSpotForDynamic(
   return price;
 }
 
-// ─── Discovery job ────────────────────────────────────────────────────────────
+// ─── Discovery job ─────────────────────────────────────────────────────────────
 
 // Decimals inferred from price magnitude.
 function inferDecimals(price: number): number {
@@ -107,6 +108,7 @@ export function buildDynamicMeta(
   priceChange24h: number,
   rank: number,
   expiresAt: number,
+  discoveredAt: number,
 ): TrendingMeta {
   return {
     symbolKey,
@@ -114,6 +116,7 @@ export function buildDynamicMeta(
     priceChange24h,
     rank,
     expiresAt,
+    discoveredAt,
     // SymbolMeta fields
     yahoo: "",
     tvSymbol: `OKX:${phemexSymbol}.P`,
@@ -137,11 +140,11 @@ const EXCLUDED_TICKERS = new Set([
 // How many trending coins to track (beyond the static list).
 const MAX_TRENDING = 5;
 
-// TTL for a discovered trending coin: 24 hours.
-const TRENDING_TTL_MS = 24 * 60 * 60 * 1000;
+// TTL for a discovered trending coin: 8 hours (after dropout, they age out).
+const TRENDING_TTL_MS = 8 * 60 * 60 * 1000;
 
-// Refresh interval: 1 hour.
-const DISCOVERY_INTERVAL_MS = 60 * 60 * 1000;
+// Refresh interval: every 4 hours.
+const DISCOVERY_INTERVAL_MS = 4 * 60 * 60 * 1000;
 
 interface CoinGeckoMarket {
   id: string;
@@ -155,6 +158,14 @@ interface OkxInstrument {
   instId: string;
   minSz: string;
   lotSz: string;
+}
+
+interface PhemexPerpProduct {
+  symbol: string;
+  qtyStepSizeRq?: string;  // USDT-margined sizing
+  minOrderQtyRq?: string;
+  lotSize?: string;        // coin-margined fallback
+  minOrderQty?: string;
 }
 
 async function fetchCoinGeckoGainers(): Promise<CoinGeckoMarket[]> {
@@ -203,32 +214,81 @@ async function fetchOkxSwapInstruments(): Promise<Map<string, OkxInstrument>> {
   }
 }
 
+// Fetch Phemex USDT-margined perpetual products and return a map of
+// symbol (e.g. "BTCUSDT") → sizing params.
+async function fetchPhemexPerpProducts(): Promise<
+  Map<string, { minQty: number; qtyStep: number }>
+> {
+  try {
+    const res = await fetch("https://api.phemex.com/public/products", {
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; Forex-Screener/1.0)" },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) {
+      logger.warn({ status: res.status }, "Phemex products fetch failed");
+      return new Map();
+    }
+    const json = (await res.json()) as {
+      code: number;
+      data?: {
+        perpProductsV2?: PhemexPerpProduct[];
+        products?: PhemexPerpProduct[];
+      };
+    };
+    if (json.code !== 0) return new Map();
+
+    const map = new Map<string, { minQty: number; qtyStep: number }>();
+
+    // USDT-margined perps are in perpProductsV2 (symbols end with "USDT").
+    const perps = json.data?.perpProductsV2 ?? [];
+    for (const p of perps) {
+      if (!p.symbol.endsWith("USDT")) continue;
+      const minQty = parseFloat(p.minOrderQtyRq ?? p.minOrderQty ?? "1") || 1;
+      const qtyStep = parseFloat(p.qtyStepSizeRq ?? p.lotSize ?? "1") || 1;
+      map.set(p.symbol, { minQty, qtyStep });
+    }
+    return map;
+  } catch (err) {
+    logger.warn({ err }, "Phemex products fetch error");
+    return new Map();
+  }
+}
+
+// ─── DB persistence ───────────────────────────────────────────────────────────
+
+const CREATE_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS trending_symbols (
+    symbol_key text PRIMARY KEY,
+    base_asset text NOT NULL,
+    okx_symbol text NOT NULL,
+    phemex_symbol text NOT NULL,
+    decimals integer NOT NULL DEFAULT 4,
+    min_qty double precision NOT NULL DEFAULT 1,
+    qty_step double precision NOT NULL DEFAULT 1,
+    price_change_24h double precision NOT NULL DEFAULT 0,
+    rank integer NOT NULL DEFAULT 999,
+    discovered_at timestamptz NOT NULL DEFAULT NOW(),
+    expires_at timestamptz NOT NULL
+  )
+`;
+
+async function ensureTable(pool: Pool): Promise<void> {
+  await pool.query(CREATE_TABLE_SQL);
+}
+
 async function persistTrendingToDb(
   rows: TrendingMeta[],
   pool: Pool,
 ): Promise<void> {
   if (rows.length === 0) return;
-  const now = new Date();
-  const expiresAt = new Date(now.getTime() + TRENDING_TTL_MS);
   try {
-    await pool.query(
-      `CREATE TABLE IF NOT EXISTS trending_symbols (
-        symbol_key text PRIMARY KEY,
-        base_asset text NOT NULL,
-        okx_symbol text NOT NULL,
-        phemex_symbol text NOT NULL,
-        decimals integer NOT NULL DEFAULT 4,
-        min_qty double precision NOT NULL DEFAULT 1,
-        qty_step double precision NOT NULL DEFAULT 1,
-        price_change_24h double precision NOT NULL DEFAULT 0,
-        rank integer NOT NULL DEFAULT 999,
-        discovered_at timestamptz NOT NULL DEFAULT NOW(),
-        expires_at timestamptz NOT NULL
-      )`,
-    );
+    await ensureTable(pool);
+    const expiresAt = new Date(Date.now() + TRENDING_TTL_MS);
 
     for (const r of rows) {
       await pool.query(
+        // discovered_at: set only on first insert; never overwrite on conflict
+        // so we preserve the true first-seen timestamp.
         `INSERT INTO trending_symbols
            (symbol_key, base_asset, okx_symbol, phemex_symbol, decimals, min_qty, qty_step, price_change_24h, rank, discovered_at, expires_at)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW(),$10)
@@ -241,8 +301,8 @@ async function persistTrendingToDb(
            qty_step = EXCLUDED.qty_step,
            price_change_24h = EXCLUDED.price_change_24h,
            rank = EXCLUDED.rank,
-           discovered_at = NOW(),
            expires_at = EXCLUDED.expires_at`,
+        // NOTE: discovered_at is intentionally excluded from the DO UPDATE set
         [
           r.symbolKey,
           r.baseAsset,
@@ -258,7 +318,7 @@ async function persistTrendingToDb(
       );
     }
 
-    // Purge expired rows.
+    // Purge rows whose TTL has elapsed.
     await pool.query("DELETE FROM trending_symbols WHERE expires_at < NOW()");
   } catch (err) {
     logger.warn({ err }, "Failed to persist trending symbols to DB");
@@ -267,21 +327,7 @@ async function persistTrendingToDb(
 
 async function loadTrendingFromDb(pool: Pool): Promise<void> {
   try {
-    await pool.query(
-      `CREATE TABLE IF NOT EXISTS trending_symbols (
-        symbol_key text PRIMARY KEY,
-        base_asset text NOT NULL,
-        okx_symbol text NOT NULL,
-        phemex_symbol text NOT NULL,
-        decimals integer NOT NULL DEFAULT 4,
-        min_qty double precision NOT NULL DEFAULT 1,
-        qty_step double precision NOT NULL DEFAULT 1,
-        price_change_24h double precision NOT NULL DEFAULT 0,
-        rank integer NOT NULL DEFAULT 999,
-        discovered_at timestamptz NOT NULL DEFAULT NOW(),
-        expires_at timestamptz NOT NULL
-      )`,
-    );
+    await ensureTable(pool);
     const res = await pool.query<{
       symbol_key: string;
       base_asset: string;
@@ -292,8 +338,10 @@ async function loadTrendingFromDb(pool: Pool): Promise<void> {
       qty_step: number;
       price_change_24h: number;
       rank: number;
+      discovered_at: Date;
       expires_at: Date;
     }>("SELECT * FROM trending_symbols WHERE expires_at > NOW() ORDER BY rank ASC");
+
     trendingCache.length = 0;
     for (const row of res.rows) {
       trendingCache.push(
@@ -308,6 +356,7 @@ async function loadTrendingFromDb(pool: Pool): Promise<void> {
           row.price_change_24h,
           row.rank,
           new Date(row.expires_at).getTime(),
+          new Date(row.discovered_at).getTime(),
         ),
       );
     }
@@ -315,20 +364,28 @@ async function loadTrendingFromDb(pool: Pool): Promise<void> {
       logger.info({ count: trendingCache.length }, "Loaded trending symbols from DB");
     }
   } catch {
-    // Table may not exist yet — that's fine on first boot.
+    // Table may not exist yet on first boot — handled by ensureTable above.
   }
 }
 
 async function runDiscovery(pool: Pool): Promise<void> {
   try {
     logger.info("Running trending coin discovery");
-    const [gainers, okxMap] = await Promise.all([
+
+    // Fetch all three sources in parallel.
+    const [gainers, okxMap, phemexMap] = await Promise.all([
       fetchCoinGeckoGainers(),
       fetchOkxSwapInstruments(),
+      fetchPhemexPerpProducts(),
     ]);
 
     if (gainers.length === 0) {
       logger.warn("CoinGecko returned no data — skipping discovery cycle");
+      return;
+    }
+
+    if (phemexMap.size === 0) {
+      logger.warn("Phemex returned no USDT-perp products — skipping discovery cycle");
       return;
     }
 
@@ -339,38 +396,42 @@ async function runDiscovery(pool: Pool): Promise<void> {
       if (discovered.length >= MAX_TRENDING) break;
       const ticker = coin.symbol.toUpperCase();
       if (EXCLUDED_TICKERS.has(ticker)) continue;
-      const okxKey = `${ticker}-USDT-SWAP`;
-      const inst = okxMap.get(okxKey);
-      if (!inst) continue;
 
       const change = coin.price_change_percentage_24h ?? 0;
       if (change <= 0) continue; // only gainers
 
+      const okxKey = `${ticker}-USDT-SWAP`;
+      if (!okxMap.has(okxKey)) continue; // need OKX for candle data
+
+      const phemexKey = `${ticker}USDT`;
+      const phemexInst = phemexMap.get(phemexKey);
+      if (!phemexInst) continue; // must be listed as a Phemex USDT-perp
+
       const price = coin.current_price ?? 1;
       const decimals = inferDecimals(price);
-      const minQty = parseFloat(inst.minSz) || 1;
-      const qtyStep = parseFloat(inst.lotSz) || 1;
       const expiresAt = Date.now() + TRENDING_TTL_MS;
+      const discoveredAt = Date.now(); // will be preserved in DB on conflict
 
       rank++;
       discovered.push(
         buildDynamicMeta(
-          `${ticker}USDT`,
+          phemexKey,
           ticker,
           okxKey,
-          `${ticker}USDT`,
+          phemexKey,
           decimals,
-          minQty,
-          qtyStep,
+          phemexInst.minQty,
+          phemexInst.qtyStep,
           change,
           rank,
           expiresAt,
+          discoveredAt,
         ),
       );
     }
 
     if (discovered.length === 0) {
-      logger.info("No new trending coins discovered this cycle");
+      logger.info("No qualifying trending coins this cycle (CoinGecko × OKX × Phemex)");
       return;
     }
 
@@ -379,8 +440,27 @@ async function runDiscovery(pool: Pool): Promise<void> {
       "Trending coins discovered",
     );
 
+    // Merge into in-memory cache: update existing entries (preserve discoveredAt),
+    // add new ones.
+    const existingMap = new Map(trendingCache.map((t) => [t.symbolKey, t]));
+    for (const d of discovered) {
+      const existing = existingMap.get(d.symbolKey);
+      existingMap.set(d.symbolKey, {
+        ...d,
+        discoveredAt: existing ? existing.discoveredAt : d.discoveredAt,
+      });
+    }
+    // Remove coins that no longer appear in the discovered list (their TTL will
+    // handle DB expiry; remove from memory immediately so we don't show stale rows).
+    const discoveredKeys = new Set(discovered.map((d) => d.symbolKey));
     trendingCache.length = 0;
-    trendingCache.push(...discovered);
+    for (const [key, meta] of existingMap) {
+      if (discoveredKeys.has(key) && meta.expiresAt > Date.now()) {
+        trendingCache.push(meta);
+      }
+    }
+    trendingCache.sort((a, b) => a.rank - b.rank);
+
     await persistTrendingToDb(discovered, pool);
   } catch (err) {
     logger.warn({ err }, "Trending discovery cycle failed");
@@ -407,7 +487,7 @@ export function startTrendingDiscovery(): void {
     void runDiscovery(pool);
   });
 
-  // Refresh hourly.
+  // Refresh every 4 hours.
   setInterval(() => {
     void runDiscovery(pool);
   }, DISCOVERY_INTERVAL_MS);

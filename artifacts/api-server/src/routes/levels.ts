@@ -404,7 +404,7 @@ router.get("/trending-symbols", (_req: Request, res: Response) => {
       decimals: t.decimals,
       priceChange24h: t.priceChange24h,
       rank: t.rank,
-      discoveredAt: new Date(now - 3600_000).toISOString(), // approximate
+      discoveredAt: new Date(t.discoveredAt).toISOString(),
       expiresAt: new Date(t.expiresAt).toISOString(),
     })),
     lastUpdated: new Date().toISOString(),
