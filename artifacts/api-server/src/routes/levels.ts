@@ -131,7 +131,7 @@ router.get("/levels", async (req: Request, res: Response) => {
         if (!rawHigher || rawHigher.length < 2) continue;
 
         const adjHigher =
-          spotPrice != null && SYMBOLS[rawSymbol as Symbol].hasFuturesBasis
+          isStaticSymbol && spotPrice != null && SYMBOLS[rawSymbol as Symbol].hasFuturesBasis
             ? applyFuturesBasis(rawHigher, spotPrice, round)
             : rawHigher;
         const higherResult = computeLevelsStable(
