@@ -459,9 +459,14 @@ async function runDiscovery(pool: Pool): Promise<void> {
     const now = Date.now();
     trendingCache.length = 0;
     for (const [, meta] of existingMap) {
-      // Keep re-discovered coins and coins still within their 8h TTL window.
-      if (discoveredKeys.has(meta.symbolKey) || meta.expiresAt > now) {
+      if (discoveredKeys.has(meta.symbolKey)) {
+        // Re-discovered this cycle — already has a fresh expiresAt.
         trendingCache.push(meta);
+      } else if (meta.expiresAt > now) {
+        // Dropped out this cycle — extend TTL to a full 8h from now so the
+        // post-dropout cooldown window is always ~8h regardless of when the
+        // coin was last refreshed.
+        trendingCache.push({ ...meta, expiresAt: now + TRENDING_TTL_MS });
       }
     }
     trendingCache.sort((a, b) => a.rank - b.rank);

@@ -48,7 +48,13 @@ router.get("/levels", async (req: Request, res: Response) => {
   try {
     // Symbol: accept both static enum and dynamic trending keys.
     const rawSymbol = typeof req.query.symbol === "string" ? req.query.symbol : "XAGUSD";
-    const timeframe = (typeof req.query.timeframe === "string" ? req.query.timeframe : "1d") as Timeframe;
+    const rawTf = typeof req.query.timeframe === "string" ? req.query.timeframe : "1d";
+    const VALID_TIMEFRAMES: Timeframe[] = ["15m", "30m", "1h", "1d"];
+    if (!VALID_TIMEFRAMES.includes(rawTf as Timeframe)) {
+      res.status(400).json({ error: `Invalid timeframe: ${rawTf}. Must be one of: ${VALID_TIMEFRAMES.join(", ")}` });
+      return;
+    }
+    const timeframe = rawTf as Timeframe;
     const accountSize = Math.max(1, Math.min(10_000_000, Number(req.query.accountSize) || 500));
     const riskPctFrac = Math.max(0.0001, Math.min(1, (Number(req.query.riskPct) || 1) / 100));
     const minCollateral = Math.max(0.01, Math.min(1_000_000, Number(req.query.minCollateral) || 10));
