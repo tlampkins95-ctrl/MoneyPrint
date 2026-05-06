@@ -984,27 +984,23 @@ export function computeLevels(
   //   • RSI 55–88: wide ceiling; a 5-6% pump routinely sends 1h RSI to 82-87.
   //     Only block truly parabolic exhaustion (>88). Floor at 55 avoids breakouts
   //     that fire into still-oversold markets.
-  //   • MACD histogram POSITIVE (not necessarily rising): "rising" is a pivot-bounce
-  //     gate (confirms the turn at S1/R1). For breakouts the turn already happened;
-  //     we only need to confirm momentum is in the right direction (histPrev1 > 0
-  //     for BUY, < 0 for SELL). On 1d, histPrev1 is YESTERDAY's histogram — before
-  //     today's move — so requiring "rising" would block every fresh daily breakout.
-  //     Falls open when MACD isn't warm yet.
   //   • currentPrice > EMA21: price crossed above the fast EMA (immediate breakout
   //     confirmation). EMA21>EMA50 crossover lags 2-4 weeks; first-day breakouts
   //     are never caught by that. Price > EMA21 is the right responsive gate here.
+  //   • MACD removed: MACD lags too much on intraday bars (30m/1h) during sharp
+  //     pumps — the histogram can stay negative for several bars after price clears
+  //     R2, blocking every first-wave breakout entry. Price > R2 + RSI range +
+  //     price > EMA21 + EMA200 regime is sufficient confirmation.
   //   • EMA200 regime (bypassed on 1d as per existing logic)
   const breakoutBuyOk =
     currentPrice > pivots.r2 &&
     !isNaN(rsi) && rsi >= 55 && rsi <= 88 &&
-    (!macdWarm || histPrev1 > 0) &&
     currentPrice > last21 &&
     (!useEma200Gate || currentPrice > prevEma200);
 
   const breakdownSellOk =
     currentPrice < pivots.s2 &&
     !isNaN(rsi) && rsi >= 22 && rsi <= 45 &&
-    (!macdWarm || histPrev1 < 0) &&
     currentPrice < last21 &&
     (!useEma200Gate || currentPrice < prevEma200);
 
