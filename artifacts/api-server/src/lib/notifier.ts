@@ -85,8 +85,8 @@ export function getNotifierStatus(): NotifierStatus {
   };
 }
 
-// Only alert on 30m — the entry timeframe. 1h and daily are alignment gates.
-const TRACKED_TIMEFRAMES: Timeframe[] = ["30m"];
+// Alert on 30m (primary entry TF) and 1h (catches higher-TF setups like crypto pumps).
+const TRACKED_TIMEFRAMES: Timeframe[] = ["30m", "1h"];
 const POLL_INTERVAL_MS = 60_000;
 
 const COOLDOWN_BY_TIMEFRAME: Record<Timeframe, number> = {
@@ -125,16 +125,22 @@ function isWebPushEnabled(): boolean {
   );
 }
 
+// Map each tracked TF to the higher TF used as its alignment gate.
+const HIGHER_TIMEFRAME: Partial<Record<Timeframe, Timeframe>> = {
+  "30m": "1h",
+  "1h": "1d",
+};
+
 async function checkSymbol(
   symbol: Symbol,
   timeframe: Timeframe,
 ): Promise<void> {
   try {
-    // Always fetch 1h alongside 30m — used as the alignment gate before firing.
+    const higherTf = HIGHER_TIMEFRAME[timeframe];
     const [candles, spot, higherCandles] = await Promise.all([
       fetchCandlesForTimeframe(symbol, timeframe),
       fetchSpotPrice(symbol),
-      fetchCandlesForTimeframe(symbol, "1h"),
+      higherTf ? fetchCandlesForTimeframe(symbol, higherTf) : Promise.resolve([]),
     ]);
     if (candles.length < 2) return;
 
@@ -205,12 +211,12 @@ async function checkSymbol(
       tradeAlreadyAlerted;
 
     if (transitioned && !cooldownActive && !alreadyInSameDirection) {
-      // Gate: for pending 30m signals, 1h must agree before alerting.
-      // Filled trades are exempt — the user is already in the position.
+      // Gate: pending signals must be confirmed by the next higher TF before alerting.
+      // 30m is gated by 1h; 1h is gated by 1d. Filled trades are exempt.
       const isFilledTrade =
         levels.tradeState !== "WAIT" && levels.tradeState !== "PENDING";
       if (
-        timeframe === "30m" &&
+        higherTf != null &&
         !isFilledTrade &&
         (levels.signal === "BUY" || levels.signal === "SELL") &&
         higherCandles.length >= 2
@@ -220,11 +226,11 @@ async function checkSymbol(
           spot != null && SYMBOLS[symbol].hasFuturesBasis
             ? applyFuturesBasis(higherCandles, spot, adjRound)
             : higherCandles;
-        const higherResult = computeLevelsStable(adjHigher, spot, "1h", symbol);
+        const higherResult = computeLevelsStable(adjHigher, spot, higherTf, symbol);
         if (higherResult.signal !== levels.signal) {
           logger.info(
-            { symbol, timeframe, signal: levels.signal, higherSignal: higherResult.signal },
-            "Signal alert suppressed (1h gate — higher TF disagrees)",
+            { symbol, timeframe, signal: levels.signal, higherTf, higherSignal: higherResult.signal },
+            "Signal alert suppressed (higher TF gate disagrees)",
           );
           // Keep the PREVIOUS signal in stateMap — not the new one. If we
           // record levels.signal here (e.g. BUY), the next tick sees BUY→BUY
