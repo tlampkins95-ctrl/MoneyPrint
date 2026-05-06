@@ -1033,14 +1033,16 @@ function LotCell({ label, value }: { label: string; value: number }) {
 }
 
 function formatPositionSize(size: number, unit: string): string {
-  // For coin units (BTC/ETH), keep decimals. For oz/forex base units, use thousands separators.
   if (unit === "BTC" || unit === "ETH") {
     return size.toFixed(size < 0.01 ? 6 : 4);
   }
   if (unit === "oz") {
     return size.toFixed(size < 10 ? 2 : 1);
   }
-  // Forex base currency — show as integer with thousands separators
+  // Small fractional sizes are crypto coins (e.g. ZEC at 0.15) — show decimals.
+  // Large sizes are forex base-currency notional (e.g. 100,000 EUR) — show as integer.
+  if (size < 1) return size.toFixed(4);
+  if (size < 100) return size.toFixed(2);
   return Math.round(size).toLocaleString("en-US");
 }
 
