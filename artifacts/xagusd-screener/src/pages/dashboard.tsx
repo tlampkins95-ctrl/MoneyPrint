@@ -10,14 +10,15 @@ import {
 } from "@/components/timeframe-selector";
 import { SymbolSelector } from "@/components/symbol-selector";
 import { PushNotificationsToggle } from "@/components/push-notifications-toggle";
-import { SYMBOLS, type Symbol } from "@/lib/symbols";
+import { getSymbolMeta } from "@/lib/symbols";
 import { cn } from "@/lib/utils";
 
 const VALID_TIMEFRAMES: readonly Timeframe[] = ["15m", "30m", "1h", "1d"];
 
 // Read ?symbol=…&timeframe=… so notification links and shared URLs deep-link
-// straight to the right chart.
-function readInitial(): { symbol: Symbol; timeframe: Timeframe } {
+// straight to the right chart. Accepts any non-empty symbol string so that
+// trending-coin deep-links work (e.g. ?symbol=TONUSDT).
+function readInitial(): { symbol: string; timeframe: Timeframe } {
   if (typeof window === "undefined") {
     return { symbol: "XAGUSD", timeframe: "1d" };
   }
@@ -25,7 +26,7 @@ function readInitial(): { symbol: Symbol; timeframe: Timeframe } {
   const s = params.get("symbol");
   const t = params.get("timeframe");
   return {
-    symbol: s && s in SYMBOLS ? (s as Symbol) : "XAGUSD",
+    symbol: s && s.trim().length > 0 ? s.trim() : "XAGUSD",
     timeframe:
       t && (VALID_TIMEFRAMES as readonly string[]).includes(t)
         ? (t as Timeframe)
@@ -37,7 +38,7 @@ const LS_EXPANDED = "screener.signalExpanded";
 
 export default function Dashboard() {
   const initial = readInitial();
-  const [symbol, setSymbol] = useState<Symbol>(initial.symbol);
+  const [symbol, setSymbol] = useState<string>(initial.symbol);
   const [timeframe, setTimeframe] = useState<Timeframe>(initial.timeframe);
   const [signalExpanded, setSignalExpanded] = useState<boolean>(() => {
     if (typeof window === "undefined") return true;
@@ -95,7 +96,7 @@ export default function Dashboard() {
             <span className="text-muted-foreground">LIVE</span>
           </div>
           <span className="text-muted-foreground border-l pl-3 border-border/50 hidden md:inline-block">
-            {SYMBOLS[symbol].tv}
+            {getSymbolMeta(symbol).tv}
           </span>
         </div>
       </header>

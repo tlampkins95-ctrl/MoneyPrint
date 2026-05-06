@@ -37,22 +37,12 @@ export const getLevelsQueryMt5LotsMin = 0.01;
 export const getLevelsQueryMt5LotsMax = 100;
 
 export const GetLevelsQueryParams = zod.object({
-  symbol: zod
-    .enum([
-      "XAGUSD",
-      "XAUUSD",
-      "EURUSD",
-      "GBPUSD",
-      "AUDUSD",
-      "USDJPY",
-      "GBPJPY",
-      "BTCUSD",
-      "ETHUSD",
-      "SKYAIUSDT",
-      "ZECUSD",
-    ])
+  symbol: zod.coerce
+    .string()
     .default(getLevelsQuerySymbolDefault)
-    .describe("Trading instrument"),
+    .describe(
+      "Trading instrument — static key (e.g. XAGUSD, BTCUSD) or a dynamic trending coin key (e.g. TONUSDT)",
+    ),
   timeframe: zod
     .enum(["15m", "30m", "1h", "1d"])
     .default(getLevelsQueryTimeframeDefault)
@@ -478,19 +468,9 @@ export const GetActiveSignalsResponse = zod.object({
     .array(
       zod
         .object({
-          symbol: zod.enum([
-            "XAGUSD",
-            "XAUUSD",
-            "EURUSD",
-            "GBPUSD",
-            "AUDUSD",
-            "USDJPY",
-            "GBPJPY",
-            "BTCUSD",
-            "ETHUSD",
-            "SKYAIUSDT",
-            "ZECUSD",
-          ]),
+          symbol: zod
+            .string()
+            .describe("Symbol key (static or trending dynamic coin)"),
           timeframe: zod.enum(["15m", "30m", "1h", "1d"]),
           levels: zod.object({
             symbol: zod.string(),
@@ -789,6 +769,37 @@ export const GetActiveSignalsResponse = zod.object({
     .describe(
       'Per-request data-feed health. Lets the UI distinguish \"no signals\" (succeeded == total, signals empty) from \"data feed degraded\" (failed > 0).',
     ),
+  lastUpdated: zod.string(),
+});
+
+/**
+ * Returns the top trending coins that have OKX USDT SWAP instruments. Updated hourly. Coins expire after 24 hours.
+ * @summary Get currently-trending coins discovered from CoinGecko gainers + OKX
+ */
+export const GetTrendingSymbolsResponse = zod.object({
+  symbols: zod.array(
+    zod
+      .object({
+        symbolKey: zod.string().describe("Internal symbol key (e.g. TONUSDT)"),
+        baseAsset: zod.string().describe("Base ticker (e.g. TON)"),
+        okxSymbol: zod
+          .string()
+          .describe("OKX SWAP instrument ID (e.g. TON-USDT-SWAP)"),
+        phemexSymbol: zod
+          .string()
+          .describe("Phemex perp symbol (e.g. TONUSDT)"),
+        decimals: zod.number(),
+        priceChange24h: zod.number().describe("24-hour price change percent"),
+        rank: zod
+          .number()
+          .describe("Rank among current trending coins (1 = top gainer)"),
+        discoveredAt: zod.string(),
+        expiresAt: zod.string(),
+      })
+      .describe(
+        "A dynamically-discovered trending coin with an OKX USDT SWAP instrument.",
+      ),
+  ),
   lastUpdated: zod.string(),
 });
 

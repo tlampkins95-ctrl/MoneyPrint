@@ -3,7 +3,7 @@ import { useGetActiveSignals, getGetActiveSignalsQueryKey } from "@workspace/api
 import type { LevelsDataTradeState } from "@workspace/api-client-react";
 import { TrendingUp, TrendingDown, RefreshCw, AlertTriangle, Target, ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { SYMBOLS, fmtPrice, type Symbol } from "@/lib/symbols";
+import { getSymbolMeta, fmtPriceMeta } from "@/lib/symbols";
 import type { Timeframe } from "@/components/timeframe-selector";
 
 const TF_LABEL: Record<Timeframe, string> = {
@@ -53,7 +53,7 @@ function fmtUsd(n: number, sign = true): string {
 }
 
 interface RowProps {
-  symbol: Symbol;
+  symbol: string;
   timeframe: Timeframe;
   signal: "BUY" | "SELL";
   signalReason: string;
@@ -136,7 +136,7 @@ function toRowSizing(ps: {
 }
 
 function SignalRow(p: RowProps) {
-  const meta = SYMBOLS[p.symbol];
+  const meta = getSymbolMeta(p.symbol);
   const isBuy = p.signal === "BUY";
   const Arrow = isBuy ? TrendingUp : TrendingDown;
   const sideColor = isBuy ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/40" : "bg-rose-500/15 text-rose-400 border-rose-500/40";
@@ -184,21 +184,21 @@ function SignalRow(p: RowProps) {
       <div className="grid grid-cols-4 gap-1 pl-2 font-mono text-[10px]">
         <div className="rounded border border-zinc-800 bg-zinc-900/60 px-1.5 py-1">
           <div className="text-zinc-500 text-[9px] uppercase tracking-wider">Now</div>
-          <div className="text-zinc-100 font-semibold">{fmtPrice(p.symbol, p.currentPrice)}</div>
+          <div className="text-zinc-100 font-semibold">{fmtPriceMeta(meta, p.currentPrice)}</div>
         </div>
         <div className="rounded border border-zinc-800 bg-zinc-900/60 px-1.5 py-1">
           <div className="text-zinc-500 text-[9px] uppercase tracking-wider">Entry</div>
-          <div className="text-zinc-100 font-semibold">{fmtPrice(p.symbol, p.entryPrice)}</div>
+          <div className="text-zinc-100 font-semibold">{fmtPriceMeta(meta, p.entryPrice)}</div>
         </div>
         <div className="rounded border border-rose-500/20 bg-rose-500/5 px-1.5 py-1">
           <div className="text-rose-400/70 text-[9px] uppercase tracking-wider">SL</div>
-          <div className="text-rose-300 font-semibold">{fmtPrice(p.symbol, p.stopLoss)}</div>
+          <div className="text-rose-300 font-semibold">{fmtPriceMeta(meta, p.stopLoss)}</div>
         </div>
         <div className="rounded border border-emerald-500/20 bg-emerald-500/5 px-1.5 py-1">
           <div className="text-emerald-400/70 text-[9px] uppercase tracking-wider flex items-center gap-1">
             <Target className="w-2.5 h-2.5" />TP1
           </div>
-          <div className="text-emerald-300 font-semibold">{fmtPrice(p.symbol, p.takeProfit1)}</div>
+          <div className="text-emerald-300 font-semibold">{fmtPriceMeta(meta, p.takeProfit1)}</div>
         </div>
       </div>
 
@@ -242,9 +242,9 @@ export function ActiveSignalsOverview({
   selectedTimeframe,
   onSelect,
 }: {
-  selectedSymbol: Symbol;
+  selectedSymbol: string;
   selectedTimeframe: Timeframe;
-  onSelect: (s: Symbol, t: Timeframe) => void;
+  onSelect: (s: string, t: Timeframe) => void;
 }) {
   const [lastFetched, setLastFetched] = useState<Date>(new Date());
 
@@ -394,7 +394,7 @@ export function ActiveSignalsOverview({
                   {filled.map((s) => (
                     <SignalRow
                       key={`${s.symbol}-${s.timeframe}`}
-                      symbol={s.symbol as Symbol}
+                      symbol={s.symbol}
                       timeframe={s.timeframe as Timeframe}
                       signal={s.levels.signal as "BUY" | "SELL"}
                       signalReason={s.levels.signalReason}
@@ -405,7 +405,7 @@ export function ActiveSignalsOverview({
                       takeProfit2={s.levels.takeProfit2}
                       riskRewardRatio={s.levels.riskRewardRatio}
                       {...toRowSizing(s.levels.positionSizing)}
-                      onClick={() => onSelect(s.symbol as Symbol, s.timeframe as Timeframe)}
+                      onClick={() => onSelect(s.symbol, s.timeframe as Timeframe)}
                       highlighted={s.symbol === selectedSymbol && s.timeframe === selectedTimeframe}
                     />
                   ))}
@@ -422,7 +422,7 @@ export function ActiveSignalsOverview({
                   {pending.map((s) => (
                     <SignalRow
                       key={`${s.symbol}-${s.timeframe}`}
-                      symbol={s.symbol as Symbol}
+                      symbol={s.symbol}
                       timeframe={s.timeframe as Timeframe}
                       signal={s.levels.signal as "BUY" | "SELL"}
                       signalReason={s.levels.signalReason}
@@ -433,7 +433,7 @@ export function ActiveSignalsOverview({
                       takeProfit2={s.levels.takeProfit2}
                       riskRewardRatio={s.levels.riskRewardRatio}
                       {...toRowSizing(s.levels.positionSizing)}
-                      onClick={() => onSelect(s.symbol as Symbol, s.timeframe as Timeframe)}
+                      onClick={() => onSelect(s.symbol, s.timeframe as Timeframe)}
                       highlighted={s.symbol === selectedSymbol && s.timeframe === selectedTimeframe}
                     />
                   ))}
@@ -450,7 +450,7 @@ export function ActiveSignalsOverview({
                   {other.map((s) => (
                     <SignalRow
                       key={`${s.symbol}-${s.timeframe}`}
-                      symbol={s.symbol as Symbol}
+                      symbol={s.symbol}
                       timeframe={s.timeframe as Timeframe}
                       signal={s.levels.signal as "BUY" | "SELL"}
                       signalReason={s.levels.signalReason}
@@ -461,7 +461,7 @@ export function ActiveSignalsOverview({
                       takeProfit2={s.levels.takeProfit2}
                       riskRewardRatio={s.levels.riskRewardRatio}
                       {...toRowSizing(s.levels.positionSizing)}
-                      onClick={() => onSelect(s.symbol as Symbol, s.timeframe as Timeframe)}
+                      onClick={() => onSelect(s.symbol, s.timeframe as Timeframe)}
                       highlighted={s.symbol === selectedSymbol && s.timeframe === selectedTimeframe}
                     />
                   ))}

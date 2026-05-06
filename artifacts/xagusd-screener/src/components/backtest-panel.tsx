@@ -1,8 +1,8 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { useGetBacktest } from "@workspace/api-client-react";
+import { useGetBacktest, GetBacktestSymbol } from "@workspace/api-client-react";
 import { TrendingUp, TrendingDown, Target, AlertTriangle, ChevronDown, ChevronRight } from "lucide-react";
 import type { Timeframe } from "@/components/timeframe-selector";
-import { fmtPrice, type Symbol } from "@/lib/symbols";
+import { getSymbolMeta, fmtPriceMeta } from "@/lib/symbols";
 
 const TIMEFRAME_LABEL: Record<Timeframe, string> = {
   "15m": "15-minute",
@@ -96,10 +96,13 @@ export function BacktestPanel({
   symbol,
   timeframe,
 }: {
-  symbol: Symbol;
+  symbol: string;
   timeframe: Timeframe;
 }) {
-  const { data, isLoading, error } = useGetBacktest({ symbol, timeframe });
+  const staticSymbol = Object.values(GetBacktestSymbol).includes(symbol as GetBacktestSymbol)
+    ? (symbol as GetBacktestSymbol)
+    : undefined;
+  const { data, isLoading, error } = useGetBacktest({ symbol: staticSymbol, timeframe });
   const [tradesOpen, setTradesOpen] = useState(false);
 
   // Persisted collapse state, default open. The shell renders the header even
@@ -316,10 +319,10 @@ export function BacktestPanel({
                       {t.direction}
                     </td>
                     <td className="px-2 py-1.5 text-right">
-                      {fmtPrice(symbol, t.entry)}
+                      {fmtPriceMeta(getSymbolMeta(symbol), t.entry)}
                     </td>
                     <td className="px-2 py-1.5 text-right">
-                      {fmtPrice(symbol, t.exitPrice)}
+                      {fmtPriceMeta(getSymbolMeta(symbol), t.exitPrice)}
                     </td>
                     <td className="px-2 py-1.5 text-center">
                       <span

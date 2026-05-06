@@ -47,3 +47,27 @@ export function fmtPriceCompact(symbol: Symbol, n: number, dropDecimals = 0): st
   const d = Math.max(0, m.decimals - dropDecimals);
   return `${m.prefix}${n.toFixed(d)}`;
 }
+
+// Returns SymbolMeta for any symbol key — static or dynamic trending coin.
+export function getSymbolMeta(key: string): SymbolMeta {
+  if (key in SYMBOLS) return SYMBOLS[key as Symbol];
+  const base = key.replace(/USDT?$/, "");
+  return {
+    tv: `OKX:${key}.P`,
+    short: `${base}/USDT`,
+    long: `${base} (Trending)`,
+    badge: base.slice(0, 2).toUpperCase(),
+    decimals: 4,
+    prefix: "$",
+    venue: "PHEMEX · USDT perp",
+  };
+}
+
+export function fmtPriceMeta(meta: SymbolMeta, n: number): string {
+  return `${meta.prefix}${n.toFixed(meta.decimals)}`;
+}
+
+export function fmtPriceCompactMeta(meta: SymbolMeta, n: number, dropDecimals = 0): string {
+  const d = Math.max(0, meta.decimals - dropDecimals);
+  return `${meta.prefix}${n.toFixed(d)}`;
+}

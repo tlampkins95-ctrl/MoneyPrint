@@ -1,7 +1,6 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import {
   GetLevelsResponse,
-  GetLevelsQueryParams,
   GetPriceHistoryResponse,
   GetPriceHistoryQueryParams,
   GetActiveSignalsResponse,
@@ -13,6 +12,11 @@ import {
 } from "../lib/yahoo-fetch";
 import { SYMBOLS, makeRounder, ALL_SYMBOLS, type Symbol } from "../lib/symbols";
 import { computeLevelsStable, fetchSpotPrice, applyFuturesBasis, seedActiveTrades, clearActiveTrade } from "../lib/signals";
+import {
+  getTrendingSymbols,
+  fetchCandlesForDynamic,
+  fetchSpotForDynamic,
+} from "../lib/trending-discovery";
 
 // Only 30m is tracked in the active-signals overview. It's the entry
 // timeframe — 1h and daily are alignment gates, not signals in their own right.
@@ -42,38 +46,62 @@ const TF_GATES: Partial<Record<Timeframe, TfGate[]>> = {
 
 router.get("/levels", async (req: Request, res: Response) => {
   try {
-    const query = GetLevelsQueryParams.parse(req.query);
-    const symbol = (query.symbol ?? "XAGUSD") as Symbol;
-    const timeframe = (query.timeframe ?? "1d") as Timeframe;
-    // Convert riskPct from human form (1 = 1%) to fraction (0.01) for the
-    // signals helper. Clamp to a sane range so a misconfigured client can't
-    // produce nonsense leverage values.
-    const accountSize = Math.max(1, Math.min(10_000_000, query.accountSize ?? 500));
-    const riskPctFrac = Math.max(0.0001, Math.min(1, (query.riskPct ?? 1) / 100));
-    const minCollateral = Math.max(0.01, Math.min(1_000_000, query.minCollateral ?? 10));
-    const maxLeverage = Math.max(1, Math.min(200, query.maxLeverage ?? 50));
-    const mt5Lots = Math.max(0.01, Math.min(100, query.mt5Lots ?? 0.01));
+    // Symbol: accept both static enum and dynamic trending keys.
+    const rawSymbol = typeof req.query.symbol === "string" ? req.query.symbol : "XAGUSD";
+    const timeframe = (typeof req.query.timeframe === "string" ? req.query.timeframe : "1d") as Timeframe;
+    const accountSize = Math.max(1, Math.min(10_000_000, Number(req.query.accountSize) || 500));
+    const riskPctFrac = Math.max(0.0001, Math.min(1, (Number(req.query.riskPct) || 1) / 100));
+    const minCollateral = Math.max(0.01, Math.min(1_000_000, Number(req.query.minCollateral) || 10));
+    const maxLeverage = Math.max(1, Math.min(200, Number(req.query.maxLeverage) || 50));
+    const mt5Lots = Math.max(0.01, Math.min(100, Number(req.query.mt5Lots) || 0.01));
+
+    // Resolve meta — check static symbols first, then trending cache.
+    const isStaticSymbol = rawSymbol in SYMBOLS;
+    const trendingMeta = isStaticSymbol ? null : getTrendingSymbols().find((t) => t.symbolKey === rawSymbol) ?? null;
+    if (!isStaticSymbol && !trendingMeta) {
+      res.status(400).json({ error: `Unknown symbol: ${rawSymbol}` });
+      return;
+    }
 
     const gates = TF_GATES[timeframe] ?? [];
-
-    // Fetch candles for every unique higher TF in parallel with the primary fetch
     const uniqueHigherTfs = [...new Set(gates.map((g) => g.higherTf))];
-    const [candles, spotPrice, ...higherTfCandlesArr] = await Promise.all([
-      fetchCandlesForTimeframe(symbol, timeframe),
-      fetchSpotPrice(symbol),
-      ...uniqueHigherTfs.map((tf) => fetchCandlesForTimeframe(symbol, tf)),
-    ]);
+
+    let candles: Awaited<ReturnType<typeof fetchCandlesForTimeframe>>;
+    let spotPrice: number | null;
+
+    if (isStaticSymbol) {
+      const symbol = rawSymbol as Symbol;
+      const [c, sp] = await Promise.all([
+        fetchCandlesForTimeframe(symbol, timeframe),
+        fetchSpotPrice(symbol),
+      ]);
+      candles = c;
+      spotPrice = sp;
+    } else {
+      // Dynamic trending coin — use OKX candles and spot price.
+      [candles, spotPrice] = await Promise.all([
+        fetchCandlesForDynamic(trendingMeta!.okxPerp!, timeframe),
+        fetchSpotForDynamic(trendingMeta!.okxPerp!),
+      ]);
+    }
+
+    // Also fetch higher-TF candles for gate checks (only for static symbols; dynamic coins skip gates).
+    const higherTfCandlesArr = isStaticSymbol
+      ? await Promise.all(uniqueHigherTfs.map((tf) => fetchCandlesForTimeframe(rawSymbol as Symbol, tf)))
+      : [];
     const higherTfMap = new Map(
-      uniqueHigherTfs.map((tf, i) => [tf, higherTfCandlesArr[i]]),
+      uniqueHigherTfs.map((tf, i) => [tf, higherTfCandlesArr[i] ?? []]),
     );
 
     if (candles.length < 2) {
       res.status(503).json({ error: "Insufficient candle data for timeframe" });
       return;
     }
-    const round = makeRounder(SYMBOLS[symbol].decimals);
+
+    const meta = isStaticSymbol ? SYMBOLS[rawSymbol as Symbol] : trendingMeta!;
+    const round = makeRounder(meta.decimals);
     const adjustedCandles =
-      spotPrice != null && SYMBOLS[symbol].hasFuturesBasis
+      isStaticSymbol && spotPrice != null && SYMBOLS[rawSymbol as Symbol].hasFuturesBasis
         ? applyFuturesBasis(candles, spotPrice, round)
         : candles;
 
@@ -81,7 +109,8 @@ router.get("/levels", async (req: Request, res: Response) => {
       adjustedCandles,
       spotPrice,
       timeframe,
-      symbol,
+      rawSymbol,
+      meta,
       accountSize,
       riskPctFrac,
       minCollateral,
@@ -89,35 +118,28 @@ router.get("/levels", async (req: Request, res: Response) => {
       mt5Lots,
     );
 
-    // ── Multi-gate alignment check ────────────────────────────────────────────
-    // Run each gate in order. First failure suppresses the signal to WAIT.
-    //
-    // Gates only apply to PENDING (unfilled) limit orders. A FILLED trade
-    // means the trader is already in the position — suppressing it to WAIT
-    // hides a live trade from the signal panel while Active Signals (which
-    // skips gates) still shows it, producing a contradictory display.
-    // Once filled, show the real trade state regardless of higher-TF alignment.
+    // ── Multi-gate alignment check (static symbols only) ──────────────────────
     const isFilledTrade =
       result.tradeState !== "WAIT" && result.tradeState !== "PENDING";
-    if (!isFilledTrade && (result.signal === "BUY" || result.signal === "SELL")) {
+    if (isStaticSymbol && !isFilledTrade && (result.signal === "BUY" || result.signal === "SELL")) {
       for (const gate of gates) {
         const rawHigher = higherTfMap.get(gate.higherTf);
         if (!rawHigher || rawHigher.length < 2) continue;
 
         const adjHigher =
-          spotPrice != null && SYMBOLS[symbol].hasFuturesBasis
+          spotPrice != null && SYMBOLS[rawSymbol as Symbol].hasFuturesBasis
             ? applyFuturesBasis(rawHigher, spotPrice, round)
             : rawHigher;
         const higherResult = computeLevelsStable(
-          adjHigher, spotPrice, gate.higherTf, symbol,
+          adjHigher, spotPrice, gate.higherTf, rawSymbol, meta,
           accountSize, riskPctFrac, minCollateral, maxLeverage, mt5Lots,
         );
         const higherSignal = higherResult.signal;
 
         const blocked =
           gate.mode === "require_agree"
-            ? higherSignal !== result.signal           // must match (WAIT also blocks)
-            : higherSignal === (result.signal === "BUY" ? "SELL" : "BUY"); // only block opposite
+            ? higherSignal !== result.signal
+            : higherSignal === (result.signal === "BUY" ? "SELL" : "BUY");
 
         if (blocked) {
           const higherLabel = higherSignal === "BUY" || higherSignal === "SELL"
@@ -167,17 +189,9 @@ router.get("/price-history", async (req: Request, res: Response) => {
 
     const round = makeRounder(SYMBOLS[symbol].decimals);
 
-    // Drop any live-tick stub Yahoo injects for the current partial period.
-    // Yahoo injects a zero-range bar (O=H=L=C) at the EXACT current clock
-    // time (e.g. 02:28:38) rather than a candle-grid boundary (e.g. 02:00:00).
-    // Genuine market-close candles can also be zero-range but always land on
-    // a proper grid boundary, so we only strip stubs whose timestamp has
-    // non-zero seconds (intraday) or whose date string contains a "T" with
-    // a non-zero seconds component.
     const rawSliced = allCandles.slice(-bars);
     const last = rawSliced[rawSliced.length - 1];
     const isOffGrid = (d: string) => {
-      // Intraday ISO strings: "2026-05-04T02:28:38.000Z" — check seconds
       const match = d.match(/T\d{2}:\d{2}:(\d{2})/);
       return match ? parseInt(match[1], 10) !== 0 : false;
     };
@@ -195,11 +209,6 @@ router.get("/price-history", async (req: Request, res: Response) => {
     const lastGood = sliced[sliced.length - 1];
     const effectiveSpot = spotPrice ?? lastGood.close;
 
-    // Apply futures basis shift for metals (SI=F / GC=F Yahoo symbols).
-    // This shifts every OHLCV bar by the constant basis (spot − futures_close)
-    // so chart candles and S/R levels align with broker spot pricing (MT5 /
-    // OANDA) rather than showing the futures contango premium (~40c for silver).
-    // For spot-priced symbols (EURUSD=X etc.) the basis is effectively zero.
     const aligned = applyFuturesBasis(sliced, effectiveSpot, round);
 
     const data = GetPriceHistoryResponse.parse({
@@ -221,117 +230,149 @@ router.get("/price-history", async (req: Request, res: Response) => {
 // filled-in-profit/drawdown/TP1) rather than stale frozen text.
 router.get("/active-signals", async (req: Request, res: Response) => {
   try {
-    // Same sizing inputs as /levels — flow them through so the overview's
-    // Jupiter $col×lev / SL/TP1/TP2 dollar projections match what the
-    // signal panel shows for the same symbol.
     const params = GetActiveSignalsQueryParams.parse(req.query);
     const { accountSize, riskPct, minCollateral, maxLeverage, mt5Lots } = params;
 
-    // Dedupe spot fetches: each symbol's spot is the same regardless of
-    // timeframe, so issue ONE upstream call per symbol (was 4× before, which
-    // caused thundering-herd pressure on OANDA/OKX before the cache populated).
-    const spotPromises = new Map<Symbol, Promise<number | null>>();
+    // Dedupe spot fetches per symbol.
+    const spotPromises = new Map<string, Promise<number | null>>();
     for (const symbol of ALL_SYMBOLS) {
       spotPromises.set(symbol, fetchSpotPrice(symbol));
     }
 
-    const combos: Array<{ symbol: Symbol; timeframe: Timeframe }> = [];
+    // Include trending coins in spot deduplication.
+    const trendingNow = getTrendingSymbols();
+    for (const t of trendingNow) {
+      if (!spotPromises.has(t.symbolKey)) {
+        spotPromises.set(t.symbolKey, fetchSpotForDynamic(t.okxPerp!));
+      }
+    }
+
+    type ComboItem =
+      | { kind: "static"; symbol: Symbol; timeframe: Timeframe }
+      | { kind: "dynamic"; symbolKey: string; timeframe: Timeframe };
+
+    const combos: ComboItem[] = [];
     for (const symbol of ALL_SYMBOLS) {
       for (const timeframe of OVERVIEW_TIMEFRAMES) {
-        combos.push({ symbol, timeframe });
+        combos.push({ kind: "static", symbol, timeframe });
+      }
+    }
+    for (const t of trendingNow) {
+      for (const timeframe of OVERVIEW_TIMEFRAMES) {
+        combos.push({ kind: "dynamic", symbolKey: t.symbolKey, timeframe });
       }
     }
 
     type ComboResult =
-      | { ok: true; symbol: Symbol; timeframe: Timeframe; levels: ReturnType<typeof computeLevelsStable> }
-      | { ok: false; symbol: Symbol; timeframe: Timeframe };
+      | { ok: true; symbolKey: string; timeframe: Timeframe; levels: ReturnType<typeof computeLevelsStable> }
+      | { ok: false; symbolKey: string; timeframe: Timeframe };
 
     const results: ComboResult[] = await Promise.all(
-      combos.map(async ({ symbol, timeframe }): Promise<ComboResult> => {
+      combos.map(async (combo): Promise<ComboResult> => {
+        const symbolKey = combo.kind === "static" ? combo.symbol : combo.symbolKey;
+        const timeframe = combo.timeframe;
         try {
-          const [candles, spot] = await Promise.all([
-            fetchCandlesForTimeframe(symbol, timeframe),
-            spotPromises.get(symbol)!,
-          ]);
-          if (candles.length < 2) return { ok: false, symbol, timeframe };
-          const adjRound = makeRounder(SYMBOLS[symbol].decimals);
-          const adjustedCandles =
-            spot != null && SYMBOLS[symbol].hasFuturesBasis
-              ? applyFuturesBasis(candles, spot, adjRound)
-              : candles;
-          const levels = computeLevelsStable(
-            adjustedCandles,
-            spot,
-            timeframe,
-            symbol,
-            accountSize,
-            riskPct / 100,
-            minCollateral,
-            maxLeverage,
-            mt5Lots,
-          );
+          if (combo.kind === "static") {
+            const symbol = combo.symbol;
+            const [candles, spot] = await Promise.all([
+              fetchCandlesForTimeframe(symbol, timeframe),
+              spotPromises.get(symbol)!,
+            ]);
+            if (candles.length < 2) return { ok: false, symbolKey, timeframe };
+            const adjRound = makeRounder(SYMBOLS[symbol].decimals);
+            const adjustedCandles =
+              spot != null && SYMBOLS[symbol].hasFuturesBasis
+                ? applyFuturesBasis(candles, spot, adjRound)
+                : candles;
+            const levels = computeLevelsStable(
+              adjustedCandles,
+              spot,
+              timeframe,
+              symbol,
+              SYMBOLS[symbol],
+              accountSize,
+              riskPct / 100,
+              minCollateral,
+              maxLeverage,
+              mt5Lots,
+            );
 
-          // Gate: for pending 30m signals, 1h must agree before showing
-          // in the overview. Filled trades are exempt — already in position.
-          const isFilledTrade =
-            levels.tradeState !== "WAIT" && levels.tradeState !== "PENDING";
-          if (
-            timeframe === "30m" &&
-            !isFilledTrade &&
-            (levels.signal === "BUY" || levels.signal === "SELL")
-          ) {
-            try {
-              const rawHigher = await fetchCandlesForTimeframe(symbol, "1h");
-              if (rawHigher.length >= 2) {
-                const adjRound2 = makeRounder(SYMBOLS[symbol].decimals);
-                const adjHigher =
-                  spot != null && SYMBOLS[symbol].hasFuturesBasis
-                    ? applyFuturesBasis(rawHigher, spot, adjRound2)
-                    : rawHigher;
-                const higherResult = computeLevelsStable(
-                  adjHigher, spot, "1h", symbol,
-                  accountSize, riskPct / 100, minCollateral, maxLeverage, mt5Lots,
-                );
-                if (higherResult.signal !== levels.signal) {
-                  // Gate blocked the signal — this is a valid data feed result,
-                  // not a failure. Suppress to WAIT so it doesn't appear in the
-                  // active-signals list but doesn't pollute the failure counter.
-                  return {
-                    ok: true,
-                    symbol,
-                    timeframe,
-                    levels: {
-                      ...levels,
-                      signal: "WAIT" as const,
-                      tradeState: levels.tradeState === "WAIT" ? "WAIT" as const : levels.tradeState,
-                      signalReason: `[${timeframe}] BUY setup suppressed — 1h says ${higherResult.signal ?? "WAIT"}. Wait for 1h to align before entering.`,
-                    },
-                  };
+            // Gate: for pending 30m signals, 1h must agree before showing.
+            const isFilledTrade =
+              levels.tradeState !== "WAIT" && levels.tradeState !== "PENDING";
+            if (
+              timeframe === "30m" &&
+              !isFilledTrade &&
+              (levels.signal === "BUY" || levels.signal === "SELL")
+            ) {
+              try {
+                const rawHigher = await fetchCandlesForTimeframe(symbol, "1h");
+                if (rawHigher.length >= 2) {
+                  const adjRound2 = makeRounder(SYMBOLS[symbol].decimals);
+                  const adjHigher =
+                    spot != null && SYMBOLS[symbol].hasFuturesBasis
+                      ? applyFuturesBasis(rawHigher, spot, adjRound2)
+                      : rawHigher;
+                  const higherResult = computeLevelsStable(
+                    adjHigher, spot, "1h", symbol, SYMBOLS[symbol],
+                    accountSize, riskPct / 100, minCollateral, maxLeverage, mt5Lots,
+                  );
+                  if (higherResult.signal !== levels.signal) {
+                    return {
+                      ok: true,
+                      symbolKey,
+                      timeframe,
+                      levels: {
+                        ...levels,
+                        signal: "WAIT" as const,
+                        tradeState: levels.tradeState === "WAIT" ? "WAIT" as const : levels.tradeState,
+                        signalReason: `[${timeframe}] BUY setup suppressed — 1h says ${higherResult.signal ?? "WAIT"}. Wait for 1h to align before entering.`,
+                      },
+                    };
+                  }
                 }
+              } catch {
+                // gate fetch failed — include the signal anyway
               }
-            } catch {
-              // gate fetch failed — include the signal anyway
             }
+            return { ok: true, symbolKey, timeframe, levels };
+          } else {
+            // Dynamic trending coin.
+            const tMeta = trendingNow.find((t) => t.symbolKey === combo.symbolKey);
+            if (!tMeta) return { ok: false, symbolKey, timeframe };
+            const [candles, spot] = await Promise.all([
+              fetchCandlesForDynamic(tMeta.okxPerp!, timeframe),
+              spotPromises.get(combo.symbolKey)!,
+            ]);
+            if (candles.length < 2) return { ok: false, symbolKey, timeframe };
+            const levels = computeLevelsStable(
+              candles,
+              spot,
+              timeframe,
+              combo.symbolKey,
+              tMeta,
+              accountSize,
+              riskPct / 100,
+              minCollateral,
+              maxLeverage,
+              mt5Lots,
+            );
+            return { ok: true, symbolKey, timeframe, levels };
           }
-
-          return { ok: true, symbol, timeframe, levels };
         } catch (err) {
-          // Per-combo failures must not blank the whole overview, but they
-          // ARE surfaced via the coverage block so the UI can distinguish
-          // "no signals" from "data feed degraded".
-          req.log.warn({ err, symbol, timeframe }, "active-signals combo failed");
-          return { ok: false, symbol, timeframe };
+          req.log.warn({ err, symbolKey, timeframe }, "active-signals combo failed");
+          return { ok: false, symbolKey, timeframe };
         }
       }),
     );
 
     const succeeded = results.filter((r): r is Extract<ComboResult, { ok: true }> => r.ok);
     const failed = results.filter((r): r is Extract<ComboResult, { ok: false }> => !r.ok);
-    const failedSymbols = Array.from(new Set(failed.map((r) => r.symbol)));
+    const failedSymbols = Array.from(new Set(failed.map((r) => r.symbolKey)));
 
     const signals = succeeded
       .filter((r) => r.levels.signal === "BUY" || r.levels.signal === "SELL")
-      .map((r) => ({ symbol: r.symbol, timeframe: r.timeframe, levels: r.levels }));
+      .map((r) => ({ symbol: r.symbolKey, timeframe: r.timeframe, levels: r.levels }));
 
     const data = GetActiveSignalsResponse.parse({
       signals,
@@ -350,10 +391,27 @@ router.get("/active-signals", async (req: Request, res: Response) => {
   }
 });
 
+// GET /api/trending-symbols — list of dynamically-discovered trending coins.
+router.get("/trending-symbols", (_req: Request, res: Response) => {
+  const symbols = getTrendingSymbols();
+  const now = Date.now();
+  res.json({
+    symbols: symbols.map((t) => ({
+      symbolKey: t.symbolKey,
+      baseAsset: t.baseAsset,
+      okxSymbol: t.okxPerp!,
+      phemexSymbol: t.phemexPerp!,
+      decimals: t.decimals,
+      priceChange24h: t.priceChange24h,
+      rank: t.rank,
+      discoveredAt: new Date(now - 3600_000).toISOString(), // approximate
+      expiresAt: new Date(t.expiresAt).toISOString(),
+    })),
+    lastUpdated: new Date().toISOString(),
+  });
+});
+
 // ─── Admin seed endpoint ──────────────────────────────────────────────────────
-// POST /api/admin/seed-trades
-// Accepts a JSON body of { "SYMBOL::TF": { ...ActiveTrade } } and injects them
-// into the in-memory Map + persists to disk and DB. Requires Bearer token.
 router.post("/admin/seed-trades", (req: Request, res: Response) => {
   const secret = process.env["ADMIN_SECRET"];
   if (!secret) {
@@ -382,7 +440,7 @@ router.delete("/admin/active-trade", (req: Request, res: Response) => {
   if (provided !== secret) { res.status(401).json({ error: "Unauthorized" }); return; }
   const { symbol, timeframe } = req.query as { symbol?: string; timeframe?: string };
   if (!symbol || !timeframe) { res.status(400).json({ error: "symbol and timeframe required" }); return; }
-  clearActiveTrade(symbol as Symbol, timeframe as Timeframe);
+  clearActiveTrade(symbol, timeframe as Timeframe);
   res.json({ ok: true, cleared: `${symbol}::${timeframe}` });
 });
 

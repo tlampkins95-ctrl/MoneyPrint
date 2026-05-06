@@ -29,6 +29,7 @@ import type {
   PushSubscribeResponse,
   PushSubscriptionPayload,
   PushUnsubscribeRequest,
+  TrendingSymbolsResponse,
   VapidPublicKey,
 } from "./api.schemas";
 
@@ -396,6 +397,82 @@ export function useGetActiveSignals<
   },
 ): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetActiveSignalsQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Returns the top trending coins that have OKX USDT SWAP instruments. Updated hourly. Coins expire after 24 hours.
+ * @summary Get currently-trending coins discovered from CoinGecko gainers + OKX
+ */
+export const getGetTrendingSymbolsUrl = () => {
+  return `/api/trending-symbols`;
+};
+
+export const getTrendingSymbols = async (
+  options?: RequestInit,
+): Promise<TrendingSymbolsResponse> => {
+  return customFetch<TrendingSymbolsResponse>(getGetTrendingSymbolsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetTrendingSymbolsQueryKey = () => {
+  return [`/api/trending-symbols`] as const;
+};
+
+export const getGetTrendingSymbolsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getTrendingSymbols>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getTrendingSymbols>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetTrendingSymbolsQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getTrendingSymbols>>
+  > = ({ signal }) => getTrendingSymbols({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getTrendingSymbols>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetTrendingSymbolsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getTrendingSymbols>>
+>;
+export type GetTrendingSymbolsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get currently-trending coins discovered from CoinGecko gainers + OKX
+ */
+
+export function useGetTrendingSymbols<
+  TData = Awaited<ReturnType<typeof getTrendingSymbols>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getTrendingSymbols>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetTrendingSymbolsQueryOptions(options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

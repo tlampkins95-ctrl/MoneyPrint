@@ -4,7 +4,7 @@ import { format } from "date-fns";
 import { RefreshCw, TrendingUp, TrendingDown, ArrowRight, AlertTriangle, Wallet, Settings, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Timeframe } from "@/components/timeframe-selector";
-import { SYMBOLS, fmtPrice, fmtPriceCompact, type Symbol } from "@/lib/symbols";
+import { getSymbolMeta, fmtPriceMeta, fmtPriceCompactMeta, type Symbol } from "@/lib/symbols";
 
 const ACCOUNT_KEY = "screener.accountSize";
 const RISK_KEY = "screener.riskPct";
@@ -34,7 +34,7 @@ export function SignalPanel({
   expanded,
   onExpandedChange,
 }: {
-  symbol: Symbol;
+  symbol: string;
   timeframe: Timeframe;
   expanded: boolean;
   onExpandedChange: (v: boolean) => void;
@@ -119,7 +119,7 @@ export function SignalPanel({
   }
 
   const isPositive = data.priceChange >= 0;
-  const meta = SYMBOLS[symbol];
+  const meta = getSymbolMeta(symbol);
 
   // Venue routing: BTC/ETH trade on Phemex USDT perps ($collateral × leverage),
   // XAU/XAG/forex pairs trade on MetaTrader 5 (lot-based),
@@ -238,7 +238,7 @@ export function SignalPanel({
                 {meta.short}
               </div>
               <div className="text-3xl font-bold tracking-tight">
-                {fmtPrice(symbol, data.currentPrice)}
+                {fmtPriceMeta(meta, data.currentPrice)}
               </div>
             </div>
             <div className={cn("text-right", isPositive ? "text-[#00c950]" : "text-[#e53e3e]")}>
@@ -307,10 +307,10 @@ export function SignalPanel({
                     </div>
                   );
                 })()}
-                <Row label="Entry" value={fmtPrice(symbol, data.entryPrice)} />
+                <Row label="Entry" value={fmtPriceMeta(meta, data.entryPrice)} />
                 <TradeRow
                   label="Stop Loss"
-                  value={fmtPrice(symbol, data.stopLoss)}
+                  value={fmtPriceMeta(meta, data.stopLoss)}
                   pnl={pnls?.pnlAtSL ?? null}
                   rMultiple={-1}
                   valueClass="text-[#e53e3e]"
@@ -319,7 +319,7 @@ export function SignalPanel({
                 />
                 <TradeRow
                   label="Take Profit 1"
-                  value={fmtPrice(symbol, data.takeProfit1)}
+                  value={fmtPriceMeta(meta, data.takeProfit1)}
                   pnl={pnls?.pnlAtTP1 ?? null}
                   rMultiple={computeR(data.entryPrice, data.stopLoss, data.takeProfit1)}
                   valueClass="text-[#4ade80]"
@@ -328,7 +328,7 @@ export function SignalPanel({
                 />
                 <TradeRow
                   label="Take Profit 2"
-                  value={fmtPrice(symbol, data.takeProfit2)}
+                  value={fmtPriceMeta(meta, data.takeProfit2)}
                   pnl={pnls?.pnlAtTP2 ?? null}
                   rMultiple={computeR(data.entryPrice, data.stopLoss, data.takeProfit2)}
                   valueClass="text-[#86efac]"
@@ -356,7 +356,7 @@ export function SignalPanel({
                 <ZoneRow
                   symbol={symbol}
                   side="LONG"
-                  zoneLabel={`${fmtPriceCompact(symbol, data.buyZone.low, 1)}–${fmtPriceCompact(symbol, data.buyZone.high, 1)}`}
+                  zoneLabel={`${fmtPriceCompactMeta(meta, data.buyZone.low, 1)}–${fmtPriceCompactMeta(meta, data.buyZone.high, 1)}`}
                   price={data.currentPrice}
                   zoneLow={data.buyZone.low}
                   zoneHigh={data.buyZone.high}
@@ -365,7 +365,7 @@ export function SignalPanel({
                 <ZoneRow
                   symbol={symbol}
                   side="SHORT"
-                  zoneLabel={`${fmtPriceCompact(symbol, data.sellZone.low, 1)}–${fmtPriceCompact(symbol, data.sellZone.high, 1)}`}
+                  zoneLabel={`${fmtPriceCompactMeta(meta, data.sellZone.low, 1)}–${fmtPriceCompactMeta(meta, data.sellZone.high, 1)}`}
                   price={data.currentPrice}
                   zoneLow={data.sellZone.low}
                   zoneHigh={data.sellZone.high}
@@ -1062,7 +1062,7 @@ function ZoneRow({
   zoneHigh,
   isActive,
 }: {
-  symbol: Symbol;
+  symbol: string;
   side: "LONG" | "SHORT";
   zoneLabel: string;
   price: number;
@@ -1083,14 +1083,16 @@ function ZoneRow({
     status = "IN ZONE";
   } else if (isLong) {
     distance = price - zoneHigh;
+    const zm = getSymbolMeta(symbol);
     status = distance > 0
-      ? `${fmtPriceCompact(symbol, distance, 1)} above`
-      : `${fmtPriceCompact(symbol, Math.abs(distance), 1)} below`;
+      ? `${fmtPriceCompactMeta(zm, distance, 1)} above`
+      : `${fmtPriceCompactMeta(zm, Math.abs(distance), 1)} below`;
   } else {
+    const zm = getSymbolMeta(symbol);
     distance = zoneLow - price;
     status = distance > 0
-      ? `${fmtPriceCompact(symbol, distance, 1)} below`
-      : `${fmtPriceCompact(symbol, Math.abs(distance), 1)} above`;
+      ? `${fmtPriceCompactMeta(zm, distance, 1)} below`
+      : `${fmtPriceCompactMeta(zm, Math.abs(distance), 1)} above`;
   }
 
   const glow = isActive || inZone;

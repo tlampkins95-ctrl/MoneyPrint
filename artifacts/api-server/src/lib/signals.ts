@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { Pool } from "pg";
-import { SYMBOLS, makeRounder, type Symbol } from "./symbols";
+import { SYMBOLS, makeRounder, type Symbol, type SymbolMeta } from "./symbols";
 import { type CandleRaw, type Timeframe } from "./yahoo-fetch";
 import { fetchOkxPerpPrice, fetchPhemexPerpPrice } from "./crypto-perp-fetch";
 import { fetchPythPrice } from "./pyth-fetch";
@@ -435,7 +435,7 @@ function computeRecommendedLots(
 }
 
 function computeMT5Sizing(
-  symbol: Symbol,
+  symbolKey: string,
   lots: number,
   entry: number,
   stopLoss: number,
@@ -444,8 +444,8 @@ function computeMT5Sizing(
   accountSize: number,
   riskPct: number,
 ): MT5Sizing {
-  const { size, unit } = mt5ContractSize(symbol);
-  const usdPerUnit = mt5UsdPerPriceUnitPerLot(symbol, entry);
+  const { size, unit } = mt5ContractSize(symbolKey as Symbol);
+  const usdPerUnit = mt5UsdPerPriceUnitPerLot(symbolKey as Symbol, entry);
   const slDist = Math.abs(entry - stopLoss);
   const tp1Dist = Math.abs(takeProfit1 - entry);
   const tp2Dist = Math.abs(takeProfit2 - entry);
@@ -682,7 +682,8 @@ function computeAchievable(
 }
 
 function computePositionSizing(
-  symbol: Symbol,
+  symbolKey: string,
+  meta: SymbolMeta,
   entry: number,
   stopLoss: number,
   takeProfit1: number,
@@ -697,7 +698,6 @@ function computePositionSizing(
   if (!isFinite(slDist) || slDist <= 0 || !isFinite(entry) || entry <= 0) return undefined;
 
   const riskAmount = accountSize * riskPct;
-  const meta = SYMBOLS[symbol];
   const r = (n: number, d = 2) => Math.round(n * 10 ** d) / 10 ** d;
 
   // ─── Crypto perps (BTC, ETH) — venue: PHEMEX (USDT-margined linear perps) ───
@@ -710,7 +710,7 @@ function computePositionSizing(
     if (leverage > 50) leverageNote = "Required leverage > 50x — high liquidation risk on volatile prints. Consider a larger account.";
     else if (leverage > 25) leverageNote = "High leverage — keep meaningful free margin to absorb wicks.";
     else if (leverage > 10) leverageNote = "Moderate-high leverage — keep extra margin in reserve.";
-    const unit = symbol.replace("USD", "");
+    const unit = symbolKey.replace(/USDT?$/, "");
     return {
       venue: "PHEMEX",
       accountSize: r(accountSize),
@@ -743,7 +743,7 @@ function computePositionSizing(
   // risk-budget-derived sizing for context, but the AUTHORITATIVE block for
   // MT5 venue is `mt5` (lots × contractSize → exact $ P&L).
   if (meta.goldApi) {
-    const ozPerStd = symbol === "XAGUSD" ? 5000 : 100;
+    const ozPerStd = symbolKey === "XAGUSD" ? 5000 : 100;
     const positionSize = riskAmount / slDist; // oz
     const notional = positionSize * entry;
     const std = positionSize / ozPerStd;
@@ -760,7 +760,7 @@ function computePositionSizing(
         mini: r(std * 10, 3),
         micro: r(std * 100, 2),
       },
-      mt5: computeMT5Sizing(symbol, mt5Lots, entry, stopLoss, takeProfit1, takeProfit2, accountSize, riskPct),
+      mt5: computeMT5Sizing(symbolKey, mt5Lots, entry, stopLoss, takeProfit1, takeProfit2, accountSize, riskPct),
     };
   }
 
@@ -772,7 +772,7 @@ function computePositionSizing(
   // none of those overriding markers is sized as a no-leverage spot buy.
   if (meta.coinbase && !meta.phemexPerp && !meta.goldApi) {
     const spotToken = computeSpotTokenSizing(
-      symbol, entry, stopLoss, takeProfit1, takeProfit2, accountSize, riskPct,
+      symbolKey, entry, stopLoss, takeProfit1, takeProfit2, accountSize, riskPct,
     );
     return {
       venue: "PHEMEX_SPOT",
@@ -795,8 +795,8 @@ function computePositionSizing(
   //     → N = riskUSD × entry / slDist
   //   Cross JPY pair (GBPJPY): use live USDJPY from spotCache (fallback 150)
   //     → N = riskUSD × usdJpy / slDist
-  const isUsdBase = symbol === "USDJPY";
-  const isJpyCross = symbol === "GBPJPY";
+  const isUsdBase = symbolKey === "USDJPY";
+  const isJpyCross = symbolKey === "GBPJPY";
   let positionSize: number;
   let notional: number;
   if (isUsdBase) {
@@ -811,7 +811,7 @@ function computePositionSizing(
     notional = positionSize * entry; // base × USD/base = USD
   }
   const std = positionSize / 100_000;
-  const unit = symbol.slice(0, 3); // EUR, GBP, AUD, USD
+  const unit = symbolKey.slice(0, 3); // EUR, GBP, AUD, USD
   return {
     venue: "MT5",
     accountSize: r(accountSize),
@@ -825,7 +825,7 @@ function computePositionSizing(
       mini: r(std * 10, 3),
       micro: r(std * 100, 2),
     },
-    mt5: computeMT5Sizing(symbol, mt5Lots, entry, stopLoss, takeProfit1, takeProfit2, accountSize, riskPct),
+    mt5: computeMT5Sizing(symbolKey, mt5Lots, entry, stopLoss, takeProfit1, takeProfit2, accountSize, riskPct),
   };
 }
 
@@ -834,7 +834,7 @@ function computePositionSizing(
 // characteristics. Position size = floor(riskAmount / |entry − stopLoss|)
 // expressed in whole tokens.
 function computeSpotTokenSizing(
-  symbol: Symbol,
+  symbolKey: string,
   entry: number,
   stopLoss: number,
   takeProfit1: number,
@@ -853,7 +853,7 @@ function computeSpotTokenSizing(
   const notional = tokenCount * entry;
   const actualRisk = tokenCount * slDist;
   // Derive ticker label: strip trailing "USDT" or "USD" from the symbol key.
-  const tokenSymbol = symbol.replace(/USDT$|USD$/, "");
+  const tokenSymbol = symbolKey.replace(/USDT$|USD$/, "");
   return {
     tokenCount,
     tokenSymbol,
@@ -885,14 +885,14 @@ export function computeLevels(
   candles: CandleRaw[],
   spotPrice: number | null,
   timeframe: Timeframe,
-  symbol: Symbol,
+  symbolKey: string,
+  meta: SymbolMeta,
   accountSize: number = DEFAULT_ACCOUNT_SIZE,
   riskPct: number = DEFAULT_RISK_PCT,
   minCollateral: number = DEFAULT_MIN_COLLATERAL,
   maxLeverage: number = DEFAULT_MAX_LEVERAGE,
   mt5Lots: number = DEFAULT_MT5_LOTS,
 ) {
-  const meta = SYMBOLS[symbol];
   const round = makeRounder(meta.decimals);
   const fmt = (n: number) => `${meta.prefix}${round(n).toFixed(meta.decimals)}`;
 
@@ -1130,7 +1130,8 @@ export function computeLevels(
   const riskRewardRatio = riskDist > 0 ? Math.round((rewardDist / riskDist) * 100) / 100 : 0;
 
   const positionSizing = computePositionSizing(
-    symbol,
+    symbolKey,
+    meta,
     entryPrice,
     stopLoss,
     takeProfit1,
@@ -1171,7 +1172,7 @@ export function computeLevels(
   const tradeState = (signal === "WAIT" ? "WAIT" : "PENDING") as TradeState;
 
   return {
-    symbol,
+    symbol: symbolKey,
     currentPrice: round(currentPrice),
     priceChange,
     priceChangePct,
@@ -1397,8 +1398,8 @@ function persistActiveTrades(): void {
 loadActiveTradesFromDisk();
 void syncFromDb();
 
-function tradeKey(symbol: Symbol, timeframe: Timeframe): string {
-  return `${symbol}::${timeframe}`;
+function tradeKey(symbolKey: string, timeframe: Timeframe): string {
+  return `${symbolKey}::${timeframe}`;
 }
 
 function isInvalidated(trade: ActiveTrade, currentPrice: number): boolean {
@@ -1491,9 +1492,9 @@ function describeFrozenTrade(
   trade: ActiveTrade,
   currentPrice: number,
   timeframe: Timeframe,
-  symbol: Symbol,
+  symbolKey: string,
+  meta: SymbolMeta,
 ): string {
-  const meta = SYMBOLS[symbol];
   const round = makeRounder(meta.decimals);
   const fmt = (n: number) => `${meta.prefix}${round(n).toFixed(meta.decimals)}`;
   const tfLabel = TIMEFRAME_LABELS[timeframe];
@@ -1576,15 +1577,16 @@ export function computeLevelsStable(
   candles: CandleRaw[],
   spotPrice: number | null,
   timeframe: Timeframe,
-  symbol: Symbol,
+  symbolKey: string,
+  meta: SymbolMeta,
   accountSize: number = DEFAULT_ACCOUNT_SIZE,
   riskPct: number = DEFAULT_RISK_PCT,
   minCollateral: number = DEFAULT_MIN_COLLATERAL,
   maxLeverage: number = DEFAULT_MAX_LEVERAGE,
   mt5Lots: number = DEFAULT_MT5_LOTS,
 ): Levels {
-  const fresh = computeLevels(candles, spotPrice, timeframe, symbol, accountSize, riskPct, minCollateral, maxLeverage, mt5Lots);
-  const k = tradeKey(symbol, timeframe);
+  const fresh = computeLevels(candles, spotPrice, timeframe, symbolKey, meta, accountSize, riskPct, minCollateral, maxLeverage, mt5Lots);
+  const k = tradeKey(symbolKey, timeframe);
   const existing = activeTrades.get(k);
 
   // Invalidate if SL or TP2 hit.
@@ -1680,7 +1682,7 @@ export function computeLevelsStable(
       signal: stillActive.signal,
       // Recompute the explanation against current price — the frozen text is
       // a lie the moment price walks away from the original zone.
-      signalReason: describeFrozenTrade(stillActive, fresh.currentPrice, timeframe, symbol),
+      signalReason: describeFrozenTrade(stillActive, fresh.currentPrice, timeframe, symbolKey, meta),
       // Typed mirror of the same classification — consumers should branch on
       // this, not parse the prose above.
       tradeState: classifyTradeState(stillActive, fresh.currentPrice),
@@ -1696,7 +1698,8 @@ export function computeLevelsStable(
       // Recompute sizing fresh against the (possibly updated) account/risk
       // inputs but using the FROZEN entry, stop loss and TP levels.
       positionSizing: computePositionSizing(
-        symbol,
+        symbolKey,
+        meta,
         stillActive.entryPrice,
         stillActive.stopLoss,
         stillActive.takeProfit1,
@@ -1798,12 +1801,12 @@ export function applyFuturesBasis(
 }
 
 // Exposed for diagnostics / testing.
-export function getActiveTrade(symbol: Symbol, timeframe: Timeframe): ActiveTrade | undefined {
-  return activeTrades.get(tradeKey(symbol, timeframe));
+export function getActiveTrade(symbolKey: string, timeframe: Timeframe): ActiveTrade | undefined {
+  return activeTrades.get(tradeKey(symbolKey, timeframe));
 }
 
-export function clearActiveTrade(symbol: Symbol, timeframe: Timeframe): void {
-  activeTrades.delete(tradeKey(symbol, timeframe));
+export function clearActiveTrade(symbolKey: string, timeframe: Timeframe): void {
+  activeTrades.delete(tradeKey(symbolKey, timeframe));
   persistActiveTrades();
 }
 

@@ -5,7 +5,6 @@
  * XAGUSD Screener API
  * OpenAPI spec version: 0.2.0
  */
-import type { ActiveSignalEntrySymbol } from "./activeSignalEntrySymbol";
 import type { ActiveSignalEntryTimeframe } from "./activeSignalEntryTimeframe";
 import type { LevelsData } from "./levelsData";
 
@@ -13,7 +12,8 @@ import type { LevelsData } from "./levelsData";
  * One active BUY/SELL signal in the overview. Wraps a LevelsData payload with the timeframe so the client can route on click.
  */
 export interface ActiveSignalEntry {
-  symbol: ActiveSignalEntrySymbol;
+  /** Symbol key (static or trending dynamic coin) */
+  symbol: string;
   timeframe: ActiveSignalEntryTimeframe;
   levels: LevelsData;
 }

@@ -281,22 +281,31 @@ export interface LevelsData {
   positionSizing?: PositionSizing;
 }
 
-export type ActiveSignalEntrySymbol =
-  (typeof ActiveSignalEntrySymbol)[keyof typeof ActiveSignalEntrySymbol];
+/**
+ * A dynamically-discovered trending coin with an OKX USDT SWAP instrument.
+ */
+export interface TrendingSymbol {
+  /** Internal symbol key (e.g. TONUSDT) */
+  symbolKey: string;
+  /** Base ticker (e.g. TON) */
+  baseAsset: string;
+  /** OKX SWAP instrument ID (e.g. TON-USDT-SWAP) */
+  okxSymbol: string;
+  /** Phemex perp symbol (e.g. TONUSDT) */
+  phemexSymbol: string;
+  decimals: number;
+  /** 24-hour price change percent */
+  priceChange24h: number;
+  /** Rank among current trending coins (1 = top gainer) */
+  rank: number;
+  discoveredAt: string;
+  expiresAt: string;
+}
 
-export const ActiveSignalEntrySymbol = {
-  XAGUSD: "XAGUSD",
-  XAUUSD: "XAUUSD",
-  EURUSD: "EURUSD",
-  GBPUSD: "GBPUSD",
-  AUDUSD: "AUDUSD",
-  USDJPY: "USDJPY",
-  GBPJPY: "GBPJPY",
-  BTCUSD: "BTCUSD",
-  ETHUSD: "ETHUSD",
-  SKYAIUSDT: "SKYAIUSDT",
-  ZECUSD: "ZECUSD",
-} as const;
+export interface TrendingSymbolsResponse {
+  symbols: TrendingSymbol[];
+  lastUpdated: string;
+}
 
 export type ActiveSignalEntryTimeframe =
   (typeof ActiveSignalEntryTimeframe)[keyof typeof ActiveSignalEntryTimeframe];
@@ -312,7 +321,8 @@ export const ActiveSignalEntryTimeframe = {
  * One active BUY/SELL signal in the overview. Wraps a LevelsData payload with the timeframe so the client can route on click.
  */
 export interface ActiveSignalEntry {
-  symbol: ActiveSignalEntrySymbol;
+  /** Symbol key (static or trending dynamic coin) */
+  symbol: string;
   timeframe: ActiveSignalEntryTimeframe;
   levels: LevelsData;
 }
@@ -407,9 +417,9 @@ export interface BacktestResult {
 
 export type GetLevelsParams = {
   /**
-   * Trading instrument
+   * Trading instrument — static key (e.g. XAGUSD, BTCUSD) or a dynamic trending coin key (e.g. TONUSDT)
    */
-  symbol?: GetLevelsSymbol;
+  symbol?: string;
   /**
    * Bar timeframe used to compute pivots and zones
    */
@@ -443,23 +453,6 @@ export type GetLevelsParams = {
    */
   mt5Lots?: number;
 };
-
-export type GetLevelsSymbol =
-  (typeof GetLevelsSymbol)[keyof typeof GetLevelsSymbol];
-
-export const GetLevelsSymbol = {
-  XAGUSD: "XAGUSD",
-  XAUUSD: "XAUUSD",
-  EURUSD: "EURUSD",
-  GBPUSD: "GBPUSD",
-  AUDUSD: "AUDUSD",
-  USDJPY: "USDJPY",
-  GBPJPY: "GBPJPY",
-  BTCUSD: "BTCUSD",
-  ETHUSD: "ETHUSD",
-  SKYAIUSDT: "SKYAIUSDT",
-  ZECUSD: "ZECUSD",
-} as const;
 
 export type GetLevelsTimeframe =
   (typeof GetLevelsTimeframe)[keyof typeof GetLevelsTimeframe];

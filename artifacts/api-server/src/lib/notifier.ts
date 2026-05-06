@@ -159,7 +159,7 @@ async function checkSymbol(
     // state: null on a genuine new signal, populated on an oscillation.
     const activeTradeBeforeCompute = getActiveTrade(symbol, timeframe);
 
-    const levels = computeLevelsStable(adjustedCandles, spot, timeframe, symbol);
+    const levels = computeLevelsStable(adjustedCandles, spot, timeframe, symbol, SYMBOLS[symbol]);
     const k = key(symbol, timeframe);
     const prev = stateMap.get(k);
     const now = Date.now();
@@ -226,7 +226,7 @@ async function checkSymbol(
           spot != null && SYMBOLS[symbol].hasFuturesBasis
             ? applyFuturesBasis(higherCandles, spot, adjRound)
             : higherCandles;
-        const higherResult = computeLevelsStable(adjHigher, spot, higherTf, symbol);
+        const higherResult = computeLevelsStable(adjHigher, spot, higherTf, symbol, SYMBOLS[symbol]);
         if (higherResult.signal !== levels.signal) {
           logger.info(
             { symbol, timeframe, signal: levels.signal, higherTf, higherSignal: higherResult.signal },
@@ -335,12 +335,89 @@ async function checkSymbol(
   }
 }
 
+async function checkTrendingSymbol(
+  symbolKey: string,
+  timeframe: Timeframe,
+): Promise<void> {
+  try {
+    const { getTrendingSymbols, fetchCandlesForDynamic, fetchSpotForDynamic } = await import("./trending-discovery");
+    const tMeta = getTrendingSymbols().find((t) => t.symbolKey === symbolKey);
+    if (!tMeta) return; // expired or not in cache
+    const [candles, spot] = await Promise.all([
+      fetchCandlesForDynamic(tMeta.okxPerp!, timeframe),
+      fetchSpotForDynamic(tMeta.okxPerp!),
+    ]);
+    if (candles.length < 2) return;
+
+    const k = key(symbolKey as Symbol, timeframe);
+    const prev = stateMap.get(k);
+    const levels = computeLevelsStable(candles, spot, timeframe, symbolKey, tMeta);
+    const now = Date.now();
+
+    const isSeedSnapshot = !prev && (levels.signal === "BUY" || levels.signal === "SELL");
+    const transitioned =
+      isSeedSnapshot ||
+      (!!prev && prev.signal !== levels.signal && (levels.signal === "BUY" || levels.signal === "SELL"));
+
+    if (!prev && !isSeedSnapshot) {
+      stateMap.set(k, { signal: levels.signal, lastAlertAt: 0 });
+      return;
+    }
+
+    const cooldownMs = COOLDOWN_BY_TIMEFRAME[timeframe];
+    const cooldownActive = !!prev && now - prev.lastAlertAt < cooldownMs;
+
+    if (transitioned && !cooldownActive) {
+      const tfLabel = TIMEFRAME_LABEL[timeframe];
+      const link = buildAppLink(symbolKey as Symbol, timeframe);
+      const ctx = buildAlertContext(symbolKey as Symbol, timeframe, tfLabel, levels, link);
+      const tasks: Promise<void>[] = [];
+      if (isTelegramEnabled()) tasks.push(sendTelegramAlert(ctx));
+      if (isWebPushEnabled()) {
+        const sideEmoji = levels.signal === "BUY" ? "🟢" : "🔴";
+        const sideWord = levels.signal === "BUY" ? "BUY" : "SELL";
+        const fmtN = (n: number) => `$${n.toFixed(tMeta.decimals)}`;
+        const lines = [
+          `${tfLabel} · ${fmtN(levels.currentPrice)}`,
+          `Entry ${fmtN(levels.entryPrice)} · SL ${fmtN(levels.stopLoss)}`,
+          `TP1 ${fmtN(levels.takeProfit1)} · TP2 ${fmtN(levels.takeProfit2)}`,
+        ];
+        tasks.push(
+          broadcastWebPush({
+            title: `${sideEmoji} ${sideWord} ${symbolKey} (TRENDING)`,
+            body: lines.join("\n"),
+            url: link ?? "/",
+            tag: `${symbolKey}-${timeframe}`,
+          }),
+        );
+      }
+      if (tasks.length > 0) await Promise.allSettled(tasks);
+      stateMap.set(k, { signal: levels.signal, lastAlertAt: now });
+      return;
+    }
+    stateMap.set(k, { signal: levels.signal, lastAlertAt: prev?.lastAlertAt ?? 0 });
+  } catch (err) {
+    logger.warn({ err, symbolKey, timeframe }, "Trending notifier check failed");
+  }
+}
+
 async function tick(): Promise<void> {
   const tasks: Promise<void>[] = [];
   for (const symbol of ALL_SYMBOLS) {
     for (const tf of TRACKED_TIMEFRAMES) {
       tasks.push(checkSymbol(symbol, tf));
     }
+  }
+  // Also check trending coins.
+  try {
+    const { getTrendingSymbols } = await import("./trending-discovery");
+    for (const t of getTrendingSymbols()) {
+      for (const tf of TRACKED_TIMEFRAMES) {
+        tasks.push(checkTrendingSymbol(t.symbolKey, tf));
+      }
+    }
+  } catch {
+    // trending-discovery not yet loaded — skip
   }
   await Promise.allSettled(tasks);
 }

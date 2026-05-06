@@ -8,7 +8,6 @@
 
 export * from "./achievablePosition";
 export * from "./activeSignalEntry";
-export * from "./activeSignalEntrySymbol";
 export * from "./activeSignalEntryTimeframe";
 export * from "./activeSignalsCoverage";
 export * from "./activeSignalsResponse";
@@ -22,7 +21,6 @@ export * from "./getBacktestParams";
 export * from "./getBacktestSymbol";
 export * from "./getBacktestTimeframe";
 export * from "./getLevelsParams";
-export * from "./getLevelsSymbol";
 export * from "./getLevelsTimeframe";
 export * from "./getPriceHistoryParams";
 export * from "./getPriceHistorySymbol";
@@ -45,4 +43,6 @@ export * from "./pushSubscriptionPayload";
 export * from "./pushUnsubscribeRequest";
 export * from "./spotTokenSizing";
 export * from "./tradeZone";
+export * from "./trendingSymbol";
+export * from "./trendingSymbolsResponse";
 export * from "./vapidPublicKey";

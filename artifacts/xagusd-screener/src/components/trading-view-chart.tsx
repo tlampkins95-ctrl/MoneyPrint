@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useGetLevels, getGetLevelsQueryKey } from "@workspace/api-client-react";
 import type { Timeframe } from "@/components/timeframe-selector";
-import { SYMBOLS, fmtPrice, type Symbol } from "@/lib/symbols";
+import { getSymbolMeta, fmtPriceMeta } from "@/lib/symbols";
 import type { LevelsData } from "@workspace/api-client-react";
 
 // ─── TradingView free-widget types ────────────────────────────────────────────
@@ -46,7 +46,7 @@ export function TradingViewChart({
   symbol,
   timeframe,
 }: {
-  symbol: Symbol;
+  symbol: string;
   timeframe: Timeframe;
 }) {
   const wrapRef   = useRef<HTMLDivElement>(null);
@@ -76,7 +76,7 @@ export function TradingViewChart({
 
       const widget = new window.TradingView.widget({
         container_id:        uid,
-        symbol:              SYMBOLS[symbol].tv,
+        symbol:              getSymbolMeta(symbol).tv,
         interval:            TF_MAP[timeframe],
         timezone:            "Etc/UTC",
         theme:               "dark",
@@ -104,7 +104,7 @@ export function TradingViewChart({
     };
   }, [symbol, timeframe]);
 
-  const meta = SYMBOLS[symbol];
+  const meta = getSymbolMeta(symbol);
   const signalColor =
     levels?.signal === "BUY"  ? "bg-emerald-500/95 text-black border-emerald-400" :
     levels?.signal === "SELL" ? "bg-red-500/95 text-black border-red-400" :
@@ -127,7 +127,7 @@ export function TradingViewChart({
             {levels.signal}
           </span>
           <span className="px-2 py-0.5 rounded-sm bg-black/80 border border-zinc-700 text-zinc-100 text-[11px]">
-            {fmtPrice(symbol, levels.currentPrice)}
+            {fmtPriceMeta(meta, levels.currentPrice)}
           </span>
         </div>
       )}

@@ -5,14 +5,13 @@
  * XAGUSD Screener API
  * OpenAPI spec version: 0.2.0
  */
-import type { GetLevelsSymbol } from "./getLevelsSymbol";
 import type { GetLevelsTimeframe } from "./getLevelsTimeframe";
 
 export type GetLevelsParams = {
   /**
-   * Trading instrument
+   * Trading instrument — static key (e.g. XAGUSD, BTCUSD) or a dynamic trending coin key (e.g. TONUSDT)
    */
-  symbol?: GetLevelsSymbol;
+  symbol?: string;
   /**
    * Bar timeframe used to compute pivots and zones
    */

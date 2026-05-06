@@ -94,9 +94,9 @@ export function EdgeLeaderboard({
   selectedTimeframe,
   onSelect,
 }: {
-  selectedSymbol: Symbol;
+  selectedSymbol: string;
   selectedTimeframe: Timeframe;
-  onSelect: (s: Symbol, t: Timeframe) => void;
+  onSelect: (s: string, t: Timeframe) => void;
 }) {
   const [open, setOpen] = useState(true);
   const [sortKey, setSortKey] = useState<SortKey>("winRate");
@@ -112,7 +112,7 @@ export function EdgeLeaderboard({
   const totalCount = ALL_SYMBOLS.length * ALL_TIMEFRAMES.length;
 
   const bestPerSymbol = useMemo(() => {
-    const m = new Map<Symbol, CellStats>();
+    const m = new Map<string, CellStats>();
     for (const c of cells) {
       if (c.loading || c.error || c.tradeCount === 0) continue;
       const cur = m.get(c.symbol);
