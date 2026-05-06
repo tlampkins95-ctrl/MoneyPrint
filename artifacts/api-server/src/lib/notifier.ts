@@ -257,7 +257,7 @@ async function checkSymbol(
       if (isWebPushEnabled()) {
         const sideEmoji = levels.signal === "BUY" ? "🟢" : "🔴";
         const sideWord = levels.signal === "BUY" ? "BUY" : "SELL";
-        const typeTag = levels.signalType === "BREAKOUT" ? " ◈ BREAKOUT" : "";
+        const typeTag = levels.signalType === "BREAKOUT" ? " ◈ BREAKOUT" : " ↕ PIVOT";
         const m = SYMBOLS[symbol];
         const fmtN = (n: number) => `${m.prefix}${n.toFixed(m.decimals)}`;
         // Body keeps the most decision-relevant numbers within the
@@ -403,7 +403,7 @@ async function checkTrendingSymbol(
       if (isWebPushEnabled()) {
         const sideEmoji = levels.signal === "BUY" ? "🟢" : "🔴";
         const sideWord = levels.signal === "BUY" ? "BUY" : "SELL";
-        const typeTagT = levels.signalType === "BREAKOUT" ? " ◈ BREAKOUT" : "";
+        const typeTagT = levels.signalType === "BREAKOUT" ? " ◈ BREAKOUT" : " ↕ PIVOT";
         const fmtN = (n: number) => `$${n.toFixed(tMeta.decimals)}`;
         const lines = [
           `${tfLabel} · ${fmtN(levels.currentPrice)}`,

@@ -221,10 +221,16 @@ export function SignalPanel({
           >
             {data.signal}
           </div>
-          {data.signalType === "BREAKOUT" && (data.signal === "BUY" || data.signal === "SELL") && (
-            <span className="mt-1 px-3 py-0.5 text-[10px] font-bold tracking-widest rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/40">
-              ◈ BREAKOUT
-            </span>
+          {(data.signal === "BUY" || data.signal === "SELL") && (
+            data.signalType === "BREAKOUT" ? (
+              <span className="mt-1 px-3 py-0.5 text-[10px] font-bold tracking-widest rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/40">
+                ◈ BREAKOUT
+              </span>
+            ) : (
+              <span className="mt-1 px-3 py-0.5 text-[10px] font-bold tracking-widest rounded-full bg-zinc-700/40 text-zinc-400 border border-zinc-600/40">
+                ↕ PIVOT BOUNCE
+              </span>
+            )
           )}
           <p className="mt-2 text-sm font-medium leading-snug max-w-xs bg-black/20 rounded-lg px-3 py-2">
             {data.signalReason}
@@ -353,30 +359,58 @@ export function SignalPanel({
 
             {/* Zone Watch */}
             <div className="min-w-0">
-              <div className="text-[10px] text-zinc-500 tracking-widest font-sans font-semibold mb-2 flex items-center gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-zinc-600 inline-block" />
-                ZONE WATCH
-              </div>
-              <div className="rounded-lg overflow-hidden border border-zinc-800 divide-y divide-zinc-800/60 bg-[#111]">
-                <ZoneRow
-                  symbol={symbol}
-                  side="LONG"
-                  zoneLabel={`${fmtPriceCompactMeta(meta, data.buyZone.low, 1)}–${fmtPriceCompactMeta(meta, data.buyZone.high, 1)}`}
-                  price={data.currentPrice}
-                  zoneLow={data.buyZone.low}
-                  zoneHigh={data.buyZone.high}
-                  isActive={data.signal === "BUY"}
-                />
-                <ZoneRow
-                  symbol={symbol}
-                  side="SHORT"
-                  zoneLabel={`${fmtPriceCompactMeta(meta, data.sellZone.low, 1)}–${fmtPriceCompactMeta(meta, data.sellZone.high, 1)}`}
-                  price={data.currentPrice}
-                  zoneLow={data.sellZone.low}
-                  zoneHigh={data.sellZone.high}
-                  isActive={data.signal === "SELL"}
-                />
-              </div>
+              {(() => {
+                const isBreakout = data.signalType === "BREAKOUT" && (data.signal === "BUY" || data.signal === "SELL");
+                const isBuyBreakout = isBreakout && data.signal === "BUY";
+                const isSellBreakout = isBreakout && data.signal === "SELL";
+                // BREAKOUT mode: repurpose zones to show R2 floor/S2 ceiling and R3/S3 target.
+                // stopLoss ≈ R2 - 0.5×ATR (floor), entryPrice ≈ current price (above R2).
+                // takeProfit1 = R3 (target), takeProfit2 = R3 + ATR.
+                const longZoneLabel = isBreakout
+                  ? isBuyBreakout
+                    ? `${fmtPriceCompactMeta(meta, data.stopLoss, 1)}–${fmtPriceCompactMeta(meta, data.entryPrice, 1)}`
+                    : `${fmtPriceCompactMeta(meta, data.takeProfit2, 1)}–${fmtPriceCompactMeta(meta, data.takeProfit1, 1)}`
+                  : `${fmtPriceCompactMeta(meta, data.buyZone.low, 1)}–${fmtPriceCompactMeta(meta, data.buyZone.high, 1)}`;
+                const shortZoneLabel = isBreakout
+                  ? isBuyBreakout
+                    ? `${fmtPriceCompactMeta(meta, data.takeProfit1, 1)}–${fmtPriceCompactMeta(meta, data.takeProfit2, 1)}`
+                    : `${fmtPriceCompactMeta(meta, data.entryPrice, 1)}–${fmtPriceCompactMeta(meta, data.stopLoss, 1)}`
+                  : `${fmtPriceCompactMeta(meta, data.sellZone.low, 1)}–${fmtPriceCompactMeta(meta, data.sellZone.high, 1)}`;
+                const longZoneLow  = isBreakout ? (isBuyBreakout ? data.stopLoss   : data.takeProfit2) : data.buyZone.low;
+                const longZoneHigh = isBreakout ? (isBuyBreakout ? data.entryPrice : data.takeProfit1) : data.buyZone.high;
+                const shortZoneLow  = isBreakout ? (isBuyBreakout ? data.takeProfit1 : data.entryPrice) : data.sellZone.low;
+                const shortZoneHigh = isBreakout ? (isBuyBreakout ? data.takeProfit2 : data.stopLoss)   : data.sellZone.high;
+                return (
+                  <>
+                    <div className="text-[10px] text-zinc-500 tracking-widest font-sans font-semibold mb-2 flex items-center gap-2">
+                      <span className="w-1.5 h-1.5 rounded-full bg-zinc-600 inline-block" />
+                      {isBreakout ? (isBuyBreakout ? "BREAKOUT LEVELS" : "BREAKDOWN LEVELS") : "ZONE WATCH"}
+                    </div>
+                    <div className="rounded-lg overflow-hidden border border-zinc-800 divide-y divide-zinc-800/60 bg-[#111]">
+                      <ZoneRow
+                        symbol={symbol}
+                        side="LONG"
+                        sideLabel={isBuyBreakout ? "SUPPORT (was R2)" : isSellBreakout ? "SUPPORT (S3)" : undefined}
+                        zoneLabel={longZoneLabel}
+                        price={data.currentPrice}
+                        zoneLow={longZoneLow}
+                        zoneHigh={longZoneHigh}
+                        isActive={data.signal === "BUY"}
+                      />
+                      <ZoneRow
+                        symbol={symbol}
+                        side="SHORT"
+                        sideLabel={isBuyBreakout ? "RESISTANCE (R3)" : isSellBreakout ? "RESISTANCE (was S2)" : undefined}
+                        zoneLabel={shortZoneLabel}
+                        price={data.currentPrice}
+                        zoneLow={shortZoneLow}
+                        zoneHigh={shortZoneHigh}
+                        isActive={data.signal === "SELL"}
+                      />
+                    </div>
+                  </>
+                );
+              })()}
             </div>
           </div>
 
@@ -1061,6 +1095,7 @@ function formatNotional(n: number): string {
 function ZoneRow({
   symbol,
   side,
+  sideLabel,
   zoneLabel,
   price,
   zoneLow,
@@ -1069,6 +1104,7 @@ function ZoneRow({
 }: {
   symbol: string;
   side: "LONG" | "SHORT";
+  sideLabel?: string;
   zoneLabel: string;
   price: number;
   zoneLow: number;
@@ -1120,7 +1156,7 @@ function ZoneRow({
             <TrendingDown className={cn("w-3 h-3 shrink-0", sideColor)} />
           )}
           <span className={cn("text-[11px] font-bold tracking-wider", sideColor)}>
-            {side}
+            {sideLabel ?? side}
           </span>
           {isActive && (
             <span

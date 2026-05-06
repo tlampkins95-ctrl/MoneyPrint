@@ -206,10 +206,13 @@ function runBreakoutBacktest(candles: CandleRaw[], timeframe: Timeframe, symbol:
     // SELL: histogram negative and falling.
     const macdSellOk = !macdWarm || (hNow < 0 && hNow < hPrev1);
 
-    // Breakout trigger: prev bar closed above R2 (breakout bar), today is entry bar.
-    const breakoutTriggered = prev.close > r2;
-    // Breakdown trigger: prev bar closed below S2.
-    const breakdownTriggered = prev.close < s2;
+    // Breakout trigger: today's bar opens above R2 (computed from yesterday = prev).
+    // This mirrors the live signal: currentPrice > pivots.r2.
+    // "prev.close > r2" is structurally impossible (R2 is always above prev.high),
+    // so we evaluate today's opening price against yesterday's calculated R2 level.
+    const breakoutTriggered = today.open > r2;
+    // Breakdown trigger: today's bar opens below S2 (computed from yesterday).
+    const breakdownTriggered = today.open < s2;
 
     const canBuy  = breakoutTriggered  && buyAllowed  && trendBullish && rsiBuyOk  && macdBuyOk;
     const canSell = breakdownTriggered && sellAllowed && trendBearish && rsiSellOk && macdSellOk;
