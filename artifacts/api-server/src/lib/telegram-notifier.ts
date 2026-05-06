@@ -1,12 +1,13 @@
 import { logger } from "./logger";
-import { SYMBOLS, type Symbol } from "./symbols";
+import type { SymbolMeta } from "./symbols";
 import type { Timeframe } from "./yahoo-fetch";
 import type { computeLevelsStable } from "./signals";
 
 type Levels = ReturnType<typeof computeLevelsStable>;
 
 export interface AlertContext {
-  symbol: Symbol;
+  symbolKey: string;
+  meta: Pick<SymbolMeta, "label" | "prefix" | "decimals">;
   timeframe: Timeframe;
   tfLabel: string;
   levels: Levels;
@@ -21,9 +22,8 @@ export function isTelegramEnabled(): boolean {
   );
 }
 
-function fmt(symbol: Symbol, n: number): string {
-  const m = SYMBOLS[symbol];
-  return `${m.prefix}${n.toFixed(m.decimals)}`;
+function fmt(meta: Pick<SymbolMeta, "prefix" | "decimals">, n: number): string {
+  return `${meta.prefix}${n.toFixed(meta.decimals)}`;
 }
 
 function escapeHtml(s: string): string {
@@ -36,13 +36,14 @@ function escapeHtml(s: string): string {
 // Pure data context — both Telegram and (potentially) other channels can
 // build their own formatted output from this without re-fetching anything.
 export function buildAlertContext(
-  symbol: Symbol,
+  symbolKey: string,
+  meta: Pick<SymbolMeta, "label" | "prefix" | "decimals">,
   timeframe: Timeframe,
   tfLabel: string,
   levels: Levels,
   link: string | null,
 ): AlertContext {
-  return { symbol, timeframe, tfLabel, levels, link };
+  return { symbolKey, meta, timeframe, tfLabel, levels, link };
 }
 
 async function sendTelegramMessage(text: string, photoUrl?: string): Promise<void> {
@@ -79,7 +80,7 @@ async function sendTelegramMessage(text: string, photoUrl?: string): Promise<voi
 }
 
 export async function sendTelegramAlert(ctx: AlertContext): Promise<void> {
-  const { symbol, tfLabel, levels, link } = ctx;
+  const { symbolKey, meta, tfLabel, levels, link } = ctx;
   const sideEmoji = levels.signal === "BUY" ? "🟢" : "🔴";
   const sideWord = levels.signal === "BUY" ? "BUY" : "SELL";
 
@@ -108,13 +109,13 @@ export async function sendTelegramAlert(ctx: AlertContext): Promise<void> {
       : "—";
 
   const lines = [
-    `${sideEmoji} <b>${sideWord} ${escapeHtml(SYMBOLS[symbol].label)}</b>`,
-    `<i>${tfLabel} · now ${fmt(symbol, levels.currentPrice)}</i>`,
+    `${sideEmoji} <b>${sideWord} ${escapeHtml(meta.label)}</b>`,
+    `<i>${tfLabel} · now ${fmt(meta, levels.currentPrice)}</i>`,
     "",
-    `🎯 Entry  <b>${fmt(symbol, levels.entryPrice)}</b>`,
-    `🛑 Stop   <b>${fmt(symbol, levels.stopLoss)}</b>  <i>${slDollar}</i>`,
-    `✅ TP1    <b>${fmt(symbol, levels.takeProfit1)}</b>  <i>${tp1Dollar} (+${tp1R.toFixed(1)}R)</i>`,
-    `🏆 TP2    <b>${fmt(symbol, levels.takeProfit2)}</b>  <i>${tp2Dollar} (+${tp2R.toFixed(1)}R)</i>`,
+    `🎯 Entry  <b>${fmt(meta, levels.entryPrice)}</b>`,
+    `🛑 Stop   <b>${fmt(meta, levels.stopLoss)}</b>  <i>${slDollar}</i>`,
+    `✅ TP1    <b>${fmt(meta, levels.takeProfit1)}</b>  <i>${tp1Dollar} (+${tp1R.toFixed(1)}R)</i>`,
+    `🏆 TP2    <b>${fmt(meta, levels.takeProfit2)}</b>  <i>${tp2Dollar} (+${tp2R.toFixed(1)}R)</i>`,
     "",
     `Trend: <b>${levels.trend}</b> (${levels.trendStrength})`,
   ];
@@ -143,5 +144,7 @@ export async function sendTelegramAlert(ctx: AlertContext): Promise<void> {
   const host = prodDomain || devDomain;
   const logoUrl = host ? `https://${host}/logo.png` : undefined;
 
+  // Label trending coins in the log for observability.
+  logger.info({ symbolKey, alert: `${sideWord} ${meta.label}` }, "Sending Telegram alert");
   await sendTelegramMessage(lines.join("\n"), logoUrl);
 }

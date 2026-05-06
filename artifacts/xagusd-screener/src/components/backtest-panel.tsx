@@ -92,21 +92,17 @@ function StatCard({
   );
 }
 
-export function BacktestPanel({
+// Inner component: only mounted when symbol is a known static symbol.
+// Keeping the hook call in this component avoids the `enabled: false` typing
+// workaround — if the component doesn't mount, the hook never runs.
+function BacktestPanelInner({
   symbol,
   timeframe,
 }: {
-  symbol: string;
+  symbol: GetBacktestSymbol;
   timeframe: Timeframe;
 }) {
-  const staticSymbol = Object.values(GetBacktestSymbol).includes(symbol as GetBacktestSymbol)
-    ? (symbol as GetBacktestSymbol)
-    : undefined;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data, isLoading, error } = useGetBacktest(
-    { symbol: staticSymbol, timeframe },
-    { query: { enabled: !!staticSymbol } as any },
-  );
+  const { data, isLoading, error } = useGetBacktest({ symbol, timeframe });
   const [tradesOpen, setTradesOpen] = useState(false);
 
   // Persisted collapse state, default open. The shell renders the header even
@@ -366,4 +362,36 @@ export function BacktestPanel({
       </div>
     </BacktestShell>
   );
+}
+
+// Public wrapper: accepts any string symbol (including trending coins).
+// For known static symbols, delegates to BacktestPanelInner which calls the
+// hook. For trending coins, renders a "not available" placeholder without
+// ever calling the backtest hook — avoiding a spurious XAGUSD result.
+export function BacktestPanel({
+  symbol,
+  timeframe,
+}: {
+  symbol: string;
+  timeframe: Timeframe;
+}) {
+  const staticSymbol = Object.values(GetBacktestSymbol).includes(symbol as GetBacktestSymbol)
+    ? (symbol as GetBacktestSymbol)
+    : undefined;
+
+  if (!staticSymbol) {
+    return (
+      <div className="border border-border rounded-lg bg-card/50 backdrop-blur-md flex flex-col" data-testid="backtest-panel">
+        <div className="px-4 py-3 border-b border-border/50 flex items-center gap-2">
+          <Target className="w-4 h-4 text-primary" />
+          <h2 className="text-sm font-semibold tracking-widest font-mono">STRATEGY BACKTEST</h2>
+        </div>
+        <div className="p-6 text-center text-muted-foreground text-sm font-mono">
+          Backtest not available for trending coins
+        </div>
+      </div>
+    );
+  }
+
+  return <BacktestPanelInner symbol={staticSymbol} timeframe={timeframe} />;
 }

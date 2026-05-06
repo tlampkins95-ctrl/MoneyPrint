@@ -105,16 +105,16 @@ const TIMEFRAME_LABEL: Record<Timeframe, string> = {
 
 const stateMap = new Map<string, TrackedState>();
 
-function key(symbol: Symbol, timeframe: Timeframe): string {
-  return `${symbol}::${timeframe}`;
+function key(symbolKey: string, timeframe: Timeframe): string {
+  return `${symbolKey}::${timeframe}`;
 }
 
-function buildAppLink(symbol: Symbol, timeframe: Timeframe): string | null {
+function buildAppLink(symbolKey: string, timeframe: Timeframe): string | null {
   const prodDomains = process.env["REPLIT_DOMAINS"];
   const devDomain = process.env["REPLIT_DEV_DOMAIN"];
   const host = prodDomains?.split(",")[0]?.trim() || devDomain?.trim();
   if (!host) return null;
-  return `https://${host}/?symbol=${symbol}&timeframe=${timeframe}`;
+  return `https://${host}/?symbol=${symbolKey}&timeframe=${timeframe}`;
 }
 
 function isWebPushEnabled(): boolean {
@@ -246,7 +246,7 @@ async function checkSymbol(
 
       const tfLabel = TIMEFRAME_LABEL[timeframe];
       const link = buildAppLink(symbol, timeframe);
-      const ctx = buildAlertContext(symbol, timeframe, tfLabel, levels, link);
+      const ctx = buildAlertContext(symbol, SYMBOLS[symbol], timeframe, tfLabel, levels, link);
 
       // Fan out to every channel that's enabled. Failures in one channel
       // never block the others — Promise.allSettled isolates them.
@@ -349,7 +349,7 @@ async function checkTrendingSymbol(
     ]);
     if (candles.length < 2) return;
 
-    const k = key(symbolKey as Symbol, timeframe);
+    const k = key(symbolKey, timeframe);
     const prev = stateMap.get(k);
     const levels = computeLevelsStable(candles, spot, timeframe, symbolKey, tMeta);
     const now = Date.now();
@@ -369,8 +369,8 @@ async function checkTrendingSymbol(
 
     if (transitioned && !cooldownActive) {
       const tfLabel = TIMEFRAME_LABEL[timeframe];
-      const link = buildAppLink(symbolKey as Symbol, timeframe);
-      const ctx = buildAlertContext(symbolKey as Symbol, timeframe, tfLabel, levels, link);
+      const link = buildAppLink(symbolKey, timeframe);
+      const ctx = buildAlertContext(symbolKey, tMeta, timeframe, tfLabel, levels, link);
       const tasks: Promise<void>[] = [];
       if (isTelegramEnabled()) tasks.push(sendTelegramAlert(ctx));
       if (isWebPushEnabled()) {
