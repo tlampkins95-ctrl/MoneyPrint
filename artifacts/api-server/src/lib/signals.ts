@@ -1652,6 +1652,68 @@ function wasEntryTagged(trade: ActiveTrade, candles: CandleRaw[]): boolean {
   return false;
 }
 
+// Scan all candles since the trade was triggered to detect whether price wicked
+// through SL, TP1, or TP2 on a closed candle and has since recovered. This
+// catches poll-gap misses that the live-spot isInvalidated check can't see.
+//
+// Candle classes (identical baseline logic to wasEntryTagged):
+//   ts > openedCandleStartTs  — fully post-snapshot: check wick directly.
+//   ts === openedCandleStartTs — containing candle: only count wick extensions
+//     past the snapshot baseline (same anti-false-positive guard as entry).
+//   ts < openedCandleStartTs  — skip (trade didn't exist yet).
+//
+// Ambiguous candle (wicks both SL and TP2 simultaneously): treat as SL hit
+// first — the more conservative / safer outcome for the trader.
+function scanExitWicks(
+  trade: ActiveTrade,
+  candles: CandleRaw[],
+): { hitTp1: boolean; hitTp2: boolean; hitSl: boolean } {
+  const isBuy = trade.signal === "BUY";
+  let hitTp1 = false;
+  let hitTp2 = false;
+  let hitSl = false;
+
+  for (const c of candles) {
+    const ts = Date.parse(c.date);
+    if (Number.isNaN(ts) || ts < trade.openedCandleStartTs) continue;
+
+    if (ts > trade.openedCandleStartTs) {
+      // Fully post-snapshot candle: check wicks directly.
+      if (isBuy) {
+        if (c.high >= trade.takeProfit2) hitTp2 = true;
+        if (c.high >= trade.takeProfit1) hitTp1 = true;
+        if (c.low <= trade.stopLoss) hitSl = true;
+      } else {
+        if (c.low <= trade.takeProfit2) hitTp2 = true;
+        if (c.low <= trade.takeProfit1) hitTp1 = true;
+        if (c.high >= trade.stopLoss) hitSl = true;
+      }
+    } else {
+      // Containing candle (ts === openedCandleStartTs): only count wick
+      // extensions past the snapshot baseline so pre-snapshot wicks are ignored.
+      if (isBuy) {
+        // Upward extensions (TP1/TP2 are above entry for BUY)
+        if (c.high > trade.openedCandleHigh) {
+          if (c.high >= trade.takeProfit2) hitTp2 = true;
+          if (c.high >= trade.takeProfit1) hitTp1 = true;
+        }
+        // Downward extensions (SL is below entry for BUY)
+        if (c.low < trade.openedCandleLow && c.low <= trade.stopLoss) hitSl = true;
+      } else {
+        // Downward extensions (TP1/TP2 are below entry for SELL)
+        if (c.low < trade.openedCandleLow) {
+          if (c.low <= trade.takeProfit2) hitTp2 = true;
+          if (c.low <= trade.takeProfit1) hitTp1 = true;
+        }
+        // Upward extensions (SL is above entry for SELL)
+        if (c.high > trade.openedCandleHigh && c.high >= trade.stopLoss) hitSl = true;
+      }
+    }
+  }
+
+  return { hitTp1, hitTp2, hitSl };
+}
+
 // Build a context-aware description of an active (frozen) trade based on
 // where the live price sits relative to the frozen entry / SL / TPs. The
 // snapshot's original signalReason text goes stale fast — once price walks
@@ -1811,6 +1873,36 @@ export function computeLevelsStable(
     logClosedTrade(stillActiveBeforeFlip, symbolKey, timeframe, fresh.currentPrice, "REVERSED");
     activeTrades.delete(k);
     persistActiveTrades();
+  }
+
+  // Candle-wick exit detection for triggered trades.
+  // Complements the live-spot isInvalidated check above: if price wicked
+  // through SL, TP1, or TP2 on a closed candle and has since recovered, the
+  // live price won't trigger isInvalidated — so we scan the candle history.
+  // Only run for triggered (filled) trades; pending limits have their own
+  // MISSED path below. Re-read from the map because the flip check may have
+  // already removed it.
+  const wickScanTrade = activeTrades.get(k);
+  if (wickScanTrade && wickScanTrade.triggered) {
+    const { hitTp1, hitTp2, hitSl } = scanExitWicks(wickScanTrade, candles);
+    if (hitTp2) {
+      // Full target reached via candle wick — log TP2 close and delete.
+      logClosedTrade(wickScanTrade, symbolKey, timeframe, wickScanTrade.takeProfit2);
+      activeTrades.delete(k);
+      persistActiveTrades();
+    } else if (hitSl) {
+      // SL (or BE trail after TP1) reached via candle wick — log and delete.
+      // logClosedTrade auto-derives BE_TRAIL vs SL from trade.tp1Hit + stopLoss.
+      logClosedTrade(wickScanTrade, symbolKey, timeframe, wickScanTrade.stopLoss);
+      activeTrades.delete(k);
+      persistActiveTrades();
+    } else if (hitTp1 && !wickScanTrade.tp1Hit) {
+      // TP1 tagged via wick but price has since retreated — trail stop to BE
+      // so the trade stays alive as a risk-free runner.
+      wickScanTrade.tp1Hit = true;
+      wickScanTrade.stopLoss = wickScanTrade.entryPrice;
+      persistActiveTrades();
+    }
   }
 
   // Detect fill via two complementary signals:
