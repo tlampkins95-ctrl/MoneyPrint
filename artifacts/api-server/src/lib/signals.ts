@@ -1370,7 +1370,8 @@ async function syncFromDb(): Promise<void> {
     // the next signal cycle with the corrected formula.
     let purged = 0;
     for (const [k, trade] of activeTrades) {
-      if (trade.signalType === "BREAKOUT" && trade.riskRewardRatio < 1.0) {
+      const zeroRisk = trade.entryPrice === trade.stopLoss || trade.stopLoss === 0;
+      if ((trade.signalType === "BREAKOUT" && trade.riskRewardRatio < 1.0) || zeroRisk) {
         activeTrades.delete(k);
         purged++;
       }
