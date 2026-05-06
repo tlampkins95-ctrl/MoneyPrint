@@ -976,22 +976,36 @@ export function computeLevels(
   //   • RSI 22–45 for breakdown (below neutral, not yet oversold/climactic)
   //   • MACD histogram positive AND rising (breakout) / negative AND falling (breakdown)
   //     → requires two consecutive completed bars both in the same direction
-  //   • EMA21 > EMA50 (trend aligned for breakout) / EMA21 < EMA50 (breakdown)
+  //   • currentPrice > EMA21 (see breakout gates below — faster than EMA crossover)
   //   • EMA200 regime gate (same as pivot-bounce, bypassed on 1d)
   // These only fire inside the WAIT else-branch, ensuring pivot-bounce setups
   // (which have a more precise zone entry) always take priority.
+  // Breakout gates — designed to fire on the bar of the actual move, not weeks later:
+  //   • RSI 55–88: wide ceiling; a 5-6% pump routinely sends 1h RSI to 82-87.
+  //     Only block truly parabolic exhaustion (>88). Floor at 55 avoids breakouts
+  //     that fire into still-oversold markets.
+  //   • MACD histogram POSITIVE (not necessarily rising): "rising" is a pivot-bounce
+  //     gate (confirms the turn at S1/R1). For breakouts the turn already happened;
+  //     we only need to confirm momentum is in the right direction (histPrev1 > 0
+  //     for BUY, < 0 for SELL). On 1d, histPrev1 is YESTERDAY's histogram — before
+  //     today's move — so requiring "rising" would block every fresh daily breakout.
+  //     Falls open when MACD isn't warm yet.
+  //   • currentPrice > EMA21: price crossed above the fast EMA (immediate breakout
+  //     confirmation). EMA21>EMA50 crossover lags 2-4 weeks; first-day breakouts
+  //     are never caught by that. Price > EMA21 is the right responsive gate here.
+  //   • EMA200 regime (bypassed on 1d as per existing logic)
   const breakoutBuyOk =
     currentPrice > pivots.r2 &&
-    !isNaN(rsi) && rsi >= 55 && rsi <= 78 &&
-    macdWarm && histPrev1 > 0 && histPrev1 > histPrev2 &&
-    last21 > last50 &&
+    !isNaN(rsi) && rsi >= 55 && rsi <= 88 &&
+    (!macdWarm || histPrev1 > 0) &&
+    currentPrice > last21 &&
     (!useEma200Gate || currentPrice > prevEma200);
 
   const breakdownSellOk =
     currentPrice < pivots.s2 &&
     !isNaN(rsi) && rsi >= 22 && rsi <= 45 &&
-    macdWarm && histPrev1 < 0 && histPrev1 < histPrev2 &&
-    last21 < last50 &&
+    (!macdWarm || histPrev1 < 0) &&
+    currentPrice < last21 &&
     (!useEma200Gate || currentPrice < prevEma200);
 
   const zoneGap = pivots.r1 - pivots.s1;

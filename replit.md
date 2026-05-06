@@ -1,68 +1,75 @@
-# Workspace
+# XAGUSD Silver Screener
 
-## Overview
+Provides professional forex screening and signaling for XAGUSD (Silver) and other trending assets, offering trade setups and real-time signal tracking.
 
-pnpm workspace monorepo using TypeScript. Each package manages its own dependencies.
+## Run & Operate
+
+- `pnpm run typecheck` — Perform a full typecheck across all packages.
+- `pnpm --filter @workspace/api-spec run codegen` — Regenerate API hooks and Zod schemas from the OpenAPI spec.
+- `pnpm --filter @workspace/api-server run dev` — Run the API server locally.
+
+**Environment Variables:**
+- `ACTIVE_TRADES_FILE`: Path for active trades JSON snapshot (default: `artifacts/api-server/.runtime/active-trades.json`).
+- `DATABASE_URL`: PostgreSQL connection string.
+- `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`: For Web Push notifications.
+- `ENABLE_TELEGRAM_NOTIFIER`, `ENABLE_WEB_PUSH`: Boolean flags to enable/disable notifiers.
 
 ## Stack
 
-- **Monorepo tool**: pnpm workspaces
-- **Node.js version**: 24
-- **Package manager**: pnpm
-- **TypeScript version**: 5.9
-- **API framework**: Express 5
-- **Validation**: Zod (`zod/v4`)
-- **API codegen**: Orval (from OpenAPI spec)
-- **Build**: esbuild (ESM bundle)
+- **Monorepo**: pnpm workspaces
+- **Node.js**: 24
+- **TypeScript**: 5.9
+- **API Framework**: Express 5
+- **Validation**: Zod (v4)
+- **API Codegen**: Orval (from OpenAPI spec)
+- **Build Tool**: esbuild (ESM bundle)
+- **ORM**: _Populate as you build_
+- **Database**: PostgreSQL
 
-## Key Commands
+## Where things live
 
-- `pnpm run typecheck` — full typecheck across all packages
-- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from OpenAPI spec
-- `pnpm --filter @workspace/api-server run dev` — run API server locally
+- `artifacts/xagusd-screener`: Frontend application (React + Vite).
+- `artifacts/api-server`: Backend API server (Express).
+- `artifacts/api-spec`: OpenAPI specification for API.
+- `src/lib/notifier.ts`: Unified signal notification logic.
+- `src/lib/signals.ts`: Core signal computation and trade state management.
+- `src/lib/trending-discovery.ts`: Logic for discovering and persisting trending coins.
+- `src/lib/symbols.ts`: Symbol metadata, including Phemex/MT5/Coinbase configurations.
+- `artifacts/api-server/.runtime/active-trades.json`: Source-of-truth for active trade snapshots (runtime).
+- `public/sw.js`: Service worker for Web Push notifications.
+- `index.css`: Global stylesheet.
 
-See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details.
+## Architecture decisions
 
-## Artifacts
+- **Dual Persistence for Active Trades**: Active trades are snapshotted to a local JSON file for fast restarts and asynchronously upserted to PostgreSQL for production durability. This ensures resilience against server restarts and deployments.
+- **Unified Signal Notifier**: A single polling mechanism `notifier.ts` fans out signal transitions to multiple channels (Telegram, Web Push), allowing independent kill-switches and centralized management.
+- **Venue-Aware Position Sizing**: Position sizing logic is highly customized per trading venue (Phemex, MT5, Coinbase Spot) to accurately reflect exchange-specific constraints, contract sizes, and leverage rules, providing precise trade instructions.
+- **Machine-Readable Trade State**: The `tradeState` field (`WAIT | PENDING | FILLED_PROFIT | ...`) is explicitly typed and returned by the API, mandating UI consumers to branch on this field rather than parsing human-readable prose, ensuring robust client-side logic.
+- **Dynamic Symbol Support**: The system supports dynamic, trending symbols from CoinGecko/OKX, extending core signal logic and UI components to handle symbols not predefined in the static `Symbol` enum.
 
-### XAGUSD Silver Screener (`artifacts/xagusd-screener`)
-- **Type**: react-vite, served at `/`
-- **Purpose**: Professional forex screener/signaler for XAGUSD (Silver)
-- **Price data**: Yahoo Finance (`SI=F` — Silver Futures COMEX), fetched server-side, cached 5 minutes
-- **Chart**: TradingView Advanced Chart widget, symbol `OANDA:XAGUSD`, dark theme — do NOT modify `TradingViewChart.tsx`
-- **Signal logic**: Two modes — `PIVOT_BOUNCE` (classic mean-reversion) and `BREAKOUT` (momentum continuation). Both surfaced in `LevelsData.signalType`.
-  - **PIVOT_BOUNCE** (default): price touching S1/R1 zone → fade setup. BUY ZONE = S1/S2 + Fib 61.8%/50% + Cam S1/S2. SELL ZONE = R1/R2 + Fib 23.6% + Cam R1/R2. Gates: RSI ≤45 / ≥55 + MACD turning at zone + EMA200 regime.
-  - **BREAKOUT**: price already above R2 → momentum continuation BUY. Price already below S2 → breakdown SELL. Gates: RSI 55-78 (not exhausted) + MACD positive+rising + EMA21>EMA50 (trend aligned) + EMA200 regime. Entry=currentPrice, SL=R2±0.5×ATR, TP1=R3, TP2=R3±ATR.
-  - `signalType` field is required on every `/levels` and `/active-signals` response. UI shows cyan `◈ BREAKOUT` badge for breakout signals. Telegram/push alerts include the type in the header.
-  - EMA200 is the institutional regime bias gate. EMA21/50 NOT used as gate for PIVOT_BOUNCE (pump causes EMA21>EMA50, suppressing reversal setups we want). EMA21>EMA50 IS required for BREAKOUT (confirms the momentum direction).
-  - ATR(14) used for stop-loss sizing (0.5× ATR beyond zone boundary)
-- **Trade output**: Entry, Stop Loss, Take Profit 1, Take Profit 2, Risk/Reward ratio
-- **Frozen trade snapshots**: When a BUY/SELL fires, the entry/SL/TP/RR/zones/pivot are snapshotted server-side and remain frozen until invalidated. Three invalidation triggers: (1) price hits SL, (2) price hits TP2, (3) the live signal flips to the opposite direction (e.g. active SELL but fresh logic says BUY). WAIT does NOT invalidate. Dual persistence: (1) sync write to `artifacts/api-server/.runtime/active-trades.json` (fast, survives restarts), (2) async upsert to `active_trades` PostgreSQL table (survives production deployments). On server startup, `loadActiveTradesFromDisk()` reads the JSON file synchronously, then `syncFromDb()` runs in background and merges any DB rows not in the file — this recovers all active trades after a fresh deploy where the JSON file starts empty. See `computeLevelsStable`, `loadActiveTradesFromDisk`, `syncFromDb`, and `persistActiveTrades` in `signals.ts`. Override JSON path with `ACTIVE_TRADES_FILE` env var.
-- **Fill tracking (triggered/MISSED)**: Snapshots fire when price is "approaching" the zone, but the limit order at `entryPrice` may never actually be tagged. `ActiveTrade.triggered` tracks whether the order really filled. Set `true` either at snapshot time (price already at/past entry) or later when (a) live spot crosses entry or (b) a candle wick reaches entry. The wick scan uses a baseline (`openedCandleLow/High` captured at snapshot) so the in-progress candle only counts post-snapshot extensions — eliminates false positives from pre-open wicks earlier in the same candle. If a still-pending limit reaches TP1, the trade is auto-deleted as MISSED so a fresh snapshot can take over. `describeFrozenTrade` reads `triggered` to surface honest language: "BUY setup PENDING — price moved $X above entry without tagging it" vs "BUY filled at $Y, in profit (+0.5R)". Telegram alerts inherit the same text via `levels.signalReason`.
-- **No 1m timeframe** — removed everywhere; only 15m/30m/1h/1d are supported.
-- **Edge Matrix leaderboard**: `EdgeLeaderboard` component on the dashboard renders a 9 symbols × 5 timeframes grid of cached backtest stats. Sortable by Win Rate / Total Return / Profit Factor. Color-coded: ≥55% green, 50-55% amber, <50% red. Has **PIVOT / ◈ Breakout** mode toggle — switches all 36 cells between `PIVOT_BOUNCE` and `BREAKOUT` backtest modes. Gold ring marks the top setup overall by selected metric; amber ring marks each asset's best timeframe. Click any cell to load that symbol+timeframe. Cells are loaded via 45 parallel `useGetBacktest` hooks; results published to parent via stable JSON-signature `useEffect` to avoid re-render loops.
-- **Active Signals Overview**: `ActiveSignalsOverview` component on the dashboard shows every currently-live BUY/SELL across 9 symbols × 4 timeframes (15m/30m/1h/1d) in one place. Backed by `GET /api/active-signals`, which: (a) dedupes spot-price upstream calls — fetches each symbol's spot ONCE per request and shares the promise across that symbol's 4 timeframes (was 4× before, causing thundering-herd pressure on OANDA/OKX before the cache populated); (b) recomputes every combo via `computeLevelsStable` in parallel; (c) returns only BUY/SELL entries plus a `coverage` block (`{total, succeeded, failed, failedSymbols}`) so the UI can distinguish "no signals" from "data feed degraded". The UI surfaces an amber warning banner whenever `coverage.failed > 0`. Each row shows symbol badge, TF, BUY/SELL pill, the dynamic state line, price quartet (Now/Entry/SL/TP1), and Phemex $col×lev → SL/TP1/TP2 dollar P&L. Clicking a row deep-links the chart + signal panel to that symbol+timeframe.
-- **Typed `tradeState` field** (`LevelsData.tradeState`): every `/levels` and `/active-signals` response carries a machine-readable lifecycle state: `WAIT | PENDING | FILLED_PROFIT | FILLED_DRAWDOWN | FILLED_TP1 | FILLED_TP2 | FILLED_SL`. Computed by `classifyTradeState(trade, currentPrice)` in `signals.ts` and mirrored alongside the human-readable `signalReason`. **UI consumers must branch on `tradeState`, never parse the prose** — the prose is for display only and its wording is not part of the contract. The `ActiveSignalsOverview` grouping (Filled / Pending / Other) and any future client logic should always use this field. `computeLevels` defaults new BUY/SELL to `PENDING` and WAIT to `WAIT`; `computeLevelsStable` upgrades to a triggered state via `classifyTradeState` in both the frozen-trade path and the new-snapshot path (when a snapshot fires with price already past entry).
-- **Position sizing (venue-aware)**: every `PositionSizing` is tagged with a `venue` of `"PHEMEX"` (BTC/ETH on Phemex USDT-margined perps), `"MT5"` (XAU/XAG + EURUSD/GBPUSD/AUDUSD/USDJPY/GBPJPY on MetaTrader 5), or `"COINBASE_SPOT"` (SKYAIUSDT and future Coinbase spot tokens — no leverage, whole-token sizing). The dashboard, Telegram alerts and the active-signals overview all branch on `venue` so the dollar P&L always reflects the actual exchange.
-  - **PHEMEX venue** (`achievable` block): maps the ideal trade onto Phemex's USDT-perp envelope. The binding floor is the **contract minimum** in coin units — BTCUSDT trades in 0.001 BTC increments, ETHUSDT in 0.01 ETH (`phemexMinQty` / `phemexQtyStep` in `symbols.ts`). The screener rounds qty DOWN to the step, and forces qty up to `minQty` when the ideal is below 1 contract (the OVER-SIZED case). Forced trades take maxLev so collateral stays tiny — Phemex doesn't require a $X collateral floor, only ≥1 contract of notional. The legacy `minCollateral` / `maxLeverage` query params (defaults: $1 / 100×) still apply: max-leverage caps risk; min-collateral acts as a user safety floor that bumps collateral up and lowers leverage when at maxLev would be below it. Cases: (A) ideal stepped qty achievable at maxLev with col≥min → use maxLev; (B) at maxLev would dip below min collateral → bump col to min, lower leverage; (C) stepped qty < minQty → forced to minQty at maxLev, scale-factor scales risk and dollar P&L proportionally, warning emitted (e.g. "Ideal position smaller than Phemex contract minimum (0.001 BTC ≈ $78.57) — forced 1196% over-sized.").
-  - **MT5 venue** (`mt5` block): user-chosen lot size (default 0.01, configurable via `mt5Lots` query param, persisted to `screener.mt5Lots` in localStorage). Computes USD P&L from contract size × price distance: forex 100k base, XAU 100oz, XAG 5000oz; USDJPY uses entry-price quote conversion, GBPJPY reads live USDJPY from the spot-price cache (falls back to a 150 constant only on cold start). Reports lots, contractSize, positionSize/Unit, notional, pnlAtSL/TP1/TP2 and `riskPctOfAccount` for sanity-checking that the chosen lots aren't over-leveraging the account. Also returns `recommendedLots` (the lot size that risks the configured `riskPct` of `accountSize` on SL hit, floored to 0.01 increments) and `recommendedTargetRiskPct`. The signal panel surfaces this as an amber "≈ X.XX for Y%" button next to the lots input that one-click applies the recommendation — fixes the "0.01 lots = $0.38 trade" footgun on small accounts and small-pip pairs like AUDUSD.
-  - **COINBASE_SPOT venue** (`spotToken` block): fires for any symbol that has a `coinbase` field but no `phemexPerp` or `goldApi` (currently SKYAIUSDT only). `tokenCount = floor(riskAmount / |entry − stopLoss|)` in whole tokens, plus notional, riskAmount/riskPct, and pnlAtSL/TP1/TP2. The signal panel shows a "Buy N SKYAI" row, notional, and an "EXACT TRADE TO PLACE · COINBASE" block styled in sky-blue. Controls strip shows only account size + risk% (no leverage input). Active signals overview shows "COINBASE N SKYAI → SL/TP1/TP2 $".
-  - The signal panel renders different "EXACT TRADE TO PLACE" blocks per venue (LOTS/POSITION/NOTIONAL for MT5, COLLATERAL/LEVERAGE/POSITION for PHEMEX, BUY tokens/NOTIONAL for COINBASE_SPOT), and the controls strip swaps to match (lots for MT5, risk% only for spot, risk%+leverage for PHEMEX).
-- **Auto-trending coin discovery**: `startTrendingDiscovery()` (called from `index.ts`) polls CoinGecko top-24h-gainers every hour, cross-references OKX USDT SWAP instruments, persists to `trending_symbols` Postgres table, caches in-memory as `TrendingMeta[]`. Trending coins expire after 24h. OKX candle + spot fetching is via `fetchCandlesForDynamic` / `fetchSpotForDynamic` with per-key caches in `trending-discovery.ts`. Coins appear in `/api/trending-symbols`, `/api/active-signals`, `/api/levels`, frontend symbol picker TRENDING section, and the signal notifier. Symbol selector shows each trending coin's 24h % gain in amber; clicking it deep-links the full signal panel (OKX chart via `OKX:COINUSDT.P` TradingView symbol). Backtest is skipped for trending coins (no historical data). Frontend uses `getSymbolMeta(key)` from `symbols.ts` which returns a fallback meta for unknown keys — all components (`TradingViewChart`, `SignalPanel`, `ActiveSignalsOverview`, `BacktestPanel`, `EdgeLeaderboard`, `SymbolSelector`) now accept `string` symbol instead of the strict `Symbol` enum.
-- **API endpoints** (OpenAPI v0.2.0):
-  - `GET /api/levels` — key price levels + single BUY/SELL/WAIT signal + full trade setup (accepts static or trending symbol key)
-  - `GET /api/trending-symbols` — current trending coins from CoinGecko × OKX (updated hourly)
-  - `GET /api/price-history?bars=60` — OHLCV candle data
-  - `GET /api/active-signals` — every live BUY/SELL across symbols × timeframes (includes trending coins)
-  - `GET /api/healthz` — health check
-  - `GET /api/push/vapid-public-key` — VAPID public key for browser subscription
-  - `POST /api/push/subscribe` — register a Web Push subscription (idempotent upsert by endpoint)
-  - `POST /api/push/unsubscribe` — remove a subscription
-- **Web Push notifications**: lock-screen browser alerts as a branded alternative/companion to Telegram. The unified signal notifier (`src/lib/notifier.ts`) polls every 60s and fans transitions to ALL enabled channels — Telegram (`telegram-notifier.ts`) and Web Push (`web-push-notifier.ts`) — each independently kill-switched. Subscriptions persist in Postgres (`push_subscriptions` table via `@workspace/db`). Dead subscriptions (404/410 from FCM/APNs) are auto-deleted. Frontend toggle (`PushNotificationsToggle`) registers `/sw.js`, calls `PushManager.subscribe` with the server's VAPID public key, and POSTs the subscription. Kill switches: `ENABLE_TELEGRAM_NOTIFIER` and `ENABLE_WEB_PUSH` (both default ON when their creds exist; both forced OFF in production artifact.toml until deploy moves to Reserved VM — autoscale scales to zero and kills the in-process notifier loop). VAPID env vars: `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` (shared environment).
-- **Auto-refresh**: every 60 seconds
-- **CSS rule**: Google Fonts `@import url(...)` MUST be the absolute first line of `index.css`
+## Product
 
-### API Server (`artifacts/api-server`)
-- **Type**: Express 5 API, served at `/api`
-- **Route file**: `src/routes/levels.ts` (replaces old `signals.ts`)
-- **Database**: PostgreSQL (`active_trades` + `trending_symbols` tables). `pg` pool in `signals.ts` via `DATABASE_URL`. `trending_symbols` persists discovered coins across restarts via `trending-discovery.ts`.
+- **Real-time XAGUSD Signals**: Provides BUY/SELL/WAIT signals for XAGUSD based on `PIVOT_BOUNCE` (mean-reversion) and `BREAKOUT` (momentum) strategies across multiple timeframes.
+- **Active Signals Overview**: A dashboard component displaying all live BUY/SELL signals across various symbols and timeframes, with fill tracking and P&L calculations.
+- **Edge Matrix Leaderboard**: A backtest statistics grid for 9 symbols × 5 timeframes, sortable and filterable by signal type (Pivot/Breakout), allowing users to discover top-performing setups.
+- **Web Push Notifications**: Browser-based alerts for signal transitions, offering a real-time, branded notification channel alongside Telegram.
+- **Auto-trending Coin Discovery**: Automatically identifies and integrates trending cryptocurrencies from CoinGecko/OKX into the signaling system, expanding coverage beyond static symbols.
+
+## User preferences
+
+- Do NOT modify `TradingViewChart.tsx`.
+- Google Fonts `@import url(...)` MUST be the absolute first line of `index.css`.
+
+## Gotchas
+
+- **1m Timeframe**: The 1m timeframe has been removed and is not supported anywhere.
+- **TradingView Chart Widget**: `TradingViewChart.tsx` should not be modified, as it's a critical, fixed component.
+- **Web Push Notifier in Production**: Web Push and Telegram notifiers are forced OFF in production `artifact.toml` until deployment moves to a Reserved VM, as autoscaling can terminate the notifier process.
+- **Typed Trade State**: UI must rely on the `tradeState` field for logic, not the human-readable `signalReason` text.
+
+## Pointers
+
+- **pnpm-workspace skill**: For monorepo structure, TypeScript setup, and package details.
+- **OpenAPI v0.2.0**: For API endpoint documentation.
+- **`@workspace/db` package**: For database interactions and schema.
+- **TradingView Advanced Chart widget documentation**: For chart customization.

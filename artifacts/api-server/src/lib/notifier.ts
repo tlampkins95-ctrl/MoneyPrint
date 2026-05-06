@@ -85,8 +85,8 @@ export function getNotifierStatus(): NotifierStatus {
   };
 }
 
-// Alert on 30m (primary entry TF) and 1h (catches higher-TF setups like crypto pumps).
-const TRACKED_TIMEFRAMES: Timeframe[] = ["30m", "1h"];
+// Alert on 30m, 1h (intraday entries) and 1d (catches major daily moves like metals pumps).
+const TRACKED_TIMEFRAMES: Timeframe[] = ["30m", "1h", "1d"];
 const POLL_INTERVAL_MS = 60_000;
 
 const COOLDOWN_BY_TIMEFRAME: Record<Timeframe, number> = {
