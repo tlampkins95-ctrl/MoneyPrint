@@ -412,7 +412,7 @@ async function runDiscovery(pool: Pool): Promise<void> {
       if (EXCLUDED_TICKERS.has(ticker)) continue;
 
       const change = coin.quote.USD.percent_change_24h ?? 0;
-      if (change < 1) continue; // only coins up ≥1% in 24h
+      if (change < 15) continue; // only coins up ≥15% in 24h
 
       const okxKey = `${ticker}-USDT-SWAP`;
       if (!okxMap.has(okxKey)) continue; // need OKX for candle data
