@@ -859,6 +859,9 @@ export function computeLevels(
 ) {
   const round = makeRounder(meta.decimals);
   const fmt = (n: number) => `${meta.prefix}${round(n).toFixed(meta.decimals)}`;
+  // Spot-only symbols (e.g. SKYAIUSDT on Phemex) cannot be shorted.
+  // Suppress all SELL signal branches so only BUY setups are shown.
+  const isLongOnly = !!meta.longOnly;
 
   const last = candles[candles.length - 1];
   const prev = candles[candles.length - 2];
@@ -1002,7 +1005,8 @@ export function computeLevels(
     macdBreakoutSellOk &&
     last.close < breakoutBarMidpoint &&
     notOverExtendedSell &&
-    (!useEma200Gate || last.close < prevEma200);
+    (!useEma200Gate || last.close < prevEma200) &&
+    !isLongOnly;
 
   const zoneGap = pivots.r1 - pivots.s1;
   const halfWidth = round(zoneGap * 0.2);
@@ -1038,7 +1042,8 @@ export function computeLevels(
     && ema200BuyOk;
   const sellAllowed = (isNaN(rsi) || rsi >= RSI_OVERBOUGHT)
     && macdSellOk
-    && ema200SellOk;
+    && ema200SellOk
+    && !isLongOnly;
 
   if ((inBuyZone || approachingBuy) && buyAllowed) {
     signal = "BUY";

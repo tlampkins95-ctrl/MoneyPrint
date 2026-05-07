@@ -16,6 +16,8 @@ export interface SymbolMeta {
   decimals: number;
   prefix: string;
   venue?: string;
+  // When true, only BUY signals are generated (spot-only instrument, no shorting).
+  longOnly?: boolean;
 }
 
 export const SYMBOLS: Record<Symbol, SymbolMeta> = {
@@ -25,7 +27,7 @@ export const SYMBOLS: Record<Symbol, SymbolMeta> = {
   AUDUSD: { tv: "OANDA:AUDUSD",     short: "AUD/USD",  long: "Aussie",   badge: "AU",   decimals: 5, prefix: "" },
   BTCUSD: { tv: "PHEMEX:BTCUSDT", short: "BTC/USD", long: "Bitcoin (Phemex)",  badge: "₿", decimals: 1, prefix: "$", venue: "PHEMEX · USDT perp" },
   ETHUSD: { tv: "PHEMEX:ETHUSDT", short: "ETH/USD", long: "Ethereum (Phemex)", badge: "Ξ", decimals: 2, prefix: "$", venue: "PHEMEX · USDT perp" },
-  SKYAIUSDT: { tv: "PHEMEX:SKYAIUSDT", short: "SKY/USDT", long: "SKYAI (Phemex spot)", badge: "SK", decimals: 4, prefix: "$", venue: "Phemex · spot" },
+  SKYAIUSDT: { tv: "PHEMEX:SKYAIUSDT", short: "SKY/USDT", long: "SKYAI (Phemex spot)", badge: "SK", decimals: 4, prefix: "$", venue: "Phemex · spot", longOnly: true },
   ZECUSD:    { tv: "PHEMEX:ZECUSDT",   short: "ZEC/USD",  long: "Zcash (Phemex)",      badge: "ZE", decimals: 2, prefix: "$", venue: "PHEMEX · USDT perp" },
 };
 

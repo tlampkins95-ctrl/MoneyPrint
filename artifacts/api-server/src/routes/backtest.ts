@@ -150,6 +150,7 @@ function calcRSISeries(closes: number[], period = 14): number[] {
 
 function runBreakoutBacktest(candles: CandleRaw[], timeframe: Timeframe, symbol: Symbol): Trade[] {
   const meta = SYMBOLS[symbol];
+  const longOnly = !!meta.longOnly;
   const round = makeRounder(meta.decimals);
   const trades: Trade[] = [];
   const maxHold = MAX_HOLD_BARS[timeframe];
@@ -241,7 +242,7 @@ function runBreakoutBacktest(candles: CandleRaw[], timeframe: Timeframe, symbol:
     const notOverExtendedSell = !ema5050Warm || (e50 - today.close) < 5 * atr;
 
     const canBuy  = breakoutTriggered  && buyAllowed  && trendBullish && priceAboveEma21 && rsiBuyOk  && macdBuyOk  && notOverExtendedBuy;
-    const canSell = breakdownTriggered && sellAllowed && trendBearish && priceBelowEma21 && rsiSellOk && macdSellOk && notOverExtendedSell;
+    const canSell = !longOnly && breakdownTriggered && sellAllowed && trendBearish && priceBelowEma21 && rsiSellOk && macdSellOk && notOverExtendedSell;
 
     let direction: "BUY" | "SELL" | null = null;
     if (canBuy && !canSell) direction = "BUY";
@@ -329,6 +330,7 @@ function runBreakoutBacktest(candles: CandleRaw[], timeframe: Timeframe, symbol:
 
 function runBacktest(candles: CandleRaw[], timeframe: Timeframe, symbol: Symbol): Trade[] {
   const meta = SYMBOLS[symbol];
+  const longOnly = !!meta.longOnly;
   const round = makeRounder(meta.decimals);
   const trades: Trade[] = [];
   const maxHold = MAX_HOLD_BARS[timeframe];
@@ -402,7 +404,7 @@ function runBacktest(candles: CandleRaw[], timeframe: Timeframe, symbol: Symbol)
     const macdSellOk = !macdWarm ? true : hNow < hPrev;
 
     const canBuy  = buyFills  && buyAllowed  && buyLevelValid  && rsiBuyOk  && macdBuyOk;
-    const canSell = sellFills && sellAllowed && sellLevelValid && rsiSellOk && macdSellOk;
+    const canSell = !longOnly && sellFills && sellAllowed && sellLevelValid && rsiSellOk && macdSellOk;
 
     let direction: "BUY" | "SELL" | null = null;
     if (canBuy && canSell) {

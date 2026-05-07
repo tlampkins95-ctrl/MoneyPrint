@@ -48,6 +48,9 @@ export interface SymbolMeta {
   // for tokens not listed on OKX or Yahoo Finance.
   gateioSpot?: string;
   venue?: string;
+  // When true, only BUY signals are generated. SELL signals are suppressed
+  // because the exchange only supports spot (no shorting).
+  longOnly?: boolean;
 }
 
 export const SYMBOLS: Record<Symbol, SymbolMeta> = {
@@ -132,6 +135,7 @@ export const SYMBOLS: Record<Symbol, SymbolMeta> = {
     phemexSpotPriceScale: 8,
     gateioSpot: "SKYAI_USDT",
     venue: "Phemex · spot",
+    longOnly: true,
   },
   ZECUSD: {
     yahoo: "ZEC-USD",
