@@ -235,8 +235,13 @@ function runBreakoutBacktest(candles: CandleRaw[], timeframe: Timeframe, symbol:
     const priceAboveEma21 = !ema5050Warm || today.close > e21;
     const priceBelowEma21 = !ema5050Warm || today.close < e21;
 
-    const canBuy  = breakoutTriggered  && buyAllowed  && trendBullish && priceAboveEma21 && rsiBuyOk  && macdBuyOk;
-    const canSell = breakdownTriggered && sellAllowed && trendBearish && priceBelowEma21 && rsiSellOk && macdSellOk;
+    // Extension filter: suppress entries when price is already >5×ATR from EMA50.
+    // Mirrors live signal notOverExtendedBuy/Sell. Falls open when EMA50 not warm.
+    const notOverExtendedBuy  = !ema5050Warm || (today.close - e50) < 5 * atr;
+    const notOverExtendedSell = !ema5050Warm || (e50 - today.close) < 5 * atr;
+
+    const canBuy  = breakoutTriggered  && buyAllowed  && trendBullish && priceAboveEma21 && rsiBuyOk  && macdBuyOk  && notOverExtendedBuy;
+    const canSell = breakdownTriggered && sellAllowed && trendBearish && priceBelowEma21 && rsiSellOk && macdSellOk && notOverExtendedSell;
 
     let direction: "BUY" | "SELL" | null = null;
     if (canBuy && !canSell) direction = "BUY";

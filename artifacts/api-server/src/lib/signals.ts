@@ -996,6 +996,14 @@ export function computeLevels(
   const macdBreakoutBuyOk  = !macdWarm || (histPrev1 > 0 && histPrev1 > histPrev2);
   const macdBreakoutSellOk = !macdWarm || (histPrev1 < 0 && histPrev1 < histPrev2);
 
+  // Extension filter: suppress breakout entries when price has already run
+  // more than 5×ATR away from EMA50. A breakout that fires after a large
+  // multi-day move is typically buying the tail, not the body, of the trend.
+  // Falls open when EMA50 isn't warm yet (same ema5050WarmBreakout guard).
+  // Synced with runBreakoutBacktest notOverExtendedBuy/Sell.
+  const notOverExtendedBuy  = !ema5050WarmBreakout || (last.close - last50) < 5 * atr;
+  const notOverExtendedSell = !ema5050WarmBreakout || (last50 - last.close) < 5 * atr;
+
   // Candle-close quality gate — mirrors the backtest's strong-close check.
   // All breakout quality checks are evaluated on `last` (candles[length - 1]),
   // the fully-settled completed bar, matching backtest semantics where
@@ -1008,6 +1016,7 @@ export function computeLevels(
   //   BUY: last.close > R2 + 0.25×ATR  → magnitude confirmed by bar close
   //        last.close > bar midpoint     → strong-close (not a wick rejection)
   //        last.close > EMA21            → fast-MA confirmation on closed bar
+  //        (last.close − EMA50) < 5×ATR → extension filter (not over-extended)
   //   SELL: symmetric
   const breakoutBarMidpoint = (last.high + last.low) / 2;
 
@@ -1018,6 +1027,7 @@ export function computeLevels(
     last.close > last21 &&
     macdBreakoutBuyOk &&
     last.close > breakoutBarMidpoint &&
+    notOverExtendedBuy &&
     (!useEma200Gate || last.close > prevEma200);
 
   const breakdownSellOk =
@@ -1027,6 +1037,7 @@ export function computeLevels(
     last.close < last21 &&
     macdBreakoutSellOk &&
     last.close < breakoutBarMidpoint &&
+    notOverExtendedSell &&
     (!useEma200Gate || last.close < prevEma200);
 
   const zoneGap = pivots.r1 - pivots.s1;
