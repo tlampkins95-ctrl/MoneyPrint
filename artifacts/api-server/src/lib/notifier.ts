@@ -4,7 +4,7 @@ import {
   fetchCandlesForTimeframe,
   type Timeframe,
 } from "./yahoo-fetch";
-import { computeLevelsStable, fetchSpotPrice, getActiveTrade, applyFuturesBasis, registerOnTradeClosedCallback } from "./signals";
+import { computeLevelsStable, fetchSpotPrice, getActiveTrade, applyFuturesBasis, registerOnTradeClosedCallback, type ClosedOutcome } from "./signals";
 import {
   buildAlertContext,
   sendTelegramAlert,
@@ -25,6 +25,13 @@ interface TrackedState {
   gateBlockedSince?: number;
   gateBlockedSignal?: SignalKind;
   lastAlertChannels?: string[];
+  // Consecutive-SL circuit breaker. Counts same-direction SLs in a row;
+  // resets to 0 on TP2, BE_TRAIL, or a direction flip. Drives the cooldown
+  // multiplier (1 SL → 1×, 2 SLs → 2×, 3+ SLs → 4×).
+  consecutiveSls?: number;
+  // Direction of the run of SLs being counted. If the next SL is in the
+  // opposite direction, the streak resets to 1 rather than continuing.
+  lastSlSignal?: SignalKind;
 }
 
 export interface NotifierSymbolStatus {
@@ -38,6 +45,7 @@ export interface NotifierSymbolStatus {
   gateBlockedSince: number | null;
   gateBlockedSignal: SignalKind | null;
   gateBlockedFor: string | null;
+  consecutiveSls: number;
 }
 
 export interface NotifierStatus {
@@ -77,6 +85,7 @@ export function getNotifierStatus(): NotifierStatus {
         gateBlockedSince: s?.gateBlockedSince ?? null,
         gateBlockedSignal: s?.gateBlockedSignal ?? null,
         gateBlockedFor: s?.gateBlockedSince ? fmtAgo(s.gateBlockedSince) : null,
+        consecutiveSls: s?.consecutiveSls ?? 0,
       });
     }
   }
@@ -100,6 +109,16 @@ const COOLDOWN_BY_TIMEFRAME: Record<Timeframe, number> = {
   "15m": 30 * 60_000,
   "30m": 60 * 60_000,
   "1h": 3 * 60 * 60_000,
+  "1d": 24 * 60 * 60_000,
+};
+
+// Minimum re-entry delay after an SL: one full candle period.
+// This is the hard floor on effectiveCooldownMs — even with streak=0,
+// a re-entry cannot happen in the same polling tick that closed the prior trade.
+const CANDLE_PERIOD_MS: Record<Timeframe, number> = {
+  "15m": 15 * 60_000,
+  "30m": 30 * 60_000,
+  "1h": 60 * 60_000,
   "1d": 24 * 60 * 60_000,
 };
 
@@ -191,16 +210,27 @@ async function checkSymbol(
       return;
     }
 
-    const cooldownMs = COOLDOWN_BY_TIMEFRAME[timeframe];
-    // On a seed snapshot there's no prior alert, so cooldown is N/A.
-    // Cooldown is direction-aware: it only applies when the new signal matches
+    // Consecutive-SL circuit breaker: multiply the cooldown after repeated
+    // SLs in the same direction to reduce whipsaw re-entries.
+    //   0–1 SL  → 1× (base cooldown)
+    //   2 SLs   → 2× base
+    //   3+ SLs  → 4× base (hard cap)
+    // A minimum of 1 full candle period is also enforced so a new alert
+    // can never fire in the same polling tick that closed the prior trade.
+    const slStreak = prev?.consecutiveSls ?? 0;
+    const slMultiplier = slStreak >= 3 ? 4 : slStreak >= 2 ? 2 : 1;
+    const effectiveCooldownMs = Math.max(
+      COOLDOWN_BY_TIMEFRAME[timeframe] * slMultiplier,
+      CANDLE_PERIOD_MS[timeframe],
+    );
+    // Cooldown is direction-aware: only applies when the new signal matches
     // the last alerted direction. A BUY→SELL (or SELL→BUY) flip bypasses the
     // cooldown entirely — it's a new setup in the opposite direction, not a
     // repeat alert. This prevents the cooldown from silently eating reversals
     // after a trade closes (e.g. KSM TP2 BUY → no SELL alert during reversal).
     const cooldownActive =
       !!prev &&
-      now - prev.lastAlertAt < cooldownMs &&
+      now - prev.lastAlertAt < effectiveCooldownMs &&
       prev.lastAlertSignal === levels.signal;
 
     // De-dup against the active-trade store: if a trade was already open in
@@ -262,6 +292,7 @@ async function checkSymbol(
           // and never fires. By preserving prev's signal (e.g. WAIT), the
           // transition fires correctly the moment 1h aligns.
           stateMap.set(k, {
+            ...(prev ?? {}),
             signal: prev?.signal ?? "WAIT",
             lastAlertAt: prev?.lastAlertAt ?? 0,
           });
@@ -320,7 +351,7 @@ async function checkSymbol(
           "Signal alert dispatched",
         );
       }
-      stateMap.set(k, { signal: levels.signal, lastAlertAt: now, lastAlertSignal: levels.signal });
+      stateMap.set(k, { ...(prev ?? {}), signal: levels.signal, lastAlertAt: now, lastAlertSignal: levels.signal });
       return;
     }
 
@@ -331,7 +362,9 @@ async function checkSymbol(
           timeframe,
           from: prev.signal,
           to: levels.signal,
-          remainingMs: cooldownMs - (now - prev.lastAlertAt),
+          remainingMs: effectiveCooldownMs - (now - prev.lastAlertAt),
+          slStreak,
+          slMultiplier,
         },
         "Signal alert suppressed (cooldown)",
       );
@@ -351,8 +384,9 @@ async function checkSymbol(
       );
     }
 
-    // Track new signal but preserve lastAlertAt so cooldown still ticks.
+    // Track new signal but preserve lastAlertAt and streak so cooldown still ticks.
     stateMap.set(k, {
+      ...(prev ?? {}),
       signal: levels.signal,
       lastAlertAt: prev?.lastAlertAt ?? 0,
     });
@@ -392,12 +426,18 @@ async function checkTrendingSymbol(
       return;
     }
 
-    const cooldownMs = COOLDOWN_BY_TIMEFRAME[timeframe];
+    // Consecutive-SL circuit breaker (same logic as checkSymbol).
+    const slStreakT = prev?.consecutiveSls ?? 0;
+    const slMultiplierT = slStreakT >= 3 ? 4 : slStreakT >= 2 ? 2 : 1;
+    const effectiveCooldownMsT = Math.max(
+      COOLDOWN_BY_TIMEFRAME[timeframe] * slMultiplierT,
+      CANDLE_PERIOD_MS[timeframe],
+    );
     // Direction-aware: only suppress same-direction repeats. A flip in
     // direction (BUY→SELL or SELL→BUY) always bypasses the cooldown.
     const cooldownActive =
       !!prev &&
-      now - prev.lastAlertAt < cooldownMs &&
+      now - prev.lastAlertAt < effectiveCooldownMsT &&
       prev.lastAlertSignal === levels.signal;
 
     if (transitioned && !cooldownActive) {
@@ -423,6 +463,7 @@ async function checkTrendingSymbol(
             "Trending signal alert suppressed (higher TF gate disagrees)",
           );
           stateMap.set(k, {
+            ...(prev ?? {}),
             signal: prev?.signal ?? "WAIT",
             lastAlertAt: prev?.lastAlertAt ?? 0,
           });
@@ -455,10 +496,10 @@ async function checkTrendingSymbol(
         );
       }
       if (tasks.length > 0) await Promise.allSettled(tasks);
-      stateMap.set(k, { signal: levels.signal, lastAlertAt: now, lastAlertSignal: levels.signal });
+      stateMap.set(k, { ...(prev ?? {}), signal: levels.signal, lastAlertAt: now, lastAlertSignal: levels.signal });
       return;
     }
-    stateMap.set(k, { signal: levels.signal, lastAlertAt: prev?.lastAlertAt ?? 0, lastAlertSignal: prev?.lastAlertSignal });
+    stateMap.set(k, { ...(prev ?? {}), signal: levels.signal, lastAlertAt: prev?.lastAlertAt ?? 0, lastAlertSignal: prev?.lastAlertSignal });
   } catch (err) {
     logger.warn({ err, symbolKey, timeframe }, "Trending notifier check failed");
   }
@@ -485,16 +526,60 @@ async function tick(): Promise<void> {
   await Promise.allSettled(tasks);
 }
 
-// Called by signals.ts (via the registered callback) when a trade closes via
-// SL, BE_TRAIL, or TP2. Resets lastAlertAt so the next genuine setup on the
-// same symbol/TF fires immediately rather than waiting out the cooldown.
-function clearCooldown(symbolKey: string, timeframe: Timeframe): void {
+// Called by signals.ts (via the registered callback) when a trade closes.
+// Manages both the alert cooldown and the consecutive-SL circuit-breaker streak.
+//
+//   SL outcome:
+//     • Increments the same-direction SL streak (direction flip resets to 1).
+//     • Stamps lastAlertAt = now so the candle-period floor is enforced before
+//       the next same-direction alert — prevents 0ms re-entry on rapid whipsaws.
+//     • Sets lastAlertSignal to the SL direction so the direction-aware cooldown
+//       check (prev.lastAlertSignal === levels.signal) kicks in correctly.
+//     • Direction flips still bypass the cooldown because lastAlertSignal ≠ new signal.
+//
+//   BE_TRAIL / TP2 outcome:
+//     • Resets the SL streak to 0 — the system performed well.
+//     • Clears lastAlertAt so the next setup fires immediately.
+function onTradeClosed(
+  symbolKey: string,
+  timeframe: Timeframe,
+  outcome: ClosedOutcome,
+  signal: "BUY" | "SELL",
+): void {
   const k = key(symbolKey, timeframe);
   const existing = stateMap.get(k);
-  if (existing) {
-    // Clear both lastAlertAt and lastAlertSignal so the next signal in either
-    // direction fires immediately, regardless of what was last alerted.
-    stateMap.set(k, { ...existing, lastAlertAt: 0, lastAlertSignal: undefined });
+
+  if (outcome === "SL") {
+    const prevStreak = existing?.consecutiveSls ?? 0;
+    const sameDirStreak = existing?.lastSlSignal === signal;
+    const consecutiveSls = sameDirStreak ? prevStreak + 1 : 1;
+    logger.info(
+      { symbolKey, timeframe, signal, consecutiveSls, prevStreak },
+      "Trade SL — circuit breaker streak updated",
+    );
+    stateMap.set(k, {
+      ...(existing ?? { signal: "WAIT" as SignalKind }),
+      lastAlertAt: Date.now(),
+      lastAlertSignal: signal,
+      consecutiveSls,
+      lastSlSignal: signal,
+    });
+  } else {
+    // TP2, BE_TRAIL — reset streak and clear cooldown
+    const prevStreak = existing?.consecutiveSls ?? 0;
+    if (prevStreak > 0) {
+      logger.info(
+        { symbolKey, timeframe, outcome, prevStreak },
+        "Trade closed positively — SL streak reset",
+      );
+    }
+    stateMap.set(k, {
+      ...(existing ?? { signal: "WAIT" as SignalKind }),
+      lastAlertAt: 0,
+      lastAlertSignal: undefined,
+      consecutiveSls: 0,
+      lastSlSignal: undefined,
+    });
   }
 }
 
@@ -513,9 +598,9 @@ export function startSignalNotifier(): void {
   }
   started = true;
 
-  // Wire up the cooldown-reset hook so signals.ts can notify us when a trade
+  // Wire up the trade-close hook so signals.ts can notify us when a trade
   // closes without creating a circular import.
-  registerOnTradeClosedCallback(clearCooldown);
+  registerOnTradeClosedCallback(onTradeClosed);
 
   logger.info(
     {

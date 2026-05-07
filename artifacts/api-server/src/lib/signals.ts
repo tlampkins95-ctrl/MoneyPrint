@@ -1402,10 +1402,10 @@ export type ClosedOutcome = "SL" | "BE_TRAIL" | "TP2" | "REVERSED" | "MISSED";
 // cooldown when a real trade close happens, enabling immediate re-alerting on
 // the next genuine setup. Kept as a loose callback to avoid a circular import
 // (notifier imports signals; signals must not import notifier).
-let onTradeClosedCallback: ((symbolKey: string, timeframe: Timeframe) => void) | null = null;
+let onTradeClosedCallback: ((symbolKey: string, timeframe: Timeframe, outcome: ClosedOutcome, signal: "BUY" | "SELL") => void) | null = null;
 
 export function registerOnTradeClosedCallback(
-  cb: (symbolKey: string, timeframe: Timeframe) => void,
+  cb: (symbolKey: string, timeframe: Timeframe, outcome: ClosedOutcome, signal: "BUY" | "SELL") => void,
 ): void {
   onTradeClosedCallback = cb;
 }
@@ -1479,14 +1479,13 @@ function logClosedTrade(
       // best-effort
     });
 
-  // Reset notifier cooldown after SL or BE_TRAIL so the next genuine setup
-  // alerts immediately — the trade failed or barely survived, and a fresh
-  // entry is actionable. TP2 is intentionally excluded: a coin that just hit
-  // its full target has completed its move and should cool down through the
-  // normal cooldown window before the next alert, preventing a barrage of
-  // re-entry alerts on the reversal. REVERSED and MISSED are also excluded.
-  if (outcome === "SL" || outcome === "BE_TRAIL") {
-    onTradeClosedCallback?.(symbolKey, timeframe);
+  // Notify the notifier of every real trade close so it can update the
+  // consecutive-SL circuit-breaker streak and manage cooldowns:
+  //   SL       → increment streak, enforce candle-period floor before next alert
+  //   BE_TRAIL → reset streak, clear cooldown (trade barely survived; fresh entry ok)
+  //   TP2      → reset streak, clear cooldown (full winner; REVERSED/MISSED excluded)
+  if (outcome === "SL" || outcome === "BE_TRAIL" || outcome === "TP2") {
+    onTradeClosedCallback?.(symbolKey, timeframe, outcome, trade.signal as "BUY" | "SELL");
   }
 }
 
