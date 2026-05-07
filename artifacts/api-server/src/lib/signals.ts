@@ -1482,11 +1482,13 @@ function logClosedTrade(
       // best-effort
     });
 
-  // Notify the notifier of every real trade close so it can update the
-  // consecutive-SL circuit-breaker streak and manage cooldowns:
-  //   SL       → increment streak, enforce candle-period floor before next alert
-  //   BE_TRAIL → reset streak, clear cooldown (trade barely survived; fresh entry ok)
-  //   TP2      → reset streak, clear cooldown (full winner; REVERSED/MISSED excluded)
+  // Notify the notifier so it can update the consecutive-SL circuit-breaker
+  // streak and manage cooldowns. TP1 is handled separately (not a close event —
+  // the callback is fired at both TP1 detection sites in computeLevelsStable).
+  //   SL       → increment same-direction streak; stamp lastAlertAt = now
+  //   BE_TRAIL → reset streak; clear cooldown (barely survived — fresh entry ok)
+  //   TP2      → reset streak; clear cooldown (full winner)
+  //   REVERSED / MISSED → excluded (not real outcome closes)
   if (outcome === "SL" || outcome === "BE_TRAIL" || outcome === "TP2") {
     onTradeClosedCallback?.(symbolKey, timeframe, outcome, trade.signal as "BUY" | "SELL");
   }
