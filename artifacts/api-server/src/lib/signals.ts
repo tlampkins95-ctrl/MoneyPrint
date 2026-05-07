@@ -996,12 +996,22 @@ export function computeLevels(
   const macdBreakoutBuyOk  = !macdWarm || (histPrev1 > 0 && histPrev1 > histPrev2);
   const macdBreakoutSellOk = !macdWarm || (histPrev1 < 0 && histPrev1 < histPrev2);
 
+  // Candle-close quality gate — mirrors the backtest's strong-close check.
+  // The last *completed* bar (not the live tick) must have closed in its
+  // upper half for a BUY breakout (lower half for SELL). A bar that wicks
+  // above R2 but closes near its lows is a rejection candle, not a breakout.
+  // We use `last` (candles[length - 1]) which is always a fully-settled bar.
+  const breakoutBarMidpoint = (last.high + last.low) / 2;
+  const breakoutCloseStrongBuy  = last.close > breakoutBarMidpoint;
+  const breakoutCloseStrongSell = last.close < breakoutBarMidpoint;
+
   const breakoutBuyOk =
     currentPrice > pivots.r2 + 0.25 * atr &&
     !isNaN(rsi) && rsi >= 55 && rsi <= 78 &&
     trendBullishBreakout &&
     currentPrice > last21 &&
     macdBreakoutBuyOk &&
+    breakoutCloseStrongBuy &&
     (!useEma200Gate || currentPrice > prevEma200);
 
   const breakdownSellOk =
@@ -1010,6 +1020,7 @@ export function computeLevels(
     trendBearishBreakout &&
     currentPrice < last21 &&
     macdBreakoutSellOk &&
+    breakoutCloseStrongSell &&
     (!useEma200Gate || currentPrice < prevEma200);
 
   const zoneGap = pivots.r1 - pivots.s1;
@@ -1138,7 +1149,7 @@ export function computeLevels(
         // back to ATR multiples above entry so TP1/TP2 are never below entry.
         takeProfit1 = round(Math.max(pivots.r3, entryPrice + atr));
         takeProfit2 = round(Math.max(pivots.r3 + atr, entryPrice + atr * 2));
-        signalReason = `[${tfLabel}] BREAKOUT BUY: Price (${fmt(currentPrice)}) cleared R2 ${fmt(pivots.r2)} by ≥0.25×ATR (RSI ${rsi.toFixed(0)}, EMA21>50, MACD+rising). Market entry, SL ${fmt(stopLoss)} (1×ATR below entry), TP1 = ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)}.`;
+        signalReason = `[${tfLabel}] BREAKOUT BUY: Price (${fmt(currentPrice)}) cleared R2 ${fmt(pivots.r2)} by ≥0.25×ATR with strong-close confirmation (RSI ${rsi.toFixed(0)}, EMA21>50, MACD+rising). Market entry, SL ${fmt(stopLoss)} (1×ATR below entry), TP1 = ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)}.`;
       } else {
         // Price is above R2, no breakout confirmation — show pending BUY at S1 on a pullback.
         entryPrice = round(pivots.s1);
@@ -1168,7 +1179,7 @@ export function computeLevels(
         // back to ATR multiples below entry so TP1/TP2 are never above entry.
         takeProfit1 = round(Math.min(pivots.s3, entryPrice - atr));
         takeProfit2 = round(Math.min(pivots.s3 - atr, entryPrice - atr * 2));
-        signalReason = `[${tfLabel}] BREAKDOWN SELL: Price (${fmt(currentPrice)}) broke S2 ${fmt(pivots.s2)} by ≥0.25×ATR (RSI ${rsi.toFixed(0)}, EMA21<50, MACD-falling). Market entry, SL ${fmt(stopLoss)} (1×ATR above entry), TP1 = ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)}.`;
+        signalReason = `[${tfLabel}] BREAKDOWN SELL: Price (${fmt(currentPrice)}) broke S2 ${fmt(pivots.s2)} by ≥0.25×ATR with strong-close confirmation (RSI ${rsi.toFixed(0)}, EMA21<50, MACD-falling). Market entry, SL ${fmt(stopLoss)} (1×ATR above entry), TP1 = ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)}.`;
       } else {
         // Price is below S2, no breakdown confirmation — show pending SELL at R1 on a bounce.
         entryPrice = round(pivots.r1);
