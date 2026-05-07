@@ -564,8 +564,26 @@ function onTradeClosed(
       consecutiveSls,
       lastSlSignal: signal,
     });
+  } else if (outcome === "TP1") {
+    // TP1 milestone: trade is still open (stop trailed to BE), but a partial
+    // win has been secured. Reset the SL streak so a subsequent SL or BE_TRAIL
+    // doesn't accumulate on top of pre-TP1 losses. Cooldown is intentionally
+    // left untouched — the trade is still active and no alert needs to re-fire.
+    const prevStreak = existing?.consecutiveSls ?? 0;
+    if (prevStreak > 0) {
+      logger.info(
+        { symbolKey, timeframe, signal, prevStreak },
+        "TP1 milestone — SL streak reset (trade still open)",
+      );
+    }
+    stateMap.set(k, {
+      ...(existing ?? { signal: "WAIT" as SignalKind, lastAlertAt: 0 }),
+      consecutiveSls: 0,
+      lastSlSignal: undefined,
+      // lastAlertAt and lastAlertSignal are preserved via spread — trade still open.
+    });
   } else {
-    // TP2, BE_TRAIL — reset streak and clear cooldown
+    // TP2, BE_TRAIL — reset streak and clear cooldown (trade fully closed)
     const prevStreak = existing?.consecutiveSls ?? 0;
     if (prevStreak > 0) {
       logger.info(

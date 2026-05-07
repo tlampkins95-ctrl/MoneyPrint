@@ -1393,7 +1393,10 @@ async function initClosedTradesTable(): Promise<void> {
   }
 }
 
-export type ClosedOutcome = "SL" | "BE_TRAIL" | "TP2" | "REVERSED" | "MISSED";
+// "TP1" is a milestone outcome (trade stays open, stop is trailed to BE).
+// It is used exclusively to notify the notifier so the SL streak can reset
+// on a partial win — the trade is NOT closed and activeTrades is NOT modified.
+export type ClosedOutcome = "SL" | "BE_TRAIL" | "TP2" | "TP1" | "REVERSED" | "MISSED";
 
 // Call before activeTrades.delete() to record the outcome in the DB.
 // forceOutcome is used for REVERSED and MISSED paths; the isInvalidated path
@@ -1957,6 +1960,9 @@ export function computeLevelsStable(
       wickScanTrade.tp1Hit = true;
       wickScanTrade.stopLoss = wickScanTrade.entryPrice;
       persistActiveTrades();
+      // TP1 milestone: reset the consecutive-SL streak. The trade is NOT
+      // closed here — the callback is a streak-reset signal only.
+      onTradeClosedCallback?.(symbolKey, timeframe, "TP1", wickScanTrade.signal as "BUY" | "SELL");
     }
   }
 
@@ -2027,6 +2033,9 @@ export function computeLevelsStable(
         stillActive.tp1Hit = true;
         stillActive.stopLoss = stillActive.entryPrice;
         persistActiveTrades();
+        // TP1 milestone: reset the consecutive-SL streak. The trade is NOT
+        // closed here — the callback is a streak-reset signal only.
+        onTradeClosedCallback?.(symbolKey, timeframe, "TP1", stillActive.signal as "BUY" | "SELL");
       }
     }
     return {
