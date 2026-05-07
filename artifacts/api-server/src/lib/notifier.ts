@@ -230,11 +230,19 @@ async function checkSymbol(
     if (transitioned && !cooldownActive && !alreadyInSameDirection) {
       // Gate: pending signals must be confirmed by the next higher TF before alerting.
       // 30m is gated by 1h; 1h is gated by 1d. Filled trades are exempt.
+      // Direction flips (BUY→SELL or SELL→BUY) are also exempt: a lower-TF
+      // reversal is valid even when the higher TF disagrees — e.g. a 30m BUY
+      // rally within a 1h SELL trend is a real counter-move worth alerting.
       const isFilledTrade =
         levels.tradeState !== "WAIT" && levels.tradeState !== "PENDING";
+      const isDirectionFlip =
+        !!prev &&
+        ((prev.signal === "BUY" && levels.signal === "SELL") ||
+          (prev.signal === "SELL" && levels.signal === "BUY"));
       if (
         higherTf != null &&
         !isFilledTrade &&
+        !isDirectionFlip &&
         (levels.signal === "BUY" || levels.signal === "SELL") &&
         higherCandles.length >= 2
       ) {
@@ -397,9 +405,14 @@ async function checkTrendingSymbol(
       // 30m is gated by 1h; 1h is gated by 1d. Filled trades are exempt.
       const isFilledTrade =
         levels.tradeState !== "WAIT" && levels.tradeState !== "PENDING";
+      const isDirectionFlip =
+        !!prev &&
+        ((prev.signal === "BUY" && levels.signal === "SELL") ||
+          (prev.signal === "SELL" && levels.signal === "BUY"));
       if (
         higherTf != null &&
         !isFilledTrade &&
+        !isDirectionFlip &&
         (levels.signal === "BUY" || levels.signal === "SELL") &&
         higherCandles.length >= 2
       ) {
