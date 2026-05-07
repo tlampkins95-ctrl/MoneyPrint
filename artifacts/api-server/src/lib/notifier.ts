@@ -17,6 +17,10 @@ type SignalKind = "BUY" | "SELL" | "WAIT";
 interface TrackedState {
   signal: SignalKind;
   lastAlertAt: number;
+  // Direction of the last alert actually sent. Used to make the cooldown
+  // direction-aware: a BUY→SELL flip bypasses the cooldown entirely because
+  // it's a new setup in the opposite direction, not a repeat alert.
+  lastAlertSignal?: SignalKind;
   // Gate tracking — set when a valid signal is present but 1h hasn't aligned yet
   gateBlockedSince?: number;
   gateBlockedSignal?: SignalKind;
@@ -189,7 +193,15 @@ async function checkSymbol(
 
     const cooldownMs = COOLDOWN_BY_TIMEFRAME[timeframe];
     // On a seed snapshot there's no prior alert, so cooldown is N/A.
-    const cooldownActive = !!prev && now - prev.lastAlertAt < cooldownMs;
+    // Cooldown is direction-aware: it only applies when the new signal matches
+    // the last alerted direction. A BUY→SELL (or SELL→BUY) flip bypasses the
+    // cooldown entirely — it's a new setup in the opposite direction, not a
+    // repeat alert. This prevents the cooldown from silently eating reversals
+    // after a trade closes (e.g. KSM TP2 BUY → no SELL alert during reversal).
+    const cooldownActive =
+      !!prev &&
+      now - prev.lastAlertAt < cooldownMs &&
+      prev.lastAlertSignal === levels.signal;
 
     // De-dup against the active-trade store: if a trade was already open in
     // the same direction BEFORE this compute cycle, the user is already
@@ -300,7 +312,7 @@ async function checkSymbol(
           "Signal alert dispatched",
         );
       }
-      stateMap.set(k, { signal: levels.signal, lastAlertAt: now });
+      stateMap.set(k, { signal: levels.signal, lastAlertAt: now, lastAlertSignal: levels.signal });
       return;
     }
 
@@ -373,7 +385,12 @@ async function checkTrendingSymbol(
     }
 
     const cooldownMs = COOLDOWN_BY_TIMEFRAME[timeframe];
-    const cooldownActive = !!prev && now - prev.lastAlertAt < cooldownMs;
+    // Direction-aware: only suppress same-direction repeats. A flip in
+    // direction (BUY→SELL or SELL→BUY) always bypasses the cooldown.
+    const cooldownActive =
+      !!prev &&
+      now - prev.lastAlertAt < cooldownMs &&
+      prev.lastAlertSignal === levels.signal;
 
     if (transitioned && !cooldownActive) {
       // Gate: pending signals must be confirmed by the next higher TF before alerting.
@@ -425,10 +442,10 @@ async function checkTrendingSymbol(
         );
       }
       if (tasks.length > 0) await Promise.allSettled(tasks);
-      stateMap.set(k, { signal: levels.signal, lastAlertAt: now });
+      stateMap.set(k, { signal: levels.signal, lastAlertAt: now, lastAlertSignal: levels.signal });
       return;
     }
-    stateMap.set(k, { signal: levels.signal, lastAlertAt: prev?.lastAlertAt ?? 0 });
+    stateMap.set(k, { signal: levels.signal, lastAlertAt: prev?.lastAlertAt ?? 0, lastAlertSignal: prev?.lastAlertSignal });
   } catch (err) {
     logger.warn({ err, symbolKey, timeframe }, "Trending notifier check failed");
   }
@@ -462,7 +479,9 @@ function clearCooldown(symbolKey: string, timeframe: Timeframe): void {
   const k = key(symbolKey, timeframe);
   const existing = stateMap.get(k);
   if (existing) {
-    stateMap.set(k, { ...existing, lastAlertAt: 0 });
+    // Clear both lastAlertAt and lastAlertSignal so the next signal in either
+    // direction fires immediately, regardless of what was last alerted.
+    stateMap.set(k, { ...existing, lastAlertAt: 0, lastAlertSignal: undefined });
   }
 }
 
