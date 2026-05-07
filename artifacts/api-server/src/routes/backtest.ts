@@ -230,8 +230,13 @@ function runBreakoutBacktest(candles: CandleRaw[], timeframe: Timeframe, symbol:
     const breakdownTriggered = today.close < s2 - 0.25 * atr && breakdownCloseStrong;
     const breakdownEntry     = today.close;
 
-    const canBuy  = breakoutTriggered  && buyAllowed  && trendBullish && rsiBuyOk  && macdBuyOk;
-    const canSell = breakdownTriggered && sellAllowed && trendBearish && rsiSellOk && macdSellOk;
+    // Price vs EMA21 — mirrors live signal's `last.close > last21` gate.
+    // Falls open when EMA21 isn't yet warm (same ema5050Warm guard as trendBullish).
+    const priceAboveEma21 = !ema5050Warm || today.close > e21;
+    const priceBelowEma21 = !ema5050Warm || today.close < e21;
+
+    const canBuy  = breakoutTriggered  && buyAllowed  && trendBullish && priceAboveEma21 && rsiBuyOk  && macdBuyOk;
+    const canSell = breakdownTriggered && sellAllowed && trendBearish && priceBelowEma21 && rsiSellOk && macdSellOk;
 
     let direction: "BUY" | "SELL" | null = null;
     if (canBuy && !canSell) direction = "BUY";
