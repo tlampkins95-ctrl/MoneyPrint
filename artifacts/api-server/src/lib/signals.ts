@@ -1454,11 +1454,13 @@ function logClosedTrade(
       // best-effort
     });
 
-  // Reset notifier cooldown for actionable closes (SL/BE_TRAIL/TP2) so the
-  // next genuine setup on the same symbol/TF alerts immediately rather than
-  // waiting out the inter-trade cooldown window. REVERSED and MISSED are not
-  // actionable re-entry triggers so we leave their cooldowns intact.
-  if (outcome === "SL" || outcome === "BE_TRAIL" || outcome === "TP2") {
+  // Reset notifier cooldown after SL or BE_TRAIL so the next genuine setup
+  // alerts immediately — the trade failed or barely survived, and a fresh
+  // entry is actionable. TP2 is intentionally excluded: a coin that just hit
+  // its full target has completed its move and should cool down through the
+  // normal cooldown window before the next alert, preventing a barrage of
+  // re-entry alerts on the reversal. REVERSED and MISSED are also excluded.
+  if (outcome === "SL" || outcome === "BE_TRAIL") {
     onTradeClosedCallback?.(symbolKey, timeframe);
   }
 }
