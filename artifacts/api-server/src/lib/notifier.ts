@@ -4,7 +4,7 @@ import {
   fetchCandlesForTimeframe,
   type Timeframe,
 } from "./yahoo-fetch";
-import { computeLevelsStable, fetchSpotPrice, getActiveTrade, applyFuturesBasis } from "./signals";
+import { computeLevelsStable, fetchSpotPrice, getActiveTrade, applyFuturesBasis, registerOnTradeClosedCallback } from "./signals";
 import {
   buildAlertContext,
   sendTelegramAlert,
@@ -455,6 +455,17 @@ async function tick(): Promise<void> {
   await Promise.allSettled(tasks);
 }
 
+// Called by signals.ts (via the registered callback) when a trade closes via
+// SL, BE_TRAIL, or TP2. Resets lastAlertAt so the next genuine setup on the
+// same symbol/TF fires immediately rather than waiting out the cooldown.
+function clearCooldown(symbolKey: string, timeframe: Timeframe): void {
+  const k = key(symbolKey, timeframe);
+  const existing = stateMap.get(k);
+  if (existing) {
+    stateMap.set(k, { ...existing, lastAlertAt: 0 });
+  }
+}
+
 let started = false;
 
 export function startSignalNotifier(): void {
@@ -469,6 +480,11 @@ export function startSignalNotifier(): void {
     return;
   }
   started = true;
+
+  // Wire up the cooldown-reset hook so signals.ts can notify us when a trade
+  // closes without creating a circular import.
+  registerOnTradeClosedCallback(clearCooldown);
+
   logger.info(
     {
       symbols: ALL_SYMBOLS.length,

@@ -1373,6 +1373,18 @@ export type ClosedOutcome = "SL" | "BE_TRAIL" | "TP2" | "REVERSED" | "MISSED";
 // Call before activeTrades.delete() to record the outcome in the DB.
 // forceOutcome is used for REVERSED and MISSED paths; the isInvalidated path
 // auto-derives the outcome from the trade's state.
+// Callback registered by the notifier so logClosedTrade can reset the alert
+// cooldown when a real trade close happens, enabling immediate re-alerting on
+// the next genuine setup. Kept as a loose callback to avoid a circular import
+// (notifier imports signals; signals must not import notifier).
+let onTradeClosedCallback: ((symbolKey: string, timeframe: Timeframe) => void) | null = null;
+
+export function registerOnTradeClosedCallback(
+  cb: (symbolKey: string, timeframe: Timeframe) => void,
+): void {
+  onTradeClosedCallback = cb;
+}
+
 function logClosedTrade(
   trade: ActiveTrade,
   symbolKey: string,
@@ -1441,6 +1453,14 @@ function logClosedTrade(
     .catch(() => {
       // best-effort
     });
+
+  // Reset notifier cooldown for actionable closes (SL/BE_TRAIL/TP2) so the
+  // next genuine setup on the same symbol/TF alerts immediately rather than
+  // waiting out the inter-trade cooldown window. REVERSED and MISSED are not
+  // actionable re-entry triggers so we leave their cooldowns intact.
+  if (outcome === "SL" || outcome === "BE_TRAIL" || outcome === "TP2") {
+    onTradeClosedCallback?.(symbolKey, timeframe);
+  }
 }
 
 // On startup: load any trades from the DB that are missing from the local file.

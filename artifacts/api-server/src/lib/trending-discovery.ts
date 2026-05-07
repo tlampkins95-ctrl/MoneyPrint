@@ -140,8 +140,11 @@ const EXCLUDED_TICKERS = new Set([
 // How many trending coins to track (beyond the static list).
 const MAX_TRENDING = 5;
 
-// TTL for a discovered trending coin: 8 hours (after dropout, they age out).
-const TRENDING_TTL_MS = 8 * 60 * 60 * 1000;
+// TTL for a discovered trending coin in the DB: 4 hours (matches the discovery
+// interval). A coin that drops off the current run expires at the next cycle,
+// freeing its slot for new entrants. Active-trade protection is handled by the
+// signals layer (the trade stays in activeTrades regardless of trending cache).
+const TRENDING_TTL_MS = 4 * 60 * 60 * 1000;
 
 // Refresh interval: every 4 hours.
 const DISCOVERY_INTERVAL_MS = 4 * 60 * 60 * 1000;
@@ -475,9 +478,9 @@ async function runDiscovery(pool: Pool): Promise<void> {
         // Re-discovered this cycle — already has a fresh expiresAt.
         trendingCache.push(meta);
       } else if (meta.expiresAt > now) {
-        // Dropped out this cycle — extend TTL to a full 8h from now so the
-        // post-dropout cooldown window is always ~8h regardless of when the
-        // coin was last refreshed.
+        // Dropped out this cycle but not yet expired — extend TTL to a full
+        // 4h from now so it stays through the next discovery run, then falls
+        // off if it still doesn't qualify, freeing the slot for new entrants.
         trendingCache.push({ ...meta, expiresAt: now + TRENDING_TTL_MS });
       }
     }
