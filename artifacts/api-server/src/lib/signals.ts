@@ -376,21 +376,8 @@ export const DEFAULT_MT5_LOTS = 0.01;
 //   * Forex: 1 lot = 100,000 base units
 //   * XAUUSD (gold): 1 lot = 100 oz
 //   * XAGUSD (silver): 1 lot = 5,000 oz
-// USD P&L per 1.0 price-unit move per 1.0 lot depends on the quote currency:
-//   * X/USD pairs (EUR/GBP/AUD/XAU/XAG): contractSize directly (USD = base × USD/base)
-//   * USD/X pairs (USDJPY): contractSize / entry (convert JPY back to USD using live entry)
-//   * Cross JPY pairs (GBPJPY): contractSize / liveUsdJpy (read from spotCache;
-//       fallback to 150 only on cold start before USDJPY has been fetched once.
-//       USDJPY is one of the 9 tracked symbols so this cache is normally warm.)
-const USDJPY_FALLBACK = 150;
-
-function getUsdJpyRate(): { rate: number; live: boolean } {
-  const cached = spotCache.get("USDJPY");
-  if (cached && Number.isFinite(cached.price) && cached.price > 0) {
-    return { rate: cached.price, live: true };
-  }
-  return { rate: USDJPY_FALLBACK, live: false };
-}
+// All supported forex pairs (GBPUSD, AUDUSD) are X/USD — quote is already USD,
+// so USD P&L per 1.0 price-unit per 1.0 lot = contractSize directly.
 
 function mt5ContractSize(symbol: Symbol): { size: number; unit: string } {
   if (symbol === "XAUUSD") return { size: 100, unit: "oz" };
@@ -398,11 +385,9 @@ function mt5ContractSize(symbol: Symbol): { size: number; unit: string } {
   return { size: 100_000, unit: symbol.slice(0, 3) }; // EUR/GBP/AUD/USD
 }
 
-function mt5UsdPerPriceUnitPerLot(symbol: Symbol, entry: number): number {
+function mt5UsdPerPriceUnitPerLot(symbol: Symbol): number {
   const { size } = mt5ContractSize(symbol);
-  if (symbol === "USDJPY") return entry > 0 ? size / entry : 0;
-  if (symbol === "GBPJPY") return size / getUsdJpyRate().rate;
-  return size; // EURUSD, GBPUSD, AUDUSD, XAUUSD, XAGUSD
+  return size; // GBPUSD, AUDUSD, XAUUSD, XAGUSD — quote is USD, no conversion needed
 }
 
 interface MT5Sizing {
@@ -445,14 +430,12 @@ function computeMT5Sizing(
   riskPct: number,
 ): MT5Sizing {
   const { size, unit } = mt5ContractSize(symbolKey as Symbol);
-  const usdPerUnit = mt5UsdPerPriceUnitPerLot(symbolKey as Symbol, entry);
+  const usdPerUnit = mt5UsdPerPriceUnitPerLot(symbolKey as Symbol);
   const slDist = Math.abs(entry - stopLoss);
   const tp1Dist = Math.abs(takeProfit1 - entry);
   const tp2Dist = Math.abs(takeProfit2 - entry);
   const positionSize = lots * size;
-  // USD notional = USD-per-price-unit × entry × lots, which works for every
-  // class above (X/USD, USD/X, JPY-cross, metals) because usdPerUnit already
-  // bakes in the quote-currency conversion.
+  // USD notional = contractSize × entry × lots (quote is always USD for supported pairs).
   const notional = usdPerUnit * entry * lots;
   const lossUsdPerLot = slDist * usdPerUnit;
   const lossUsd = lossUsdPerLot * lots;
@@ -787,29 +770,10 @@ function computePositionSizing(
   }
 
   // ─── Forex — venue: MT5 ───
-  // For BASE/QUOTE pairs, position size is N units of BASE.
-  // Loss in QUOTE on SL hit = N × slDist. Convert to USD:
-  //   USD-quote pair (EURUSD, GBPUSD, AUDUSD): USD loss = N × slDist
-  //     → N = riskUSD / slDist
-  //   USD-base pair (USDJPY): JPY loss = N × slDist; USD ≈ JPY / entry
-  //     → N = riskUSD × entry / slDist
-  //   Cross JPY pair (GBPJPY): use live USDJPY from spotCache (fallback 150)
-  //     → N = riskUSD × usdJpy / slDist
-  const isUsdBase = symbolKey === "USDJPY";
-  const isJpyCross = symbolKey === "GBPJPY";
-  let positionSize: number;
-  let notional: number;
-  if (isUsdBase) {
-    positionSize = (riskAmount * entry) / slDist; // USD units
-    notional = positionSize; // already USD
-  } else if (isJpyCross) {
-    const usdJpy = getUsdJpyRate().rate;
-    positionSize = (riskAmount * usdJpy) / slDist; // GBP units
-    notional = (positionSize * entry) / usdJpy; // GBP × JPY/GBP / (JPY/USD) = USD
-  } else {
-    positionSize = riskAmount / slDist; // base units (EUR, GBP, AUD)
-    notional = positionSize * entry; // base × USD/base = USD
-  }
+  // All supported pairs (GBPUSD, AUDUSD) are X/USD — quote is already USD.
+  // Loss in USD on SL hit = N × slDist → N = riskUSD / slDist.
+  const positionSize = riskAmount / slDist; // base units (GBP, AUD)
+  const notional = positionSize * entry;    // base × USD/base = USD
   const std = positionSize / 100_000;
   const unit = symbolKey.slice(0, 3); // EUR, GBP, AUD, USD
   return {

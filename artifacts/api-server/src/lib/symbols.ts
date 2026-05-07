@@ -1,11 +1,8 @@
 export type Symbol =
   | "XAGUSD"
   | "XAUUSD"
-  | "EURUSD"
   | "GBPUSD"
   | "AUDUSD"
-  | "USDJPY"
-  | "GBPJPY"
   | "BTCUSD"
   | "ETHUSD"
   | "SKYAIUSDT"
@@ -74,14 +71,6 @@ export const SYMBOLS: Record<Symbol, SymbolMeta> = {
     goldApi: "XAU",
     hasFuturesBasis: true,
   },
-  EURUSD: {
-    yahoo: "EURUSD=X",
-    tvSymbol: "OANDA:EURUSD",
-    tvScrapePath: "/symbols/EURUSD/?exchange=OANDA",
-    label: "EUR / USD",
-    decimals: 5,
-    prefix: "",
-  },
   GBPUSD: {
     yahoo: "GBPUSD=X",
     tvSymbol: "OANDA:GBPUSD",
@@ -96,22 +85,6 @@ export const SYMBOLS: Record<Symbol, SymbolMeta> = {
     tvScrapePath: "/symbols/AUDUSD/?exchange=OANDA",
     label: "AUD / USD",
     decimals: 5,
-    prefix: "",
-  },
-  USDJPY: {
-    yahoo: "JPY=X",
-    tvSymbol: "OANDA:USDJPY",
-    tvScrapePath: "/symbols/USDJPY/?exchange=OANDA",
-    label: "USD / JPY",
-    decimals: 3,
-    prefix: "",
-  },
-  GBPJPY: {
-    yahoo: "GBPJPY=X",
-    tvSymbol: "OANDA:GBPJPY",
-    tvScrapePath: "/symbols/GBPJPY/?exchange=OANDA",
-    label: "GBP / JPY",
-    decimals: 3,
     prefix: "",
   },
   BTCUSD: {

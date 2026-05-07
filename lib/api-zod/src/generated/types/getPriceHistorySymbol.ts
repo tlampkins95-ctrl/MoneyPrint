@@ -12,11 +12,8 @@ export type GetPriceHistorySymbol =
 export const GetPriceHistorySymbol = {
   XAGUSD: "XAGUSD",
   XAUUSD: "XAUUSD",
-  EURUSD: "EURUSD",
   GBPUSD: "GBPUSD",
   AUDUSD: "AUDUSD",
-  USDJPY: "USDJPY",
-  GBPJPY: "GBPJPY",
   BTCUSD: "BTCUSD",
   ETHUSD: "ETHUSD",
   SKYAIUSDT: "SKYAIUSDT",

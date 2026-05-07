@@ -105,7 +105,7 @@ paths:
           name: symbol
           schema:
             type: string
-            enum: ["XAGUSD", "XAUUSD", "EURUSD", "GBPUSD", "AUDUSD", "USDJPY", "GBPJPY", "BTCUSD", "ETHUSD", "SKYAIUSDT", "ZECUSD"]
+            enum: ["XAGUSD", "XAUUSD", "GBPUSD", "AUDUSD", "BTCUSD", "ETHUSD", "SKYAIUSDT", "ZECUSD"]
             default: "XAGUSD"
           description: Trading instrument
         - in: query
@@ -293,7 +293,7 @@ paths:
           name: symbol
           schema:
             type: string
-            enum: ["XAGUSD", "XAUUSD", "EURUSD", "GBPUSD", "AUDUSD", "USDJPY", "GBPJPY", "BTCUSD", "ETHUSD", "SKYAIUSDT", "ZECUSD"]
+            enum: ["XAGUSD", "XAUUSD", "GBPUSD", "AUDUSD", "BTCUSD", "ETHUSD", "SKYAIUSDT", "ZECUSD"]
             default: "XAGUSD"
           description: Trading instrument
         - in: query
@@ -623,7 +623,7 @@ components:
 
     MT5Sizing:
       type: object
-      description: MetaTrader 5 lot-based sizing for forex and metals. The trader chooses a fixed lot size (default 0.01 = 1 micro lot); the dollar P&L at SL/TP1/TP2 is derived from the pair's contract size and quote-currency conversion. For X/USD pairs this is exact; for USDJPY it uses the live entry price; for GBPJPY it approximates via an assumed USDJPY rate.
+      description: MetaTrader 5 lot-based sizing for forex and metals. The trader chooses a fixed lot size (default 0.01 = 1 micro lot); the dollar P&L at SL/TP1/TP2 is derived from the pair's contract size. All supported forex pairs (GBPUSD, AUDUSD) are X/USD — the quote is already USD so no currency conversion is needed.
       properties:
         lots:
           type: number

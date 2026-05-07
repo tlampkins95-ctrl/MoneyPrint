@@ -7,7 +7,7 @@
  */
 
 /**
- * MetaTrader 5 lot-based sizing for forex and metals. The trader chooses a fixed lot size (default 0.01 = 1 micro lot); the dollar P&L at SL/TP1/TP2 is derived from the pair's contract size and quote-currency conversion. For X/USD pairs this is exact; for USDJPY it uses the live entry price; for GBPJPY it approximates via an assumed USDJPY rate.
+ * MetaTrader 5 lot-based sizing for forex and metals. The trader chooses a fixed lot size (default 0.01 = 1 micro lot); the dollar P&L at SL/TP1/TP2 is derived from the pair's contract size. All supported forex pairs (GBPUSD, AUDUSD) are X/USD — the quote is already USD so no currency conversion is needed.
  */
 export interface MT5Sizing {
   /** Lot size the trader will place (e.g. 0.01 = 1 micro lot, 0.10 = 1 mini lot, 1.00 = 1 standard lot) */

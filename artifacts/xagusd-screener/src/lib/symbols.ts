@@ -1,11 +1,8 @@
 export type Symbol =
   | "XAGUSD"
   | "XAUUSD"
-  | "EURUSD"
   | "GBPUSD"
   | "AUDUSD"
-  | "USDJPY"
-  | "GBPJPY"
   | "BTCUSD"
   | "ETHUSD"
   | "SKYAIUSDT"
@@ -24,11 +21,8 @@ export interface SymbolMeta {
 export const SYMBOLS: Record<Symbol, SymbolMeta> = {
   XAGUSD: { tv: "OANDA:XAGUSD",     short: "XAG/USD",  long: "Silver",   badge: "Ag",   decimals: 3, prefix: "$" },
   XAUUSD: { tv: "OANDA:XAUUSD",     short: "XAU/USD",  long: "Gold",     badge: "Au",   decimals: 2, prefix: "$" },
-  EURUSD: { tv: "OANDA:EURUSD",     short: "EUR/USD",  long: "Euro",     badge: "EU",   decimals: 5, prefix: "" },
   GBPUSD: { tv: "OANDA:GBPUSD",     short: "GBP/USD",  long: "Cable",    badge: "GB",   decimals: 5, prefix: "" },
   AUDUSD: { tv: "OANDA:AUDUSD",     short: "AUD/USD",  long: "Aussie",   badge: "AU",   decimals: 5, prefix: "" },
-  USDJPY: { tv: "OANDA:USDJPY",     short: "USD/JPY",  long: "Yen",      badge: "¥",    decimals: 3, prefix: "" },
-  GBPJPY: { tv: "OANDA:GBPJPY",     short: "GBP/JPY",  long: "Beast",    badge: "G¥",   decimals: 3, prefix: "" },
   BTCUSD: { tv: "PHEMEX:BTCUSDT", short: "BTC/USD", long: "Bitcoin (Phemex)",  badge: "₿", decimals: 1, prefix: "$", venue: "PHEMEX · USDT perp" },
   ETHUSD: { tv: "PHEMEX:ETHUSDT", short: "ETH/USD", long: "Ethereum (Phemex)", badge: "Ξ", decimals: 2, prefix: "$", venue: "PHEMEX · USDT perp" },
   SKYAIUSDT: { tv: "PHEMEX:SKYAIUSDT", short: "SKY/USDT", long: "SKYAI (Phemex spot)", badge: "SK", decimals: 4, prefix: "$", venue: "Phemex · spot" },

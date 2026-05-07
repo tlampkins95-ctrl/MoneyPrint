@@ -290,7 +290,7 @@ export const GetLevelsResponse = zod.object({
         })
         .optional()
         .describe(
-          "MetaTrader 5 lot-based sizing for forex and metals. The trader chooses a fixed lot size (default 0.01 = 1 micro lot); the dollar P&L at SL\/TP1\/TP2 is derived from the pair's contract size and quote-currency conversion. For X\/USD pairs this is exact; for USDJPY it uses the live entry price; for GBPJPY it approximates via an assumed USDJPY rate.",
+          "MetaTrader 5 lot-based sizing for forex and metals. The trader chooses a fixed lot size (default 0.01 = 1 micro lot); the dollar P&L at SL\/TP1\/TP2 is derived from the pair's contract size. All supported forex pairs (GBPUSD, AUDUSD) are X\/USD — the quote is already USD so no currency conversion is needed.",
         ),
       spotToken: zod
         .object({
@@ -345,11 +345,8 @@ export const GetBacktestQueryParams = zod.object({
     .enum([
       "XAGUSD",
       "XAUUSD",
-      "EURUSD",
       "GBPUSD",
       "AUDUSD",
-      "USDJPY",
-      "GBPJPY",
       "BTCUSD",
       "ETHUSD",
       "SKYAIUSDT",
@@ -717,7 +714,7 @@ export const GetActiveSignalsResponse = zod.object({
                   })
                   .optional()
                   .describe(
-                    "MetaTrader 5 lot-based sizing for forex and metals. The trader chooses a fixed lot size (default 0.01 = 1 micro lot); the dollar P&L at SL\/TP1\/TP2 is derived from the pair's contract size and quote-currency conversion. For X\/USD pairs this is exact; for USDJPY it uses the live entry price; for GBPJPY it approximates via an assumed USDJPY rate.",
+                    "MetaTrader 5 lot-based sizing for forex and metals. The trader chooses a fixed lot size (default 0.01 = 1 micro lot); the dollar P&L at SL\/TP1\/TP2 is derived from the pair's contract size. All supported forex pairs (GBPUSD, AUDUSD) are X\/USD — the quote is already USD so no currency conversion is needed.",
                   ),
                 spotToken: zod
                   .object({
@@ -950,11 +947,8 @@ export const GetPriceHistoryQueryParams = zod.object({
     .enum([
       "XAGUSD",
       "XAUUSD",
-      "EURUSD",
       "GBPUSD",
       "AUDUSD",
-      "USDJPY",
-      "GBPJPY",
       "BTCUSD",
       "ETHUSD",
       "SKYAIUSDT",
