@@ -1854,8 +1854,17 @@ export function computeLevelsStable(
   const existing = activeTrades.get(k);
 
   // Invalidate if SL or TP2 hit.
+  // Use the level price as exit (not the live spot), because the live tick may
+  // have gapped past the stop/target — e.g. a BE trail whose stop is at entry
+  // but the current quote is 0.3% below it. Using currentPrice there would
+  // record a negative R on a trade whose outcome is "BE_TRAIL".
   if (existing && isInvalidated(existing, fresh.currentPrice)) {
-    logClosedTrade(existing, symbolKey, timeframe, fresh.currentPrice);
+    const isBuyTrade = existing.signal === "BUY";
+    const tp2Hit = isBuyTrade
+      ? fresh.currentPrice >= existing.takeProfit2
+      : fresh.currentPrice <= existing.takeProfit2;
+    const exitAtLevel = tp2Hit ? existing.takeProfit2 : existing.stopLoss;
+    logClosedTrade(existing, symbolKey, timeframe, exitAtLevel);
     activeTrades.delete(k);
     persistActiveTrades();
   }
