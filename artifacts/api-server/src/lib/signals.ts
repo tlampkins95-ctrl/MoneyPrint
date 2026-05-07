@@ -970,38 +970,46 @@ export function computeLevels(
   const ema200BuyOk  = !useEma200Gate || prev.close >= prevEma200;
   const ema200SellOk = !useEma200Gate || prev.close <= prevEma200;
 
-  // Breakout / breakdown momentum gates. Fire when price has clearly cleared
-  // R2 (BUY) or broken below S2 (SELL) with confirmed trend momentum:
-  //   • RSI 55–78 for breakout (above neutral, not yet overbought/blown-out)
-  //   • RSI 22–45 for breakdown (below neutral, not yet oversold/climactic)
-  //   • MACD histogram positive AND rising (breakout) / negative AND falling (breakdown)
-  //     → requires two consecutive completed bars both in the same direction
-  //   • currentPrice > EMA21 (see breakout gates below — faster than EMA crossover)
-  //   • EMA200 regime gate (same as pivot-bounce, bypassed on 1d)
-  // These only fire inside the WAIT else-branch, ensuring pivot-bounce setups
-  // (which have a more precise zone entry) always take priority.
-  // Breakout gates — designed to fire on the bar of the actual move, not weeks later:
-  //   • RSI 55–88: wide ceiling; a 5-6% pump routinely sends 1h RSI to 82-87.
-  //     Only block truly parabolic exhaustion (>88). Floor at 55 avoids breakouts
-  //     that fire into still-oversold markets.
-  //   • currentPrice > EMA21: price crossed above the fast EMA (immediate breakout
-  //     confirmation). EMA21>EMA50 crossover lags 2-4 weeks; first-day breakouts
-  //     are never caught by that. Price > EMA21 is the right responsive gate here.
-  //   • MACD removed: MACD lags too much on intraday bars (30m/1h) during sharp
-  //     pumps — the histogram can stay negative for several bars after price clears
-  //     R2, blocking every first-wave breakout entry. Price > R2 + RSI range +
-  //     price > EMA21 + EMA200 regime is sufficient confirmation.
-  //   • EMA200 regime (bypassed on 1d as per existing logic)
+  // Breakout / breakdown gates — synced with runBreakoutBacktest so live
+  // behaviour and backtest results describe the same signal.
+  //
+  // Entry filters (all must pass):
+  //   1. Magnitude: price ≥0.25×ATR past R2/S2. Marginal scratches above the
+  //      level fail at a much higher rate and aren't genuine breakouts.
+  //   2. RSI 55–78 for BUY / 22–45 for SELL. Ceiling lowered from 88→78 to
+  //      filter over-extended, near-exhaustion moves. Floor at 55/ceiling at 45
+  //      ensures momentum is established but not parabolic.
+  //   3. EMA21 > EMA50 trend alignment for BUY (EMA21 < EMA50 for SELL).
+  //      Falls open when EMA50 not yet warm (<50 bars). Matches backtest
+  //      trendBullish/trendBearish gate.
+  //   4. currentPrice > EMA21 (immediate momentum confirmation for BUY;
+  //      currentPrice < EMA21 for SELL).
+  //   5. MACD histogram positive AND rising for BUY (negative AND falling for
+  //      SELL), using last two completed bars. Matches backtest macdBuyOk gate.
+  //   6. EMA200 regime gate (bypassed on 1d — same as pivot-bounce path).
+  //
+  // These only fire inside the WAIT else-branch so pivot-bounce setups always
+  // take priority.
+  const ema5050WarmBreakout = closes.length >= 50 && !isNaN(last21) && !isNaN(last50);
+  const trendBullishBreakout = !ema5050WarmBreakout || last21 > last50;
+  const trendBearishBreakout = !ema5050WarmBreakout || last21 < last50;
+  const macdBreakoutBuyOk  = !macdWarm || (histPrev1 > 0 && histPrev1 > histPrev2);
+  const macdBreakoutSellOk = !macdWarm || (histPrev1 < 0 && histPrev1 < histPrev2);
+
   const breakoutBuyOk =
-    currentPrice > pivots.r2 &&
-    !isNaN(rsi) && rsi >= 55 && rsi <= 88 &&
+    currentPrice > pivots.r2 + 0.25 * atr &&
+    !isNaN(rsi) && rsi >= 55 && rsi <= 78 &&
+    trendBullishBreakout &&
     currentPrice > last21 &&
+    macdBreakoutBuyOk &&
     (!useEma200Gate || currentPrice > prevEma200);
 
   const breakdownSellOk =
-    currentPrice < pivots.s2 &&
+    currentPrice < pivots.s2 - 0.25 * atr &&
     !isNaN(rsi) && rsi >= 22 && rsi <= 45 &&
+    trendBearishBreakout &&
     currentPrice < last21 &&
+    macdBreakoutSellOk &&
     (!useEma200Gate || currentPrice < prevEma200);
 
   const zoneGap = pivots.r1 - pivots.s1;
@@ -1130,7 +1138,7 @@ export function computeLevels(
         // back to ATR multiples above entry so TP1/TP2 are never below entry.
         takeProfit1 = round(Math.max(pivots.r3, entryPrice + atr));
         takeProfit2 = round(Math.max(pivots.r3 + atr, entryPrice + atr * 2));
-        signalReason = `[${tfLabel}] BREAKOUT BUY: Price (${fmt(currentPrice)}) cleared R2 ${fmt(pivots.r2)} on momentum (RSI ${rsi.toFixed(0)}, price > EMA21). Market entry, SL ${fmt(stopLoss)} (1×ATR below entry), TP1 = ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)}.`;
+        signalReason = `[${tfLabel}] BREAKOUT BUY: Price (${fmt(currentPrice)}) cleared R2 ${fmt(pivots.r2)} by ≥0.25×ATR (RSI ${rsi.toFixed(0)}, EMA21>50, MACD+rising). Market entry, SL ${fmt(stopLoss)} (1×ATR below entry), TP1 = ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)}.`;
       } else {
         // Price is above R2, no breakout confirmation — show pending BUY at S1 on a pullback.
         entryPrice = round(pivots.s1);
@@ -1160,7 +1168,7 @@ export function computeLevels(
         // back to ATR multiples below entry so TP1/TP2 are never above entry.
         takeProfit1 = round(Math.min(pivots.s3, entryPrice - atr));
         takeProfit2 = round(Math.min(pivots.s3 - atr, entryPrice - atr * 2));
-        signalReason = `[${tfLabel}] BREAKDOWN SELL: Price (${fmt(currentPrice)}) broke S2 ${fmt(pivots.s2)} on momentum (RSI ${rsi.toFixed(0)}, price < EMA21). Market entry, SL ${fmt(stopLoss)} (1×ATR above entry), TP1 = ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)}.`;
+        signalReason = `[${tfLabel}] BREAKDOWN SELL: Price (${fmt(currentPrice)}) broke S2 ${fmt(pivots.s2)} by ≥0.25×ATR (RSI ${rsi.toFixed(0)}, EMA21<50, MACD-falling). Market entry, SL ${fmt(stopLoss)} (1×ATR above entry), TP1 = ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)}.`;
       } else {
         // Price is below S2, no breakdown confirmation — show pending SELL at R1 on a bounce.
         entryPrice = round(pivots.r1);

@@ -206,17 +206,28 @@ function runBreakoutBacktest(candles: CandleRaw[], timeframe: Timeframe, symbol:
     // SELL: histogram negative and falling.
     const macdSellOk = !macdWarm || (hNow < 0 && hNow < hPrev1);
 
-    // Breakout trigger: today's bar must CLOSE above R2.
-    // Requiring a close (not just a wick through the level) eliminates the
-    // false-breakout problem where price spikes to R2 intrabar then reverses —
-    // those bars would trigger entry and immediately hit SL on the same candle,
-    // producing near-zero win rates. A close above R2 is the standard
-    // confirmation that a genuine breakout has occurred.
+    // Breakout trigger: today's bar must CLOSE above R2, AND the close must
+    // meet two additional quality requirements:
+    //
+    //  1. Candle-close quality: close > bar midpoint (high+low)/2.
+    //     A bar that wicks above R2 then closes in its lower half is a
+    //     rejection candle, not a breakout — the market tested R2 and
+    //     sellers pushed it back. Only a close in the upper half confirms
+    //     genuine buying pressure has absorbed resistance.
+    //
+    //  2. Minimum magnitude: close > r2 + 0.25×ATR.
+    //     A close that barely scratches R2 by a tick offers no room before
+    //     SL is threatened. Requiring 0.25×ATR of clearance filters the
+    //     lowest-quality marginal entries that fail at a much higher rate.
+    //
     // Entry: today's close (market-on-close). Exit loop starts on the NEXT bar.
-    const breakoutTriggered = today.close > r2;
-    const breakoutEntry     = today.close;
-    // Breakdown trigger: today's bar must CLOSE below S2.
-    const breakdownTriggered = today.close < s2;
+    const breakoutCloseStrong  = today.close > (today.high + today.low) / 2;
+    const breakdownCloseStrong = today.close < (today.high + today.low) / 2;
+    const breakoutTriggered  = today.close > r2 + 0.25 * atr && breakoutCloseStrong;
+    const breakoutEntry      = today.close;
+    // Breakdown trigger: today's bar must CLOSE below S2 with the same
+    // quality gates (strong close in lower half, ≥0.25×ATR below S2).
+    const breakdownTriggered = today.close < s2 - 0.25 * atr && breakdownCloseStrong;
     const breakdownEntry     = today.close;
 
     const canBuy  = breakoutTriggered  && buyAllowed  && trendBullish && rsiBuyOk  && macdBuyOk;
