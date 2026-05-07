@@ -997,31 +997,37 @@ export function computeLevels(
   const macdBreakoutSellOk = !macdWarm || (histPrev1 < 0 && histPrev1 < histPrev2);
 
   // Candle-close quality gate — mirrors the backtest's strong-close check.
-  // The last *completed* bar (not the live tick) must have closed in its
-  // upper half for a BUY breakout (lower half for SELL). A bar that wicks
-  // above R2 but closes near its lows is a rejection candle, not a breakout.
-  // We use `last` (candles[length - 1]) which is always a fully-settled bar.
+  // All breakout quality checks are evaluated on `last` (candles[length - 1]),
+  // the fully-settled completed bar, matching backtest semantics where
+  // `today` is the signal bar whose close is checked. Using `last.close`
+  // (instead of live tick `currentPrice`) ensures the signal only fires
+  // after a bar has confirmed the breakout via its close — the same condition
+  // the backtest evaluates. Entry price is still `currentPrice` (market entry
+  // at the live tick once the bar confirms).
+  //
+  //   BUY: last.close > R2 + 0.25×ATR  → magnitude confirmed by bar close
+  //        last.close > bar midpoint     → strong-close (not a wick rejection)
+  //        last.close > EMA21            → fast-MA confirmation on closed bar
+  //   SELL: symmetric
   const breakoutBarMidpoint = (last.high + last.low) / 2;
-  const breakoutCloseStrongBuy  = last.close > breakoutBarMidpoint;
-  const breakoutCloseStrongSell = last.close < breakoutBarMidpoint;
 
   const breakoutBuyOk =
-    currentPrice > pivots.r2 + 0.25 * atr &&
+    last.close > pivots.r2 + 0.25 * atr &&
     !isNaN(rsi) && rsi >= 55 && rsi <= 78 &&
     trendBullishBreakout &&
-    currentPrice > last21 &&
+    last.close > last21 &&
     macdBreakoutBuyOk &&
-    breakoutCloseStrongBuy &&
-    (!useEma200Gate || currentPrice > prevEma200);
+    last.close > breakoutBarMidpoint &&
+    (!useEma200Gate || last.close > prevEma200);
 
   const breakdownSellOk =
-    currentPrice < pivots.s2 - 0.25 * atr &&
+    last.close < pivots.s2 - 0.25 * atr &&
     !isNaN(rsi) && rsi >= 22 && rsi <= 45 &&
     trendBearishBreakout &&
-    currentPrice < last21 &&
+    last.close < last21 &&
     macdBreakoutSellOk &&
-    breakoutCloseStrongSell &&
-    (!useEma200Gate || currentPrice < prevEma200);
+    last.close < breakoutBarMidpoint &&
+    (!useEma200Gate || last.close < prevEma200);
 
   const zoneGap = pivots.r1 - pivots.s1;
   const halfWidth = round(zoneGap * 0.2);
