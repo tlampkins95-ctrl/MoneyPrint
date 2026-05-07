@@ -12,6 +12,7 @@ import {
 } from "../lib/yahoo-fetch";
 import { SYMBOLS, makeRounder, ALL_SYMBOLS, type Symbol } from "../lib/symbols";
 import { computeLevelsStable, fetchSpotPrice, applyFuturesBasis, seedActiveTrades, clearActiveTrade } from "../lib/signals";
+import { getNotifierStatus } from "../lib/notifier";
 import {
   getTrendingSymbols,
   fetchCandlesForDynamic,
@@ -524,6 +525,13 @@ router.delete("/admin/active-trade", (req: Request, res: Response) => {
   if (!symbol || !timeframe) { res.status(400).json({ error: "symbol and timeframe required" }); return; }
   clearActiveTrade(symbol, timeframe as Timeframe);
   res.json({ ok: true, cleared: `${symbol}::${timeframe}` });
+});
+
+// GET /api/notifier-status
+// Returns the current state of the signal notifier including per-symbol/TF
+// cooldown info and the consecutive-SL circuit-breaker streak counters.
+router.get("/notifier-status", (_req: Request, res: Response) => {
+  res.json(getNotifierStatus());
 });
 
 export default router;
