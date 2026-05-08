@@ -1,5 +1,5 @@
 export function TradeDiagram() {
-  const W = 640, H = 340;
+  const W = 640, H = 280;
   const padL = 14, padR = 160, padT = 18, padB = 18;
   const chartW = W - padL - padR;
   const chartH = H - padT - padB;
@@ -67,7 +67,7 @@ export function TradeDiagram() {
   const bounceX = padL + 340;
 
   return (
-    <div className="min-h-screen bg-[#0d1117] flex items-center justify-center p-6 font-mono">
+    <div className="bg-[#0d1117] p-6 font-mono">
       <div className="w-full max-w-[680px] space-y-3">
         <div className="text-center mb-4">
           <h2 className="text-white text-lg font-bold tracking-wider uppercase">Fig 4 — Entry / SL / TP Setup</h2>
