@@ -850,11 +850,13 @@ router.get("/backtest", async (req: Request, res: Response) => {
     // Disabled combinations — return an empty-result object and cache it.
     // PIVOT_BOUNCE on 1d: daily metals pivots produce negative edge (see sweep).
     // BREAKOUT on 30m: misfires too often; 1h breakout is the only live setup.
+    // FIB_BOUNCE on XAGUSD: PIVOT_BOUNCE dominates (pf 1.41–2.31 vs 0.49–0.96).
     const isDisabled =
       (signalType === "PIVOT_BOUNCE" && timeframe === "1d") ||
       (signalType === "BREAKOUT"     && timeframe === "30m") ||
       (signalType === "BREAKOUT"     && timeframe === "1h" && symbol === "XAGUSD") || // -1.37R, no edge
-      (signalType === "BREAKOUT"     && timeframe === "1h" && symbol === "ETHUSD");   // -1.40R, no edge
+      (signalType === "BREAKOUT"     && timeframe === "1h" && symbol === "ETHUSD") || // -1.40R, no edge
+      (signalType === "FIB_BOUNCE"   && symbol === "XAGUSD");                         // PIVOT far superior
     if (isDisabled) {
       const empty = GetBacktestResponse.parse(aggregate([], [], symbol));
       cache.set(key, { data: empty, timestamp: now });

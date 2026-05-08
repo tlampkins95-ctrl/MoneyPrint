@@ -1124,10 +1124,13 @@ export function computeLevels(
   // Strategy kill-switches by timeframe (backed by full sweep analysis).
   // PIVOT_BOUNCE on 1d: daily pivot ranges too wide on metals → negative edge.
   // BREAKOUT on 30m: signal misfires too often; 1h is the only live breakout TF.
+  // FIB_BOUNCE on XAGUSD: PIVOT_BOUNCE is far superior (pf 1.41–2.31 vs 0.49–0.96);
+  //   FIB_BOUNCE would steal slots from PIVOT_BOUNCE without adding edge.
   const pivotBounceEnabled = timeframe !== "1d";
   const breakoutEnabled    = timeframe !== "30m" &&
     !(timeframe === "1h" && symbolKey === "XAGUSD") && // -1.37R, no edge
     !(timeframe === "1h" && symbolKey === "ETHUSD");   // -1.40R, no edge (body% filter tested, no improvement)
+  const fibBounceAllowed   = symbolKey !== "XAGUSD";  // PIVOT dominates XAGUSD; fib pf=0.49–0.96
 
   let signal: "BUY" | "SELL" | "WAIT" = "WAIT";
   let signalType: "PIVOT_BOUNCE" | "BREAKOUT" | "FIB_BOUNCE" = "PIVOT_BOUNCE";
@@ -1173,7 +1176,7 @@ export function computeLevels(
   const approachingGoldenPocket = gpValid && !inGoldenPocket &&
     currentPrice > goldenPocket!.high && (currentPrice - goldenPocket!.high) < atr * 0.5;
   // FIB_BOUNCE uses same RSI/MACD/EMA200 buy gates as pivot bounce.
-  const fibBounceEnabled = pivotBounceEnabled && gpValid;
+  const fibBounceEnabled = fibBounceAllowed && pivotBounceEnabled && gpValid;
 
   if (fibBounceEnabled && (inGoldenPocket || approachingGoldenPocket) && buyAllowed) {
     signal = "BUY";
