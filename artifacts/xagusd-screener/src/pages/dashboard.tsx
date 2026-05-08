@@ -5,6 +5,7 @@ import { BacktestPanel } from "@/components/backtest-panel";
 import { EdgeLeaderboard } from "@/components/edge-leaderboard";
 import { ActiveSignalsOverview } from "@/components/active-signals-overview";
 import { TradeHistoryPanel } from "@/components/trade-history-panel";
+import { LearnTab } from "@/components/learn/learn-tab";
 import {
   TimeframeSelector,
   type Timeframe,
@@ -15,7 +16,7 @@ import { getSymbolMeta } from "@/lib/symbols";
 import { cn } from "@/lib/utils";
 
 const VALID_TIMEFRAMES: readonly Timeframe[] = ["15m", "30m", "1h", "1d"];
-type Tab = "signals" | "journal";
+type Tab = "signals" | "journal" | "learn";
 
 function readInitial(): { symbol: string; timeframe: Timeframe; tab: Tab } {
   if (typeof window === "undefined") {
@@ -31,7 +32,7 @@ function readInitial(): { symbol: string; timeframe: Timeframe; tab: Tab } {
       t && (VALID_TIMEFRAMES as readonly string[]).includes(t)
         ? (t as Timeframe)
         : "1d",
-    tab: tab === "journal" ? "journal" : "signals",
+    tab: tab === "journal" ? "journal" : tab === "learn" ? "learn" : "signals",
   };
 }
 
@@ -95,6 +96,9 @@ export default function Dashboard() {
               <TimeframeSelector value={timeframe} onChange={setTimeframe} />
             </>
           )}
+          {tab === "journal" && (
+            <SymbolSelector value={symbol} onChange={setSymbol} />
+          )}
           <PushNotificationsToggle />
           <div className="hidden sm:flex items-center gap-1.5 border-l pl-3 border-border/50">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
@@ -105,12 +109,13 @@ export default function Dashboard() {
               {getSymbolMeta(symbol).tv}
             </span>
           )}
+
         </div>
       </header>
 
       {/* Tab bar */}
       <nav className="relative z-[59] shrink-0 flex items-center gap-0 border-b border-border/60 bg-card/40 backdrop-blur-md px-4">
-        {(["signals", "journal"] as Tab[]).map((t) => (
+        {(["signals", "journal", "learn"] as Tab[]).map((t) => (
           <button
             key={t}
             type="button"
@@ -123,7 +128,7 @@ export default function Dashboard() {
             )}
             style={{ fontFamily: "var(--app-font-display)" }}
           >
-            {t === "signals" ? "SIGNALS" : "JOURNAL"}
+            {t === "signals" ? "SIGNALS" : t === "journal" ? "JOURNAL" : "LEARN"}
             {tab === t && (
               <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-primary rounded-t-full" />
             )}
@@ -184,6 +189,8 @@ export default function Dashboard() {
             onSelect={(s) => setSymbol(s)}
           />
         )}
+
+        {tab === "learn" && <LearnTab />}
       </main>
     </div>
   );
