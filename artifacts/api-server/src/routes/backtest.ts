@@ -346,7 +346,7 @@ function runBacktest(candles: CandleRaw[], timeframe: Timeframe, symbol: Symbol)
   const rsi14 = calcRSISeries(closes, 14);
   const macdHist = calcMACDHist(closes, 12, 26, 9);
   // Synced with live signal thresholds.
-  const RSI_BUY_MAX = 45;
+  const RSI_BUY_MAX = 50;
   const RSI_SELL_MIN = 55;
 
   let i = 15;

@@ -901,7 +901,7 @@ export function computeLevels(
   // Without RSI confirmation, a BUY fires whenever price touches S1 even in
   // a waterfall sell-off, and a SELL fires at R1 even during a strong rally.
   const rsi = calcRSI(closes);
-  const RSI_OVERSOLD  = 45; // below this → momentum confirms BUY zone bounce
+  const RSI_OVERSOLD  = 50; // below this → momentum confirms BUY zone bounce
   const RSI_OVERBOUGHT = 55; // above this → momentum confirms SELL zone rejection
 
   // MACD(12,26,9) histogram momentum gate. Only fade S1 when the histogram
