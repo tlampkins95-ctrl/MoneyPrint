@@ -79,6 +79,15 @@ const MAX_HOLD_BARS: Record<Timeframe, number> = {
   "1d": 10,
 };
 
+// FIB_BOUNCE targets the swing high — a multi-bar swing trade, not a scalp.
+// 3× the pivot hold window gives price enough time to retrace back to the top.
+const FIB_MAX_HOLD_BARS: Record<Timeframe, number> = {
+  "15m": 72,   // 18 hours
+  "30m": 48,   // 24 hours
+  "1h":  36,   // 36 hours
+  "1d":  20,   // 20 days
+};
+
 // Standard EMA via the recursive (close - prev) * alpha + prev formula. Uses
 // SMA seed for the first `period` bars to avoid a cold-start bias toward zero.
 function calcEMASeries(closes: number[], period: number): number[] {
@@ -389,7 +398,7 @@ function runFibBacktest(candles: CandleRaw[], timeframe: Timeframe, symbol: Symb
   const meta = SYMBOLS[symbol];
   const round = makeRounder(meta.decimals);
   const trades: Trade[] = [];
-  const maxHold = MAX_HOLD_BARS[timeframe];
+  const maxHold = FIB_MAX_HOLD_BARS[timeframe];
 
   const closes = candles.map((c) => c.close);
   const ema200 = calcEMASeries(closes, 200);
@@ -458,15 +467,11 @@ function runFibBacktest(candles: CandleRaw[], timeframe: Timeframe, symbol: Symb
     const risk = Math.abs(entry - sl);
     if (risk <= 0) { i++; continue; }
 
-    // TP1: fib 50% level — midpoint of the impulse. From a 61.8% entry, price
-    // only needs to recover 11.8% of the range to reach it, giving a much
-    // higher probability of being touched than the 38.2% level. Floor at 1.5R.
-    // TP2: fib 38.2% level — next natural fib resistance. Floor at 2.5R.
-    const fibRange = swingHigh - swingLow;
-    const fib50target  = round(swingHigh - fibRange * 0.50);
-    const fib382target = round(swingHigh - fibRange * 0.382);
-    const tp1 = round(floorTarget(entry, sl, fib50target,  MIN_RR_TP1, "BUY"));
-    const tp2 = round(floorTarget(entry, sl, fib382target, MIN_RR_TP2, "BUY"));
+    // TP1: swing high (100% recovery of the impulse) — the natural target of a
+    // golden pocket bounce trade. Floored at 1.5R.
+    // TP2: swing high + 0.5×ATR extension. Floored at 2.5R.
+    const tp1 = round(floorTarget(entry, sl, swingHigh,           MIN_RR_TP1, "BUY"));
+    const tp2 = round(floorTarget(entry, sl, swingHigh + atr * 0.5, MIN_RR_TP2, "BUY"));
 
     let exitDate = today.date;
     let exitPrice = entry;

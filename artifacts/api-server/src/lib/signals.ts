@@ -1187,15 +1187,11 @@ export function computeLevels(
     // SL: just below the 65% level + 0.5×ATR buffer. A close below 65% invalidates
     // the golden pocket — the impulse has retraced too deeply to be a bounce.
     stopLoss = round(goldenPocket!.low - atr * 0.5);
-    // TP1: fib 50% level — midpoint of the impulse. From a 61.8% entry, price
-    // only needs to recover 11.8% of the range to reach it, giving a much
-    // higher probability of being touched than the 38.2% level. Floor at 1.5R.
-    // TP2: fib 38.2% level — next natural fib resistance. Floor at 2.5R.
-    const fibRange = impulse!.swingHigh - impulse!.swingLow;
-    const fib50target  = round(impulse!.swingHigh - fibRange * 0.50);
-    const fib382target = round(impulse!.swingHigh - fibRange * 0.382);
-    takeProfit1 = round(floorTarget(entryPrice, stopLoss, fib50target,  MIN_RR_TP1, "BUY"));
-    takeProfit2 = round(floorTarget(entryPrice, stopLoss, fib382target, MIN_RR_TP2, "BUY"));
+    // TP1: swing high (100% recovery of the impulse) — the natural target of a
+    // golden pocket bounce trade. Floored at 1.5R.
+    // TP2: swing high + 0.5×ATR extension. Floored at 2.5R.
+    takeProfit1 = round(floorTarget(entryPrice, stopLoss, impulse!.swingHigh,             MIN_RR_TP1, "BUY"));
+    takeProfit2 = round(floorTarget(entryPrice, stopLoss, impulse!.swingHigh + atr * 0.5, MIN_RR_TP2, "BUY"));
     signalReason = inGoldenPocket
       ? `[${tfLabel}] FIB GOLDEN POCKET BUY: Price (${fmt(currentPrice)}) is retracing into the 61.8–65% golden pocket (${fmt(goldenPocket!.low)}–${fmt(goldenPocket!.high)}) of the ${fmt(impulse!.swingLow)}→${fmt(impulse!.swingHigh)} impulse. High-probability bounce zone — limit entry near ${fmt(entryPrice)}, SL ${fmt(stopLoss)}, TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)}.`
       : `[${tfLabel}] FIB GOLDEN POCKET approaching: Price (${fmt(currentPrice)}) is within ${fmt(currentPrice - goldenPocket!.high)} of the golden pocket (${fmt(goldenPocket!.low)}–${fmt(goldenPocket!.high)}). Stage a limit order at ${fmt(goldenPocket!.fib618)} (61.8% of ${fmt(impulse!.swingLow)}→${fmt(impulse!.swingHigh)}).`;
