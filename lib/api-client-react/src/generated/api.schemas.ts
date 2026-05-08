@@ -566,6 +566,7 @@ export type GetBacktestSymbol =
 export const GetBacktestSymbol = {
   XAGUSD: "XAGUSD",
   XAUUSD: "XAUUSD",
+  EURUSD: "EURUSD",
   GBPUSD: "GBPUSD",
   AUDUSD: "AUDUSD",
   BTCUSD: "BTCUSD",
@@ -657,6 +658,7 @@ export type GetPriceHistorySymbol =
 export const GetPriceHistorySymbol = {
   XAGUSD: "XAGUSD",
   XAUUSD: "XAUUSD",
+  EURUSD: "EURUSD",
   GBPUSD: "GBPUSD",
   AUDUSD: "AUDUSD",
   BTCUSD: "BTCUSD",

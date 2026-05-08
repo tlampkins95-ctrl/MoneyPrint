@@ -1,6 +1,7 @@
 export type Symbol =
   | "XAGUSD"
   | "XAUUSD"
+  | "EURUSD"
   | "GBPUSD"
   | "AUDUSD"
   | "BTCUSD"
@@ -15,6 +16,7 @@ export interface SymbolMeta {
   label: string;
   decimals: number;
   prefix: string;
+  category: "forex" | "crypto";
   goldApi?: "XAG" | "XAU";
   // True for symbols whose Yahoo candle data comes from a futures contract
   // (SI=F for silver, GC=F for gold). A basis shift is applied at response
@@ -61,6 +63,7 @@ export const SYMBOLS: Record<Symbol, SymbolMeta> = {
     label: "Silver / USD",
     decimals: 3,
     prefix: "$",
+    category: "forex",
     goldApi: "XAG",
     hasFuturesBasis: true,
   },
@@ -71,8 +74,18 @@ export const SYMBOLS: Record<Symbol, SymbolMeta> = {
     label: "Gold / USD",
     decimals: 2,
     prefix: "$",
+    category: "forex",
     goldApi: "XAU",
     hasFuturesBasis: true,
+  },
+  EURUSD: {
+    yahoo: "EURUSD=X",
+    tvSymbol: "OANDA:EURUSD",
+    tvScrapePath: "/symbols/EURUSD/?exchange=OANDA",
+    label: "EUR / USD",
+    decimals: 5,
+    prefix: "",
+    category: "forex",
   },
   GBPUSD: {
     yahoo: "GBPUSD=X",
@@ -81,6 +94,7 @@ export const SYMBOLS: Record<Symbol, SymbolMeta> = {
     label: "GBP / USD",
     decimals: 5,
     prefix: "",
+    category: "forex",
   },
   AUDUSD: {
     yahoo: "AUDUSD=X",
@@ -89,6 +103,7 @@ export const SYMBOLS: Record<Symbol, SymbolMeta> = {
     label: "AUD / USD",
     decimals: 5,
     prefix: "",
+    category: "forex",
   },
   BTCUSD: {
     yahoo: "BTC-USD",
@@ -100,6 +115,7 @@ export const SYMBOLS: Record<Symbol, SymbolMeta> = {
     label: "Bitcoin / USDT (Phemex)",
     decimals: 1,
     prefix: "$",
+    category: "crypto",
     coinbase: "BTC-USD",
     okxPerp: "BTC-USDT-SWAP",
     phemexPerp: "BTCUSDT",
@@ -115,6 +131,7 @@ export const SYMBOLS: Record<Symbol, SymbolMeta> = {
     label: "Ethereum / USDT (Phemex)",
     decimals: 2,
     prefix: "$",
+    category: "crypto",
     coinbase: "ETH-USD",
     okxPerp: "ETH-USDT-SWAP",
     phemexPerp: "ETHUSDT",
@@ -130,6 +147,7 @@ export const SYMBOLS: Record<Symbol, SymbolMeta> = {
     label: "SKYAI / USDT (Phemex spot)",
     decimals: 4,
     prefix: "$",
+    category: "crypto",
     coinbase: "SKYAI-USD",
     phemexSpot: "sSKYAIUSDT",
     phemexSpotPriceScale: 8,
@@ -144,6 +162,7 @@ export const SYMBOLS: Record<Symbol, SymbolMeta> = {
     label: "Zcash / USDT (Phemex)",
     decimals: 2,
     prefix: "$",
+    category: "crypto",
     coinbase: "ZEC-USD",
     okxPerp: "ZEC-USDT-SWAP",
     phemexPerp: "ZECUSDT",

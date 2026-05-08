@@ -59,7 +59,7 @@ function CellLoaders({
   signalType: SignalTypeMode;
   onCells: (cells: CellStats[]) => void;
 }) {
-  // 45 hooks (9 symbols × 5 tfs). React requires consistent hook order so we
+  // 50 hooks (10 symbols × 5 tfs). React requires consistent hook order so we
   // render in the same fixed order every time.
   const cells: CellStats[] = [];
   for (const s of ALL_SYMBOLS) {

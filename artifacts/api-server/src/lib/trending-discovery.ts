@@ -124,6 +124,7 @@ export function buildDynamicMeta(
     label: `${baseAsset} / USDT (Trending)`,
     decimals,
     prefix: "$",
+    category: "crypto",
     okxPerp: okxSymbol,
     phemexPerp: phemexSymbol,
     phemexMinQty: minQty,

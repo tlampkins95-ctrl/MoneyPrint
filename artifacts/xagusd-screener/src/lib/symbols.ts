@@ -1,6 +1,7 @@
 export type Symbol =
   | "XAGUSD"
   | "XAUUSD"
+  | "EURUSD"
   | "GBPUSD"
   | "AUDUSD"
   | "BTCUSD"
@@ -15,23 +16,27 @@ export interface SymbolMeta {
   badge: string;
   decimals: number;
   prefix: string;
+  category: "forex" | "crypto";
   venue?: string;
   // When true, only BUY signals are generated (spot-only instrument, no shorting).
   longOnly?: boolean;
 }
 
 export const SYMBOLS: Record<Symbol, SymbolMeta> = {
-  XAGUSD: { tv: "OANDA:XAGUSD",     short: "XAG/USD",  long: "Silver",   badge: "Ag",   decimals: 3, prefix: "$" },
-  XAUUSD: { tv: "OANDA:XAUUSD",     short: "XAU/USD",  long: "Gold",     badge: "Au",   decimals: 2, prefix: "$" },
-  GBPUSD: { tv: "OANDA:GBPUSD",     short: "GBP/USD",  long: "Cable",    badge: "GB",   decimals: 5, prefix: "" },
-  AUDUSD: { tv: "OANDA:AUDUSD",     short: "AUD/USD",  long: "Aussie",   badge: "AU",   decimals: 5, prefix: "" },
-  BTCUSD: { tv: "PHEMEX:BTCUSDT", short: "BTC/USD", long: "Bitcoin (Phemex)",  badge: "₿", decimals: 1, prefix: "$", venue: "PHEMEX · USDT perp" },
-  ETHUSD: { tv: "PHEMEX:ETHUSDT", short: "ETH/USD", long: "Ethereum (Phemex)", badge: "Ξ", decimals: 2, prefix: "$", venue: "PHEMEX · USDT perp" },
-  SKYAIUSDT: { tv: "PHEMEX:SKYAIUSDT", short: "SKY/USDT", long: "SKYAI (Phemex spot)", badge: "SK", decimals: 4, prefix: "$", venue: "Phemex · spot", longOnly: true },
-  ZECUSD:    { tv: "PHEMEX:ZECUSDT",   short: "ZEC/USD",  long: "Zcash (Phemex)",      badge: "ZE", decimals: 2, prefix: "$", venue: "PHEMEX · USDT perp" },
+  XAGUSD:    { tv: "OANDA:XAGUSD",      short: "XAG/USD",  long: "Silver",           badge: "Ag", decimals: 3, prefix: "$", category: "forex" },
+  XAUUSD:    { tv: "OANDA:XAUUSD",      short: "XAU/USD",  long: "Gold",             badge: "Au", decimals: 2, prefix: "$", category: "forex" },
+  EURUSD:    { tv: "OANDA:EURUSD",      short: "EUR/USD",  long: "Euro",             badge: "€",  decimals: 5, prefix: "",  category: "forex" },
+  GBPUSD:    { tv: "OANDA:GBPUSD",      short: "GBP/USD",  long: "Cable",            badge: "£",  decimals: 5, prefix: "",  category: "forex" },
+  AUDUSD:    { tv: "OANDA:AUDUSD",      short: "AUD/USD",  long: "Aussie",           badge: "AU", decimals: 5, prefix: "",  category: "forex" },
+  BTCUSD:    { tv: "PHEMEX:BTCUSDT",   short: "BTC/USD",  long: "Bitcoin (Phemex)", badge: "₿",  decimals: 1, prefix: "$", category: "crypto", venue: "PHEMEX · USDT perp" },
+  ETHUSD:    { tv: "PHEMEX:ETHUSDT",   short: "ETH/USD",  long: "Ethereum (Phemex)",badge: "Ξ",  decimals: 2, prefix: "$", category: "crypto", venue: "PHEMEX · USDT perp" },
+  SKYAIUSDT: { tv: "PHEMEX:SKYAIUSDT", short: "SKY/USDT", long: "SKYAI (Phemex spot)",badge:"SK", decimals: 4, prefix: "$", category: "crypto", venue: "Phemex · spot", longOnly: true },
+  ZECUSD:    { tv: "PHEMEX:ZECUSDT",   short: "ZEC/USD",  long: "Zcash (Phemex)",   badge: "ZE", decimals: 2, prefix: "$", category: "crypto", venue: "PHEMEX · USDT perp" },
 };
 
 export const ALL_SYMBOLS: Symbol[] = Object.keys(SYMBOLS) as Symbol[];
+export const FOREX_SYMBOLS:  Symbol[] = ALL_SYMBOLS.filter((s) => SYMBOLS[s].category === "forex");
+export const CRYPTO_SYMBOLS: Symbol[] = ALL_SYMBOLS.filter((s) => SYMBOLS[s].category === "crypto");
 
 export function fmtPrice(symbol: Symbol, n: number): string {
   const m = SYMBOLS[symbol];
@@ -55,6 +60,7 @@ export function getSymbolMeta(key: string): SymbolMeta {
     badge: base.slice(0, 2).toUpperCase(),
     decimals: 4,
     prefix: "$",
+    category: "crypto" as const,
     venue: "PHEMEX · USDT perp",
   };
 }

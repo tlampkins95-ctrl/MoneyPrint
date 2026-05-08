@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown, Flame } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { ALL_SYMBOLS, SYMBOLS, getSymbolMeta, type Symbol } from "@/lib/symbols";
+import { FOREX_SYMBOLS, CRYPTO_SYMBOLS, SYMBOLS, getSymbolMeta, type Symbol } from "@/lib/symbols";
 
 interface TrendingItem {
   symbolKey: string;
@@ -41,6 +41,65 @@ function useSymbolChanges(): Record<string, number | null> {
 }
 
 const WATCHLIST_SYMBOLS = new Set(["SKYAIUSDT", "ZECUSD"]);
+
+function SectionHeader({ label }: { label: string }) {
+  return (
+    <div className="px-3 py-1.5 border-t border-border/60 first:border-t-0 text-[10px] font-bold tracking-widest text-muted-foreground">
+      {label}
+    </div>
+  );
+}
+
+function SymbolRow({
+  sym,
+  isActive,
+  change,
+  onClick,
+}: {
+  sym: Symbol;
+  isActive: boolean;
+  change?: number | null;
+  onClick: () => void;
+}) {
+  const m = SYMBOLS[sym];
+  const showChange = WATCHLIST_SYMBOLS.has(sym) && change != null;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "w-full flex items-center gap-3 px-3 py-2 text-left transition-colors",
+        isActive ? "bg-primary/15 text-foreground" : "hover:bg-muted/40 text-foreground/90",
+      )}
+    >
+      <span
+        className={cn(
+          "w-7 h-7 rounded-md flex items-center justify-center text-[11px] font-black shrink-0",
+          isActive ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground",
+        )}
+        style={{ fontFamily: "var(--app-font-display)" }}
+      >
+        {m.badge}
+      </span>
+      <div className="flex-1 min-w-0">
+        <div className="text-xs font-bold tracking-wider" style={{ fontFamily: "var(--app-font-display)" }}>
+          {m.short}
+        </div>
+        <div className="text-[10px] text-muted-foreground truncate">{m.long}</div>
+      </div>
+      {showChange ? (
+        <span className={cn(
+          "text-[10px] font-mono font-bold shrink-0",
+          (change ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400",
+        )}>
+          {(change ?? 0) >= 0 ? "+" : ""}{(change ?? 0).toFixed(1)}%
+        </span>
+      ) : isActive ? (
+        <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse shrink-0" />
+      ) : null}
+    </button>
+  );
+}
 
 export function SymbolSelector({
   value,
@@ -96,57 +155,31 @@ export function SymbolSelector({
             INSTRUMENT
           </div>
           <div className="max-h-96 overflow-y-auto">
-            {ALL_SYMBOLS.map((sym) => {
-              const m = SYMBOLS[sym];
-              const isActive = sym === value;
-              return (
-                <button
-                  key={sym}
-                  type="button"
-                  onClick={() => { onChange(sym); setOpen(false); }}
-                  className={cn(
-                    "w-full flex items-center gap-3 px-3 py-2 text-left transition-colors",
-                    isActive
-                      ? "bg-primary/15 text-foreground"
-                      : "hover:bg-muted/40 text-foreground/90",
-                  )}
-                >
-                  <span
-                    className={cn(
-                      "w-7 h-7 rounded-md flex items-center justify-center text-[11px] font-black shrink-0",
-                      isActive
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-muted text-muted-foreground",
-                    )}
-                    style={{ fontFamily: "var(--app-font-display)" }}
-                  >
-                    {m.badge}
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <div
-                      className="text-xs font-bold tracking-wider"
-                      style={{ fontFamily: "var(--app-font-display)" }}
-                    >
-                      {m.short}
-                    </div>
-                    <div className="text-[10px] text-muted-foreground truncate">
-                      {m.long}
-                    </div>
-                  </div>
-                  {WATCHLIST_SYMBOLS.has(sym) && symbolChanges[sym] != null ? (
-                    <span className={cn(
-                      "text-[10px] font-mono font-bold shrink-0",
-                      (symbolChanges[sym] ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400",
-                    )}>
-                      {(symbolChanges[sym] ?? 0) >= 0 ? "+" : ""}{(symbolChanges[sym] ?? 0).toFixed(1)}%
-                    </span>
-                  ) : isActive ? (
-                    <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse shrink-0" />
-                  ) : null}
-                </button>
-              );
-            })}
+            {/* ── FOREX ── */}
+            <SectionHeader label="FOREX" />
+            {FOREX_SYMBOLS.map((sym) => (
+              <SymbolRow
+                key={sym}
+                sym={sym}
+                isActive={sym === value}
+                change={symbolChanges[sym]}
+                onClick={() => { onChange(sym); setOpen(false); }}
+              />
+            ))}
 
+            {/* ── CRYPTO ── */}
+            <SectionHeader label="CRYPTO" />
+            {CRYPTO_SYMBOLS.map((sym) => (
+              <SymbolRow
+                key={sym}
+                sym={sym}
+                isActive={sym === value}
+                change={symbolChanges[sym]}
+                onClick={() => { onChange(sym); setOpen(false); }}
+              />
+            ))}
+
+            {/* ── TRENDING ── */}
             {trending.length > 0 && (
               <>
                 <div className="flex items-center gap-1.5 px-3 py-1.5 border-t border-border/60 text-[10px] font-bold tracking-widest text-amber-400/80">
@@ -166,27 +199,20 @@ export function SymbolSelector({
                       onClick={() => { onChange(t.symbolKey); setOpen(false); }}
                       className={cn(
                         "w-full flex items-center gap-3 px-3 py-2 text-left transition-colors",
-                        isActive
-                          ? "bg-amber-500/15 text-foreground"
-                          : "hover:bg-muted/40 text-foreground/90",
+                        isActive ? "bg-amber-500/15 text-foreground" : "hover:bg-muted/40 text-foreground/90",
                       )}
                     >
                       <span
                         className={cn(
                           "w-7 h-7 rounded-md flex items-center justify-center text-[11px] font-black shrink-0",
-                          isActive
-                            ? "bg-amber-500 text-black"
-                            : "bg-amber-500/20 text-amber-400",
+                          isActive ? "bg-amber-500 text-black" : "bg-amber-500/20 text-amber-400",
                         )}
                         style={{ fontFamily: "var(--app-font-display)" }}
                       >
                         {m.badge}
                       </span>
                       <div className="flex-1 min-w-0">
-                        <div
-                          className="text-xs font-bold tracking-wider"
-                          style={{ fontFamily: "var(--app-font-display)" }}
-                        >
+                        <div className="text-xs font-bold tracking-wider" style={{ fontFamily: "var(--app-font-display)" }}>
                           {m.short}
                         </div>
                         <div className="text-[10px] text-muted-foreground truncate">
