@@ -180,18 +180,21 @@ export async function fetchSpotPrice(symbol: Symbol): Promise<number | null> {
   //  • Swissquote   — first for metals (XAG/XAU): live interbank BBO mid, matches
   //                   MT5/OANDA spot. Must come before TradingView which serves
   //                   stale CDN-cached prices for metals.
-  //  • Phemex spot  — primary for spot tokens (e.g. SKYAI), matches chart exactly
-  //  • Phemex perp  — primary for USDT perps (BTC/ETH), matches PHEMEX:BTCUSDT chart
-  //  • Pyth oracle  → OKX perp → Coinbase spot (crypto fallbacks)
+  //  • Phemex spot  — primary for spot tokens (e.g. SKYAI), matches Phemex spot chart
+  //  • OKX perp     — primary for crypto perps (BTC/ETH/ZEC); matches OKX:BTCUSDT.P
+  //                   chart and is the same source as the OKX candle data, so the
+  //                   "now price" line is consistent with all pivot/ATR calculations.
+  //  • Phemex perp  — fallback perp (near-identical price; kept for resilience)
+  //  • Pyth oracle  → Coinbase spot (further crypto fallbacks)
   //  • TradingView  — scrape fallback for forex pairs (NOT used for metals)
   //  • GoldAPI      — final metals fallback
   const isMetals = SYMBOLS[symbol].hasFuturesBasis === true;
   const price =
     (await fetchFromSwissquote(symbol)) ??
     (await fetchFromPhemexSpot(symbol)) ??
+    (await fetchFromOkxPerp(symbol)) ??
     (await fetchFromPhemexPerp(symbol)) ??
     (await fetchFromPyth(symbol)) ??
-    (await fetchFromOkxPerp(symbol)) ??
     (await fetchFromCoinbase(symbol)) ??
     (isMetals ? null : await fetchFromYahooSpot(symbol)) ??
     (isMetals ? null : await fetchFromTradingView(symbol)) ??

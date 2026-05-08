@@ -107,12 +107,11 @@ export const SYMBOLS: Record<Symbol, SymbolMeta> = {
   },
   BTCUSD: {
     yahoo: "BTC-USD",
-    // Chart now points at Phemex's USDT-margined perp (BTCUSDT). The label
-    // still says "BTCUSD" to keep URLs and saved bookmarks stable, but the
-    // tvSymbol/tvScrapePath and the position-sizing block are Phemex's.
-    tvSymbol: "PHEMEX:BTCUSDT",
-    tvScrapePath: "/symbols/BTCUSDT/?exchange=PHEMEX",
-    label: "Bitcoin / USDT (Phemex)",
+    // Chart uses OKX USDT perp (BTCUSDT.P) — same source as the candle data
+    // (OKX BTC-USDT-SWAP). Phemex perp kept as position-sizing reference.
+    tvSymbol: "OKX:BTCUSDT.P",
+    tvScrapePath: "/symbols/BTCUSDT.P/?exchange=OKX",
+    label: "Bitcoin / USDT (OKX Perp)",
     decimals: 1,
     prefix: "$",
     category: "crypto",
@@ -122,13 +121,13 @@ export const SYMBOLS: Record<Symbol, SymbolMeta> = {
     phemexMinQty: 0.001,
     phemexQtyStep: 0.001,
     pythFeedId: "e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
-    venue: "PHEMEX · USDT perp",
+    venue: "OKX · USDT perp",
   },
   ETHUSD: {
     yahoo: "ETH-USD",
-    tvSymbol: "PHEMEX:ETHUSDT",
-    tvScrapePath: "/symbols/ETHUSDT/?exchange=PHEMEX",
-    label: "Ethereum / USDT (Phemex)",
+    tvSymbol: "OKX:ETHUSDT.P",
+    tvScrapePath: "/symbols/ETHUSDT.P/?exchange=OKX",
+    label: "Ethereum / USDT (OKX Perp)",
     decimals: 2,
     prefix: "$",
     category: "crypto",
@@ -138,7 +137,7 @@ export const SYMBOLS: Record<Symbol, SymbolMeta> = {
     phemexMinQty: 0.01,
     phemexQtyStep: 0.01,
     pythFeedId: "ff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace",
-    venue: "PHEMEX · USDT perp",
+    venue: "OKX · USDT perp",
   },
   SKYAIUSDT: {
     yahoo: "SKYAI-USD",
@@ -157,9 +156,9 @@ export const SYMBOLS: Record<Symbol, SymbolMeta> = {
   },
   ZECUSD: {
     yahoo: "ZEC-USD",
-    tvSymbol: "PHEMEX:ZECUSDT",
-    tvScrapePath: "/symbols/ZECUSDT/?exchange=PHEMEX",
-    label: "Zcash / USDT (Phemex)",
+    tvSymbol: "OKX:ZECUSDT.P",
+    tvScrapePath: "/symbols/ZECUSDT.P/?exchange=OKX",
+    label: "Zcash / USDT (OKX Perp)",
     decimals: 2,
     prefix: "$",
     category: "crypto",

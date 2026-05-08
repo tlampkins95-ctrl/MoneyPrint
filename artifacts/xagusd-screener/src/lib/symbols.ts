@@ -28,10 +28,10 @@ export const SYMBOLS: Record<Symbol, SymbolMeta> = {
   EURUSD:    { tv: "OANDA:EURUSD",      short: "EUR/USD",  long: "Euro",             badge: "€",  decimals: 5, prefix: "",  category: "forex" },
   GBPUSD:    { tv: "OANDA:GBPUSD",      short: "GBP/USD",  long: "Cable",            badge: "£",  decimals: 5, prefix: "",  category: "forex" },
   AUDUSD:    { tv: "OANDA:AUDUSD",      short: "AUD/USD",  long: "Aussie",           badge: "AU", decimals: 5, prefix: "",  category: "forex" },
-  BTCUSD:    { tv: "PHEMEX:BTCUSDT",   short: "BTC/USD",  long: "Bitcoin (Phemex)", badge: "₿",  decimals: 1, prefix: "$", category: "crypto", venue: "PHEMEX · USDT perp" },
-  ETHUSD:    { tv: "PHEMEX:ETHUSDT",   short: "ETH/USD",  long: "Ethereum (Phemex)",badge: "Ξ",  decimals: 2, prefix: "$", category: "crypto", venue: "PHEMEX · USDT perp" },
-  SKYAIUSDT: { tv: "PHEMEX:SKYAIUSDT", short: "SKY/USDT", long: "SKYAI (Phemex spot)",badge:"SK", decimals: 4, prefix: "$", category: "crypto", venue: "Phemex · spot", longOnly: true },
-  ZECUSD:    { tv: "PHEMEX:ZECUSDT",   short: "ZEC/USD",  long: "Zcash (Phemex)",   badge: "ZE", decimals: 2, prefix: "$", category: "crypto", venue: "PHEMEX · USDT perp" },
+  BTCUSD:    { tv: "OKX:BTCUSDT.P",    short: "BTC/USDT", long: "Bitcoin (OKX Perp)",  badge: "₿",  decimals: 1, prefix: "$", category: "crypto", venue: "OKX · USDT perp" },
+  ETHUSD:    { tv: "OKX:ETHUSDT.P",    short: "ETH/USDT", long: "Ethereum (OKX Perp)", badge: "Ξ",  decimals: 2, prefix: "$", category: "crypto", venue: "OKX · USDT perp" },
+  SKYAIUSDT: { tv: "PHEMEX:SKYAIUSDT", short: "SKY/USDT", long: "SKYAI (Phemex spot)", badge: "SK", decimals: 4, prefix: "$", category: "crypto", venue: "Phemex · spot", longOnly: true },
+  ZECUSD:    { tv: "OKX:ZECUSDT.P",    short: "ZEC/USDT", long: "Zcash (OKX Perp)",    badge: "ZE", decimals: 2, prefix: "$", category: "crypto", venue: "OKX · USDT perp" },
 };
 
 export const ALL_SYMBOLS: Symbol[] = Object.keys(SYMBOLS) as Symbol[];
