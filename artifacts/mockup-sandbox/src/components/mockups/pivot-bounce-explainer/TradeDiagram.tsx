@@ -23,25 +23,27 @@ export function TradeDiagram() {
   const rr1    = (tp1 - entry) / risk;
   const rr2    = (tp2 - entry) / risk;
 
-  // Price path: approaches zone, dips, bounces
+  // All x values must be ≤ chartW (466) — path is clipped by clipPath anyway
+  const entryPtX = 255;
+  const tp1PtX   = 408;
   const pts: [number, number][] = [
-    [0,        112.4],
-    [50,       112.0],
-    [100,      111.5],
-    [150,      111.0],
-    [200,      110.4],
-    [240,      110.0],
-    [270,      109.85],
-    [290,      109.80], // entry
-    [310,      109.60],
-    [325,      109.52],
-    [340,      109.72], // bounce
-    [370,      110.2],
-    [410,      110.8],
-    [450,      111.27], // tp1
-    [490,      111.8],
-    [530,      112.3],
-    [chartW,   112.5], // tp2
+    [0,          112.4],
+    [38,         112.0],
+    [76,         111.5],
+    [114,        111.0],
+    [155,        110.4],
+    [193,        110.0],
+    [224,        109.85],
+    [entryPtX,   109.80], // entry
+    [272,        109.60],
+    [284,        109.52],
+    [298,        109.72], // bounce
+    [328,        110.2],
+    [368,        110.8],
+    [tp1PtX,     111.27], // tp1
+    [428,        111.8],
+    [448,        112.3],
+    [chartW,     112.5], // tp2
   ];
 
   const pathD = pts
@@ -53,7 +55,7 @@ export function TradeDiagram() {
   const HLine = ({ price, color, dash, label, value }: { price: number; color: string; dash?: boolean; label: string; value: string }) => (
     <g>
       <line
-        x1={padL} y1={toY(price)} x2={padL + chartW + 4} y2={toY(price)}
+        x1={padL} y1={toY(price)} x2={padL + chartW} y2={toY(price)}
         stroke={color} strokeWidth={dash ? 1 : 1.5}
         strokeDasharray={dash ? "5,3" : undefined}
         strokeOpacity={dash ? 0.5 : 0.9}
@@ -63,8 +65,8 @@ export function TradeDiagram() {
     </g>
   );
 
-  const entryX = padL + 290;
-  const bounceX = padL + 340;
+  const entryX  = padL + entryPtX;
+  const bounceX = padL + 298;
 
   return (
     <div className="bg-[#0d1117] p-6 font-mono">
@@ -76,6 +78,11 @@ export function TradeDiagram() {
 
         <div className="bg-[#161b22] border border-[#30363d] rounded-lg p-3">
           <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "auto" }}>
+            <defs>
+              <clipPath id="chart-clip">
+                <rect x={padL} y={padT} width={chartW} height={chartH} />
+              </clipPath>
+            </defs>
             {/* Buy zone shading */}
             <rect
               x={padL} y={toY(buyZoneHigh)}
@@ -103,8 +110,8 @@ export function TradeDiagram() {
             <HLine price={entry} color="#26a69a"       label="Entry" value="109.80" />
             <HLine price={sl}    color="#ef5350"       label="SL"    value="109.10" />
 
-            {/* Price path */}
-            <path d={pathD} fill="none" stroke="#ffd54f" strokeWidth="1.5"/>
+            {/* Price path — clipped to chart area */}
+            <path d={pathD} fill="none" stroke="#ffd54f" strokeWidth="1.5" clipPath="url(#chart-clip)"/>
 
             {/* Entry marker */}
             <circle cx={entryX} cy={toY(entry)} r="4" fill="#26a69a"/>
@@ -112,7 +119,7 @@ export function TradeDiagram() {
             <text x={entryX} y={toY(entry) - 26} fill="#26a69a" fontSize="8.5" fontFamily="monospace" textAnchor="middle">LIMIT ENTRY</text>
 
             {/* TP1 hit marker */}
-            <circle cx={padL + 450} cy={toY(tp1)} r="4" fill="#81c784" fillOpacity="0.8"/>
+            <circle cx={padL + tp1PtX} cy={toY(tp1)} r="4" fill="#81c784" fillOpacity="0.8"/>
 
             {/* TP2 hit marker */}
             <circle cx={padL + chartW} cy={toY(tp2)} r="4" fill="#4caf50"/>
