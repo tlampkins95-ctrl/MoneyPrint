@@ -458,14 +458,15 @@ function runFibBacktest(candles: CandleRaw[], timeframe: Timeframe, symbol: Symb
     const risk = Math.abs(entry - sl);
     if (risk <= 0) { i++; continue; }
 
-    // TP1: fib 38.2% retracement level — first natural fib resistance on the
-    // way back up, geometrically reachable within the hold window. Floor at 1.5R.
-    // TP2: fib 23.6% retracement level — next fib up. Floor at 2.5R.
+    // TP1: fib 50% level — midpoint of the impulse. From a 61.8% entry, price
+    // only needs to recover 11.8% of the range to reach it, giving a much
+    // higher probability of being touched than the 38.2% level. Floor at 1.5R.
+    // TP2: fib 38.2% level — next natural fib resistance. Floor at 2.5R.
     const fibRange = swingHigh - swingLow;
+    const fib50target  = round(swingHigh - fibRange * 0.50);
     const fib382target = round(swingHigh - fibRange * 0.382);
-    const fib236target = round(swingHigh - fibRange * 0.236);
-    const tp1 = round(floorTarget(entry, sl, fib382target, MIN_RR_TP1, "BUY"));
-    const tp2 = round(floorTarget(entry, sl, fib236target, MIN_RR_TP2, "BUY"));
+    const tp1 = round(floorTarget(entry, sl, fib50target,  MIN_RR_TP1, "BUY"));
+    const tp2 = round(floorTarget(entry, sl, fib382target, MIN_RR_TP2, "BUY"));
 
     let exitDate = today.date;
     let exitPrice = entry;
