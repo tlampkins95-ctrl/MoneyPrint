@@ -130,7 +130,21 @@ export function TradeDiagram() {
           </svg>
         </div>
 
-        {/* Summary row */}
+        {/* Entry row */}
+        <div className="bg-[#1a1f26] border border-[#26a69a]/40 rounded p-3 flex items-start gap-4">
+          <div className="shrink-0">
+            <div className="text-[#26a69a] font-bold text-sm">ENTRY</div>
+            <div className="text-[#8b949e] text-xs mt-0.5">limit order</div>
+          </div>
+          <div className="flex-1 space-y-1 text-xs">
+            <div className="text-white font-medium">min(S1, currentPrice)</div>
+            <div className="text-[#8b949e] leading-relaxed">
+              Staged at S1 when price approaches from above. If price has already dipped to or through S1, entry clamps to the live print — avoids a limit sitting above market that would only fill on a reversal already in drawdown.
+            </div>
+          </div>
+        </div>
+
+        {/* SL / TP row */}
         <div className="grid grid-cols-3 gap-2 text-xs">
           <div className="bg-[#1a1f26] border border-[#ef5350]/30 rounded p-3 text-center">
             <div className="text-[#ef5350] font-bold text-sm">SL</div>
