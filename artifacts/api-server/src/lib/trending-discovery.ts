@@ -140,11 +140,11 @@ const EXCLUDED_TICKERS = new Set([
 // How many trending coins to track (beyond the static list).
 const MAX_TRENDING = 5;
 
-// TTL for a discovered trending coin in the DB: 4 hours (matches the discovery
-// interval). A coin that drops off the current run expires at the next cycle,
-// freeing its slot for new entrants. Active-trade protection is handled by the
-// signals layer (the trade stays in activeTrades regardless of trending cache).
-const TRENDING_TTL_MS = 4 * 60 * 60 * 1000;
+// TTL for a discovered trending coin in the DB: 8 hours (2× the discovery
+// interval). This gives coins a full extra cycle of buffer before expiring,
+// so a single empty discovery run (e.g. quiet market day) doesn't immediately
+// wipe them. Active-trade protection is handled by the signals layer.
+const TRENDING_TTL_MS = 8 * 60 * 60 * 1000;
 
 // Refresh interval: every 4 hours.
 const DISCOVERY_INTERVAL_MS = 4 * 60 * 60 * 1000;
@@ -415,7 +415,7 @@ async function runDiscovery(pool: Pool): Promise<void> {
       if (EXCLUDED_TICKERS.has(ticker)) continue;
 
       const change = coin.quote.USD.percent_change_24h ?? 0;
-      if (change < 15) continue; // only coins up ≥15% in 24h
+      if (change < 5) continue; // only coins up ≥5% in 24h
 
       const okxKey = `${ticker}-USDT-SWAP`;
       if (!okxMap.has(okxKey)) continue; // need OKX for candle data
@@ -448,7 +448,19 @@ async function runDiscovery(pool: Pool): Promise<void> {
     }
 
     if (discovered.length === 0) {
-      logger.info("No qualifying trending coins this cycle (CoinGecko × OKX × Phemex)");
+      logger.info("No qualifying trending coins this cycle (CMC × OKX × Phemex) — extending TTL on existing cache");
+      // No new coins qualify, but we must not let previously-discovered coins silently
+      // expire from the DB. Refresh their expires_at by the full TTL so they survive
+      // until the next successful discovery cycle.
+      const now = Date.now();
+      const surviving = trendingCache.filter((t) => t.expiresAt > now);
+      if (surviving.length > 0) {
+        const refreshed = surviving.map((t) => ({ ...t, expiresAt: now + TRENDING_TTL_MS }));
+        trendingCache.length = 0;
+        trendingCache.push(...refreshed);
+        await persistTrendingToDb(refreshed, pool);
+        logger.info({ symbols: refreshed.map((t) => t.symbolKey) }, "Extended TTL on surviving trending coins");
+      }
       return;
     }
 
