@@ -1029,7 +1029,9 @@ export function computeLevels(
   // PIVOT_BOUNCE on 1d: daily pivot ranges too wide on metals → negative edge.
   // BREAKOUT on 30m: signal misfires too often; 1h is the only live breakout TF.
   const pivotBounceEnabled = timeframe !== "1d";
-  const breakoutEnabled    = timeframe !== "30m";
+  const breakoutEnabled    = timeframe !== "30m" &&
+    !(timeframe === "1h" && symbolKey === "XAGUSD") && // -1.37R, no edge
+    !(timeframe === "1h" && symbolKey === "ETHUSD");   // -1.40R, no edge (body% filter tested, no improvement)
 
   let signal: "BUY" | "SELL" | "WAIT" = "WAIT";
   let signalType: "PIVOT_BOUNCE" | "BREAKOUT" = "PIVOT_BOUNCE";

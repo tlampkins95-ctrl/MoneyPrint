@@ -660,7 +660,9 @@ router.get("/backtest", async (req: Request, res: Response) => {
     // BREAKOUT on 30m: misfires too often; 1h breakout is the only live setup.
     const isDisabled =
       (signalType === "PIVOT_BOUNCE" && timeframe === "1d") ||
-      (signalType === "BREAKOUT"     && timeframe === "30m");
+      (signalType === "BREAKOUT"     && timeframe === "30m") ||
+      (signalType === "BREAKOUT"     && timeframe === "1h" && symbol === "XAGUSD") || // -1.37R, no edge
+      (signalType === "BREAKOUT"     && timeframe === "1h" && symbol === "ETHUSD");   // -1.40R, no edge
     if (isDisabled) {
       const empty = GetBacktestResponse.parse(aggregate([], [], symbol));
       cache.set(key, { data: empty, timestamp: now });
