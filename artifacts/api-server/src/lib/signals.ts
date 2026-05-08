@@ -1025,6 +1025,12 @@ export function computeLevels(
   const approachingBuy = !inBuyZone && currentPrice > buyZoneHigh && (currentPrice - buyZoneHigh) < atr * 0.5;
   const approachingSell = !inSellZone && currentPrice < sellZoneLow && (sellZoneLow - currentPrice) < atr * 0.5;
 
+  // Strategy kill-switches by timeframe (backed by full sweep analysis).
+  // PIVOT_BOUNCE on 1d: daily pivot ranges too wide on metals → negative edge.
+  // BREAKOUT on 30m: signal misfires too often; 1h is the only live breakout TF.
+  const pivotBounceEnabled = timeframe !== "1d";
+  const breakoutEnabled    = timeframe !== "30m";
+
   let signal: "BUY" | "SELL" | "WAIT" = "WAIT";
   let signalType: "PIVOT_BOUNCE" | "BREAKOUT" = "PIVOT_BOUNCE";
   let signalReason = "";
@@ -1050,7 +1056,7 @@ export function computeLevels(
     && ema200SellOk
     && !isLongOnly;
 
-  if ((inBuyZone || approachingBuy) && buyAllowed) {
+  if (pivotBounceEnabled && (inBuyZone || approachingBuy) && buyAllowed) {
     signal = "BUY";
     // Anchor entry to the planned limit price at S1, but never above the live
     // print — if price has already dipped at/below S1 the limit would sit
@@ -1065,7 +1071,7 @@ export function computeLevels(
     signalReason = inBuyZone
       ? `[${tfLabel}] Price is at the buy zone around pivot S1 (${fmt(pivots.s1)}). ${trend === "UPTREND" ? "Uptrend intact — bounce setup." : "EMA trend neutral — look for a bullish reversal candle to confirm entry."}`
       : `[${tfLabel}] Price is within ${fmt(currentPrice - buyZoneHigh)} of the buy zone (${fmt(buyZoneLow)}–${fmt(buyZoneHigh)}). Stage a limit order near S1 ${fmt(pivots.s1)}.`;
-  } else if ((inSellZone || approachingSell) && sellAllowed) {
+  } else if (pivotBounceEnabled && (inSellZone || approachingSell) && sellAllowed) {
     signal = "SELL";
     // Mirror of BUY clamp: never set the SELL entry below the live print, or
     // the limit would sit at a worse price than market and only fill on a
@@ -1128,7 +1134,7 @@ export function computeLevels(
         stopLoss = round(pivots.r2 + atr * 0.5);
         takeProfit1 = round(floorTarget(entryPrice, stopLoss, pivots.pivot, MIN_RR_TP1, "SELL"));
         takeProfit2 = round(floorTarget(entryPrice, stopLoss, buyZoneHigh, MIN_RR_TP2, "SELL"));
-      } else if (breakoutBuyOk) {
+      } else if (breakoutEnabled && breakoutBuyOk) {
         // Momentum breakout: price cleared R2 with RSI + EMA trend aligned.
         // Market-entry BUY; SL is 1×ATR below entry so risk scales with fill price,
         // not with how far price has run from R2.
@@ -1158,7 +1164,7 @@ export function computeLevels(
         stopLoss = round(pivots.s2 - atr * 0.5);
         takeProfit1 = round(floorTarget(entryPrice, stopLoss, pivots.pivot, MIN_RR_TP1, "BUY"));
         takeProfit2 = round(floorTarget(entryPrice, stopLoss, sellZoneLow, MIN_RR_TP2, "BUY"));
-      } else if (breakdownSellOk) {
+      } else if (breakoutEnabled && breakdownSellOk) {
         // Momentum breakdown: price broke S2 with RSI + EMA trend aligned.
         // Market-entry SELL; SL is 1×ATR above entry so risk scales with fill price,
         // not with how far price has fallen from S2.

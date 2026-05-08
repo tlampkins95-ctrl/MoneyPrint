@@ -655,6 +655,19 @@ router.get("/backtest", async (req: Request, res: Response) => {
       res.json(cached.data);
       return;
     }
+    // Disabled combinations — return an empty-result object and cache it.
+    // PIVOT_BOUNCE on 1d: daily metals pivots produce negative edge (see sweep).
+    // BREAKOUT on 30m: misfires too often; 1h breakout is the only live setup.
+    const isDisabled =
+      (signalType === "PIVOT_BOUNCE" && timeframe === "1d") ||
+      (signalType === "BREAKOUT"     && timeframe === "30m");
+    if (isDisabled) {
+      const empty = GetBacktestResponse.parse(aggregate([], [], symbol));
+      cache.set(key, { data: empty, timestamp: now });
+      res.json(empty);
+      return;
+    }
+
     const candles = await fetchCandlesForTimeframe(symbol, timeframe);
     if (candles.length < 20) {
       res.status(503).json({ error: "Insufficient data for backtest" });
