@@ -1124,13 +1124,18 @@ export function computeLevels(
   // Strategy kill-switches by timeframe (backed by full sweep analysis).
   // PIVOT_BOUNCE on 1d: daily pivot ranges too wide on metals → negative edge.
   // BREAKOUT on 30m: signal misfires too often; 1h is the only live breakout TF.
-  // FIB_BOUNCE on XAGUSD: PIVOT_BOUNCE is far superior (pf 1.41–2.31 vs 0.49–0.96);
-  //   FIB_BOUNCE would steal slots from PIVOT_BOUNCE without adding edge.
+  // FIB_BOUNCE kill-switches (backed by full 3-way sweep — see backtest disabled list).
+  // XAGUSD: PIVOT dominates (pf 1.41–2.31 vs fib 0.49–0.96).
+  // AUDUSD: fib loses across all TFs (-6 to -12R), PIVOT is far better.
+  // XAUUSD 15m/30m: fib 0 wins on 15m, marginally losing on 30m; PIVOT is solid.
   const pivotBounceEnabled = timeframe !== "1d";
   const breakoutEnabled    = timeframe !== "30m" &&
     !(timeframe === "1h" && symbolKey === "XAGUSD") && // -1.37R, no edge
     !(timeframe === "1h" && symbolKey === "ETHUSD");   // -1.40R, no edge (body% filter tested, no improvement)
-  const fibBounceAllowed   = symbolKey !== "XAGUSD";  // PIVOT dominates XAGUSD; fib pf=0.49–0.96
+  const fibBounceAllowed   =
+    symbolKey !== "XAGUSD" &&                          // PIVOT far superior
+    symbolKey !== "AUDUSD" &&                          // fib -6 to -12R across all TFs
+    !(symbolKey === "XAUUSD" && timeframe !== "1h");   // XAUUSD fib only viable on 1h
 
   let signal: "BUY" | "SELL" | "WAIT" = "WAIT";
   let signalType: "PIVOT_BOUNCE" | "BREAKOUT" | "FIB_BOUNCE" = "PIVOT_BOUNCE";
@@ -1157,45 +1162,20 @@ export function computeLevels(
     && ema200SellOk
     && !isLongOnly;
 
-  // ─── FIB_BOUNCE: golden pocket (61.8–65% retracement) — highest priority ──
-  // Fires before pivot bounce. When price pulls back into the golden pocket of
-  // the most recent structural impulse swing, it is a higher-conviction entry
-  // than a mechanical S1 touch: the pocket is anchored to the actual breakout
-  // low/high, so it adapts to the real price structure rather than yesterday's
-  // pivot arithmetic. FIB_BOUNCE only fires on BUY (long bias — pocket entries
-  // are defined against upward impulse swings). Sell-side fib entries are not
-  // implemented; the pivot SELL zone handles shorts.
+  // ─── Golden-pocket inputs (computed here; FIB_BOUNCE fires last — see below) ──
+  // FIB_BOUNCE is lowest priority: PIVOT_BOUNCE and BREAKOUT always get first
+  // pick. FIB only fires when both leave signal = WAIT.
   const impulse = findImpulseSwing(candles, 100);
   const goldenPocket = impulse ? calcGoldenPocket(impulse.swingHigh, impulse.swingLow, round) : null;
-  // Zone must be meaningful: at least 0.1×ATR wide and the swing high must be
-  // above current price (we are retracing into the pocket, not still at the top).
   const gpValid = goldenPocket !== null && impulse !== null &&
     (goldenPocket.high - goldenPocket.low) >= atr * 0.1 &&
     impulse.swingHigh > currentPrice;
   const inGoldenPocket = gpValid && currentPrice >= goldenPocket!.low && currentPrice <= goldenPocket!.high;
   const approachingGoldenPocket = gpValid && !inGoldenPocket &&
     currentPrice > goldenPocket!.high && (currentPrice - goldenPocket!.high) < atr * 0.5;
-  // FIB_BOUNCE uses same RSI/MACD/EMA200 buy gates as pivot bounce.
   const fibBounceEnabled = fibBounceAllowed && pivotBounceEnabled && gpValid;
 
-  if (fibBounceEnabled && (inGoldenPocket || approachingGoldenPocket) && buyAllowed) {
-    signal = "BUY";
-    signalType = "FIB_BOUNCE";
-    // Entry: fib 61.8% level (deepest structural support in the pocket). Clamp
-    // to currentPrice so the entry never sits above the live print.
-    entryPrice = round(Math.min(goldenPocket!.fib618, currentPrice));
-    // SL: just below the 65% level + 0.5×ATR buffer. A close below 65% invalidates
-    // the golden pocket — the impulse has retraced too deeply to be a bounce.
-    stopLoss = round(goldenPocket!.low - atr * 0.5);
-    // TP1: swing high (100% recovery of the impulse) — the natural target of a
-    // golden pocket bounce trade. Floored at 1.5R.
-    // TP2: swing high + 0.5×ATR extension. Floored at 2.5R.
-    takeProfit1 = round(floorTarget(entryPrice, stopLoss, impulse!.swingHigh,             MIN_RR_TP1, "BUY"));
-    takeProfit2 = round(floorTarget(entryPrice, stopLoss, impulse!.swingHigh + atr * 0.5, MIN_RR_TP2, "BUY"));
-    signalReason = inGoldenPocket
-      ? `[${tfLabel}] FIB GOLDEN POCKET BUY: Price (${fmt(currentPrice)}) is retracing into the 61.8–65% golden pocket (${fmt(goldenPocket!.low)}–${fmt(goldenPocket!.high)}) of the ${fmt(impulse!.swingLow)}→${fmt(impulse!.swingHigh)} impulse. High-probability bounce zone — limit entry near ${fmt(entryPrice)}, SL ${fmt(stopLoss)}, TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)}.`
-      : `[${tfLabel}] FIB GOLDEN POCKET approaching: Price (${fmt(currentPrice)}) is within ${fmt(currentPrice - goldenPocket!.high)} of the golden pocket (${fmt(goldenPocket!.low)}–${fmt(goldenPocket!.high)}). Stage a limit order at ${fmt(goldenPocket!.fib618)} (61.8% of ${fmt(impulse!.swingLow)}→${fmt(impulse!.swingHigh)}).`;
-  } else if (pivotBounceEnabled && (inBuyZone || approachingBuy) && buyAllowed) {
+  if (pivotBounceEnabled && (inBuyZone || approachingBuy) && buyAllowed) {
     signal = "BUY";
     // Anchor entry to the planned limit price at S1, but never above the live
     // print — if price has already dipped at/below S1 the limit would sit
@@ -1338,6 +1318,29 @@ export function computeLevels(
       takeProfit1 = round(floorTarget(entryPrice, stopLoss, structural1, MIN_RR_TP1, dir));
       takeProfit2 = round(floorTarget(entryPrice, stopLoss, structural2, MIN_RR_TP2, dir));
     }
+  }
+
+  // ─── FIB_BOUNCE: lowest priority — only fires when PIVOT and BREAKOUT both ──
+  // leave signal = WAIT. FIB_BOUNCE only fires on BUY (long bias — pocket
+  // entries are defined against upward impulse swings). Sell-side fib entries
+  // are not implemented; the pivot SELL zone handles shorts.
+  if (signal === "WAIT" && fibBounceEnabled && (inGoldenPocket || approachingGoldenPocket) && buyAllowed) {
+    signal = "BUY";
+    signalType = "FIB_BOUNCE";
+    // Entry: fib 61.8% level (deepest structural support in the pocket). Clamp
+    // to currentPrice so the entry never sits above the live print.
+    entryPrice = round(Math.min(goldenPocket!.fib618, currentPrice));
+    // SL: just below the 65% level + 0.5×ATR buffer. A close below 65% invalidates
+    // the golden pocket — the impulse has retraced too deeply to be a bounce.
+    stopLoss = round(goldenPocket!.low - atr * 0.5);
+    // TP1: swing high (100% recovery of the impulse) — the natural target of a
+    // golden pocket bounce trade. Floored at 1.5R.
+    // TP2: swing high + 0.5×ATR extension. Floored at 2.5R.
+    takeProfit1 = round(floorTarget(entryPrice, stopLoss, impulse!.swingHigh,             MIN_RR_TP1, "BUY"));
+    takeProfit2 = round(floorTarget(entryPrice, stopLoss, impulse!.swingHigh + atr * 0.5, MIN_RR_TP2, "BUY"));
+    signalReason = inGoldenPocket
+      ? `[${tfLabel}] FIB GOLDEN POCKET BUY: Price (${fmt(currentPrice)}) is retracing into the 61.8–65% golden pocket (${fmt(goldenPocket!.low)}–${fmt(goldenPocket!.high)}) of the ${fmt(impulse!.swingLow)}→${fmt(impulse!.swingHigh)} impulse. High-probability bounce zone — limit entry near ${fmt(entryPrice)}, SL ${fmt(stopLoss)}, TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)}.`
+      : `[${tfLabel}] FIB GOLDEN POCKET approaching: Price (${fmt(currentPrice)}) is within ${fmt(currentPrice - goldenPocket!.high)} of the golden pocket (${fmt(goldenPocket!.low)}–${fmt(goldenPocket!.high)}). Stage a limit order at ${fmt(goldenPocket!.fib618)} (61.8% of ${fmt(impulse!.swingLow)}→${fmt(impulse!.swingHigh)}).`;
   }
 
   const riskDist = Math.abs(entryPrice - stopLoss);
