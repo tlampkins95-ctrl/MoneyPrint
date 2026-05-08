@@ -330,6 +330,198 @@ function runBreakoutBacktest(candles: CandleRaw[], timeframe: Timeframe, symbol:
   return trades;
 }
 
+// ─── Fib impulse swing detection (mirrors signals.ts) ────────────────────────
+// Finds the most recent valid structural impulse for golden-pocket fib drawing.
+// Mirrors the five-gate logic in signals.ts findImpulseSwing exactly.
+const FIB_MIN_SH_BARS_AGO = 3;    // swing high must be ≥ this many bars old
+const FIB_MIN_RETRACE_PCT = 0.10; // price must have retraced ≥10% of impulse below SH
+const FIB_MIN_IMPULSE_ATR = 3.0;  // impulse range must be ≥ 3×ATR
+
+function findImpulseSwing(
+  candles: CandleRaw[],
+  endIdx: number,
+  lookback = 100,
+): { swingHigh: number; swingLow: number } | null {
+  const start = Math.max(0, endIdx - lookback + 1);
+  const slice = candles.slice(start, endIdx + 1);
+  if (slice.length < 10) return null;
+
+  const atr = calcATR(candles, endIdx, 14);
+  if (atr <= 0) return null;
+
+  const currentClose = candles[endIdx].close;
+
+  // Swing high must be at least FIB_MIN_SH_BARS_AGO from endIdx.
+  const shSearchEnd = slice.length - FIB_MIN_SH_BARS_AGO;
+  if (shSearchEnd <= 0) return null;
+  let shIdx = 0;
+  for (let i = 1; i < shSearchEnd; i++) {
+    if (slice[i].high > slice[shIdx].high) shIdx = i;
+  }
+  const swingHigh = slice[shIdx].high;
+
+  // Gate: no new high set after the swing high bar.
+  for (let i = shIdx + 1; i < slice.length; i++) {
+    if (slice[i].high > swingHigh) return null;
+  }
+
+  // Find the lowest low BEFORE the swing high.
+  if (shIdx === 0) return null;
+  let slIdx = 0;
+  for (let i = 1; i < shIdx; i++) {
+    if (slice[i].low < slice[slIdx].low) slIdx = i;
+  }
+  const swingLow = slice[slIdx].low;
+  if (swingHigh <= swingLow) return null;
+
+  const impulseRange = swingHigh - swingLow;
+
+  // Gate: impulse must be genuinely impulsive (≥ FIB_MIN_IMPULSE_ATR × ATR).
+  if (impulseRange < FIB_MIN_IMPULSE_ATR * atr) return null;
+
+  // Gate: price must have retraced ≥ FIB_MIN_RETRACE_PCT below swing high.
+  if (currentClose > swingHigh - impulseRange * FIB_MIN_RETRACE_PCT) return null;
+
+  return { swingHigh, swingLow };
+}
+
+function runFibBacktest(candles: CandleRaw[], timeframe: Timeframe, symbol: Symbol): Trade[] {
+  const meta = SYMBOLS[symbol];
+  const round = makeRounder(meta.decimals);
+  const trades: Trade[] = [];
+  const maxHold = MAX_HOLD_BARS[timeframe];
+
+  const closes = candles.map((c) => c.close);
+  const ema200 = calcEMASeries(closes, 200);
+  const rsi14  = calcRSISeries(closes, 14);
+  const macdHist = calcMACDHist(closes, 12, 26, 9);
+
+  const RSI_BUY_MAX = 50;
+  // After any FIB_BOUNCE exit (SL or EXPIRED), wait this many bars before
+  // re-entering. Prevents whipsawing back into the same static pocket.
+  const FIB_COOLDOWN_BARS = Math.ceil(maxHold / 2);
+  let cooldownUntil = 0;
+
+  let i = 50;
+
+  while (i < candles.length) {
+    if (i < cooldownUntil) { i++; continue; }
+    const prev = candles[i - 1];
+    const today = candles[i];
+    const atr = calcATR(candles, i - 1, 14);
+    if (atr <= 0) { i++; continue; }
+
+    // Find the structural impulse swing anchored to history up to prev bar.
+    const impulse = findImpulseSwing(candles, i - 1, 100);
+    if (!impulse) { i++; continue; }
+
+    const { swingHigh, swingLow } = impulse;
+    // Golden pocket: 61.8%–65% retracement of the impulse.
+    const range = swingHigh - swingLow;
+    const fib618 = round(swingHigh - range * 0.618);
+    const fib65  = round(swingHigh - range * 0.65);
+    const gpLow  = Math.min(fib618, fib65);
+    const gpHigh = Math.max(fib618, fib65);
+
+    // Zone must be meaningful AND swing high must be above current price
+    // (we're in a retracement, not still at/above the top).
+    if ((gpHigh - gpLow) < atr * 0.1) { i++; continue; }
+    if (swingHigh <= today.close) { i++; continue; }
+
+    // EMA200 regime gate — bull regime only for fib buys.
+    const e200 = ema200[i - 1];
+    const ema200Warm = i - 1 >= 200 && Number.isFinite(e200) && e200 > 0;
+    const useEma200 = ema200Warm && timeframe !== "1d";
+    const buyAllowed = !useEma200 || prev.close >= e200;
+    if (!buyAllowed) { i++; continue; }
+
+    // RSI gate.
+    const rsiVal = rsi14[i - 1];
+    const rsiBuyOk = !Number.isFinite(rsiVal) || rsiVal <= RSI_BUY_MAX;
+    if (!rsiBuyOk) { i++; continue; }
+
+    // MACD histogram ticking up (bear momentum cooling).
+    const hNow  = macdHist[i - 1];
+    const hPrev = macdHist[i - 2];
+    const macdWarm = Number.isFinite(hNow) && Number.isFinite(hPrev);
+    const macdBuyOk = !macdWarm || hNow > hPrev;
+    if (!macdBuyOk) { i++; continue; }
+
+    // Fill check: today's bar must touch into the golden pocket and open above gpLow
+    // (no gap-through fills — mirrors backtest realism logic in runBacktest).
+    const buyFills = today.low <= gpHigh && today.low >= gpLow * 0.98 && today.open >= gpLow;
+    if (!buyFills) { i++; continue; }
+
+    // Entry at fib 61.8 (deepest support in the pocket).
+    const entry = fib618;
+    const sl = round(gpLow - atr * 0.5);
+    const risk = Math.abs(entry - sl);
+    if (risk <= 0) { i++; continue; }
+
+    // TP1: fib 38.2% retracement level — first natural fib resistance on the
+    // way back up, geometrically reachable within the hold window. Floor at 1.5R.
+    // TP2: fib 23.6% retracement level — next fib up. Floor at 2.5R.
+    const fibRange = swingHigh - swingLow;
+    const fib382target = round(swingHigh - fibRange * 0.382);
+    const fib236target = round(swingHigh - fibRange * 0.236);
+    const tp1 = round(floorTarget(entry, sl, fib382target, MIN_RR_TP1, "BUY"));
+    const tp2 = round(floorTarget(entry, sl, fib236target, MIN_RR_TP2, "BUY"));
+
+    let exitDate = today.date;
+    let exitPrice = entry;
+    let outcome: Trade["outcome"] = "EXPIRED";
+    let barsHeld = 0;
+    let exitIdx = i;
+
+    for (let j = i; j < Math.min(candles.length, i + maxHold + 1); j++) {
+      const bar = candles[j];
+      barsHeld = j - i + 1;
+      exitIdx = j;
+      const slHit  = bar.low  <= sl;
+      const tp1Hit = bar.high >= tp1;
+      const tp2Hit = bar.high >= tp2;
+      if (slHit && (tp1Hit || tp2Hit)) { outcome = "SL"; exitPrice = sl; exitDate = bar.date; break; }
+      if (slHit)  { outcome = "SL";  exitPrice = sl;  exitDate = bar.date; break; }
+      if (tp2Hit) { outcome = "TP2"; exitPrice = tp2; exitDate = bar.date; break; }
+      if (tp1Hit) { outcome = "TP1"; exitPrice = tp1; exitDate = bar.date; break; }
+    }
+
+    if (outcome === "EXPIRED") {
+      const lastBar = candles[Math.min(candles.length - 1, i + maxHold)];
+      exitPrice = lastBar.close;
+      exitDate  = lastBar.date;
+      exitIdx   = Math.min(candles.length - 1, i + maxHold);
+    }
+
+    const pnl = exitPrice - entry;
+    const rMultiple = Math.round((pnl / risk) * 100) / 100;
+
+    trades.push({
+      entryDate: today.date,
+      direction: "BUY",
+      entry: round(entry),
+      stopLoss: round(sl),
+      takeProfit1: round(tp1),
+      takeProfit2: round(tp2),
+      exitDate,
+      exitPrice: round(exitPrice),
+      outcome,
+      rMultiple,
+      barsHeld,
+    });
+
+    // Apply cooldown after any non-TP2 exit to prevent re-entering the same
+    // static golden pocket immediately. TP2 exits are clean — no cooldown needed.
+    if (outcome !== "TP2") {
+      cooldownUntil = exitIdx + 1 + FIB_COOLDOWN_BARS;
+    }
+
+    i = exitIdx + 1;
+  }
+
+  return trades;
+}
+
 function runBacktest(candles: CandleRaw[], timeframe: Timeframe, symbol: Symbol): Trade[] {
   const meta = SYMBOLS[symbol];
   const longOnly = !!meta.longOnly;
@@ -647,7 +839,7 @@ router.get("/backtest", async (req: Request, res: Response) => {
     const query = GetBacktestQueryParams.parse(req.query);
     const symbol = (query.symbol ?? "XAGUSD") as Symbol;
     const timeframe = (query.timeframe ?? "1d") as Timeframe;
-    const signalType: "PIVOT_BOUNCE" | "BREAKOUT" = (query.signalType as "PIVOT_BOUNCE" | "BREAKOUT") ?? "PIVOT_BOUNCE";
+    const signalType: "PIVOT_BOUNCE" | "BREAKOUT" | "FIB_BOUNCE" = (query.signalType as "PIVOT_BOUNCE" | "BREAKOUT" | "FIB_BOUNCE") ?? "PIVOT_BOUNCE";
     const now = Date.now();
     const key = cacheKey(symbol, timeframe, signalType);
     const cached = cache.get(key);
@@ -677,6 +869,8 @@ router.get("/backtest", async (req: Request, res: Response) => {
     }
     const trades = signalType === "BREAKOUT"
       ? runBreakoutBacktest(candles, timeframe, symbol)
+      : signalType === "FIB_BOUNCE"
+      ? runFibBacktest(candles, timeframe, symbol)
       : runBacktest(candles, timeframe, symbol);
     const result = GetBacktestResponse.parse(aggregate(trades, candles, symbol));
     cache.set(key, { data: result, timestamp: now });

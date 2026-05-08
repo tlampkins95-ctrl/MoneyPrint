@@ -289,6 +289,102 @@ function findSwingHighLow(candles: CandleRaw[], lookback = 60) {
   };
 }
 
+// Find the most recent structural impulse swing for Fibonacci drawing.
+//
+// Requirements for a valid impulse:
+//   1. The swing high is the highest high in the lookback window.
+//   2. The swing low is the lowest low BEFORE that peak (base of the impulse).
+//   3. The move from low→high must be at least MIN_IMPULSE_ATR × ATR (genuine
+//      breakout, not chop). Checked by the caller against the current ATR.
+//   4. The swing high must be at least MIN_SH_BARS_AGO bars in the past —
+//      the impulse must be complete, not still forming.
+//   5. Price must NOT have exceeded the swing high since the swing high bar
+//      (the fib is stale once a new high is set — draw fresh fibs instead).
+//   6. Price must have retraced at least MIN_RETRACE_PCT of the impulse range
+//      below the swing high (confirming a genuine pullback has started).
+//
+// Returns null when no valid impulse is found.
+const MIN_SH_BARS_AGO = 3;       // swing high must be at least this many bars old
+const MIN_RETRACE_PCT = 0.10;    // price must have retraced ≥10% of the impulse below SH
+const MIN_IMPULSE_ATR = 3.0;     // impulse (SH − SL) must be ≥ 3×ATR
+
+function findImpulseSwing(
+  candles: CandleRaw[],
+  lookback = 100,
+): { swingHigh: number; swingLow: number; swingHighIdx: number; swingLowIdx: number } | null {
+  const n = candles.length;
+  const start = Math.max(0, n - lookback);
+  const slice = candles.slice(start);
+  if (slice.length < 10) return null;
+
+  const atr = calcATR(candles, 14);
+  if (atr <= 0) return null;
+
+  const lastBar = candles[n - 1];
+  const currentClose = lastBar.close;
+
+  // Find the highest high in the lookback window, but it must be at least
+  // MIN_SH_BARS_AGO bars before the current bar so the impulse is settled.
+  const shSearchEnd = slice.length - MIN_SH_BARS_AGO;
+  if (shSearchEnd <= 0) return null;
+  let shIdx = 0;
+  for (let i = 1; i < shSearchEnd; i++) {
+    if (slice[i].high > slice[shIdx].high) shIdx = i;
+  }
+  const swingHigh = slice[shIdx].high;
+
+  // Gate 5: price must not have made a new high after the swing high bar
+  // (the fib would be stale). Scan bars after shIdx up to current.
+  for (let i = shIdx + 1; i < slice.length; i++) {
+    if (slice[i].high > swingHigh) return null; // new high → stale impulse
+  }
+
+  // Gate 6: price must have retraced at least MIN_RETRACE_PCT below the swing high.
+  // (If price is still within 10% of the top, the pullback hasn't started yet.)
+
+  // Find the lowest low BEFORE the swing high (base of the impulse).
+  if (shIdx === 0) return null;
+  let slIdx = 0;
+  for (let i = 1; i < shIdx; i++) {
+    if (slice[i].low < slice[slIdx].low) slIdx = i;
+  }
+  const swingLow = slice[slIdx].low;
+  if (swingHigh <= swingLow) return null;
+
+  const impulseRange = swingHigh - swingLow;
+
+  // Gate 3: impulse must be at least MIN_IMPULSE_ATR × ATR.
+  if (impulseRange < MIN_IMPULSE_ATR * atr) return null;
+
+  // Gate 6: at least MIN_RETRACE_PCT of the range must have been retraced.
+  const minRetrace = impulseRange * MIN_RETRACE_PCT;
+  if (currentClose > swingHigh - minRetrace) return null;
+
+  return {
+    swingHigh,
+    swingLow,
+    swingHighIdx: start + shIdx,
+    swingLowIdx:  start + slIdx,
+  };
+}
+
+// Golden pocket = 61.8%–65% Fibonacci retracement zone.
+// This is the most reliable mean-reversion entry in an uptrend: institutions
+// buy heavily in this band because it aligns the classic 61.8% golden ratio
+// with the 65% level used by algorithmic strategies. Price pulling back into
+// this band during an uptrend has a significantly higher probability of
+// bouncing than a mechanical S1 pivot touch.
+function calcGoldenPocket(
+  swingHigh: number,
+  swingLow: number,
+  round: (n: number) => number,
+): { low: number; high: number; fib618: number; fib65: number } {
+  const range = swingHigh - swingLow;
+  const fib618 = round(swingHigh - range * 0.618);
+  const fib65  = round(swingHigh - range * 0.65);
+  return { low: Math.min(fib618, fib65), high: Math.max(fib618, fib65), fib618, fib65 };
+}
+
 // Standard pivot points use the PREVIOUS DAY's high, low, and close — not the
 // previous intraday bar. Using a single 30m bar's range (1-3 pips) produces
 // zones so tight that price is always caught between them, causing permanent WAIT.
@@ -1034,7 +1130,7 @@ export function computeLevels(
     !(timeframe === "1h" && symbolKey === "ETHUSD");   // -1.40R, no edge (body% filter tested, no improvement)
 
   let signal: "BUY" | "SELL" | "WAIT" = "WAIT";
-  let signalType: "PIVOT_BOUNCE" | "BREAKOUT" = "PIVOT_BOUNCE";
+  let signalType: "PIVOT_BOUNCE" | "BREAKOUT" | "FIB_BOUNCE" = "PIVOT_BOUNCE";
   let signalReason = "";
   let entryPrice = currentPrice;
   let stopLoss = currentPrice;
@@ -1058,7 +1154,49 @@ export function computeLevels(
     && ema200SellOk
     && !isLongOnly;
 
-  if (pivotBounceEnabled && (inBuyZone || approachingBuy) && buyAllowed) {
+  // ─── FIB_BOUNCE: golden pocket (61.8–65% retracement) — highest priority ──
+  // Fires before pivot bounce. When price pulls back into the golden pocket of
+  // the most recent structural impulse swing, it is a higher-conviction entry
+  // than a mechanical S1 touch: the pocket is anchored to the actual breakout
+  // low/high, so it adapts to the real price structure rather than yesterday's
+  // pivot arithmetic. FIB_BOUNCE only fires on BUY (long bias — pocket entries
+  // are defined against upward impulse swings). Sell-side fib entries are not
+  // implemented; the pivot SELL zone handles shorts.
+  const impulse = findImpulseSwing(candles, 100);
+  const goldenPocket = impulse ? calcGoldenPocket(impulse.swingHigh, impulse.swingLow, round) : null;
+  // Zone must be meaningful: at least 0.1×ATR wide and the swing high must be
+  // above current price (we are retracing into the pocket, not still at the top).
+  const gpValid = goldenPocket !== null && impulse !== null &&
+    (goldenPocket.high - goldenPocket.low) >= atr * 0.1 &&
+    impulse.swingHigh > currentPrice;
+  const inGoldenPocket = gpValid && currentPrice >= goldenPocket!.low && currentPrice <= goldenPocket!.high;
+  const approachingGoldenPocket = gpValid && !inGoldenPocket &&
+    currentPrice > goldenPocket!.high && (currentPrice - goldenPocket!.high) < atr * 0.5;
+  // FIB_BOUNCE uses same RSI/MACD/EMA200 buy gates as pivot bounce.
+  const fibBounceEnabled = pivotBounceEnabled && gpValid;
+
+  if (fibBounceEnabled && (inGoldenPocket || approachingGoldenPocket) && buyAllowed) {
+    signal = "BUY";
+    signalType = "FIB_BOUNCE";
+    // Entry: fib 61.8% level (deepest structural support in the pocket). Clamp
+    // to currentPrice so the entry never sits above the live print.
+    entryPrice = round(Math.min(goldenPocket!.fib618, currentPrice));
+    // SL: just below the 65% level + 0.5×ATR buffer. A close below 65% invalidates
+    // the golden pocket — the impulse has retraced too deeply to be a bounce.
+    stopLoss = round(goldenPocket!.low - atr * 0.5);
+    // TP1: fib 38.2% retracement level — first natural fib resistance on the
+    // way back up. Geometrically tied to the impulse so it's reachable within
+    // the hold window. Floored at 1.5R.
+    // TP2: fib 23.6% retracement level — next fib above, floored at 2.5R.
+    const fibRange = impulse!.swingHigh - impulse!.swingLow;
+    const fib382target = round(impulse!.swingHigh - fibRange * 0.382);
+    const fib236target = round(impulse!.swingHigh - fibRange * 0.236);
+    takeProfit1 = round(floorTarget(entryPrice, stopLoss, fib382target, MIN_RR_TP1, "BUY"));
+    takeProfit2 = round(floorTarget(entryPrice, stopLoss, fib236target, MIN_RR_TP2, "BUY"));
+    signalReason = inGoldenPocket
+      ? `[${tfLabel}] FIB GOLDEN POCKET BUY: Price (${fmt(currentPrice)}) is retracing into the 61.8–65% golden pocket (${fmt(goldenPocket!.low)}–${fmt(goldenPocket!.high)}) of the ${fmt(impulse!.swingLow)}→${fmt(impulse!.swingHigh)} impulse. High-probability bounce zone — limit entry near ${fmt(entryPrice)}, SL ${fmt(stopLoss)}, TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)}.`
+      : `[${tfLabel}] FIB GOLDEN POCKET approaching: Price (${fmt(currentPrice)}) is within ${fmt(currentPrice - goldenPocket!.high)} of the golden pocket (${fmt(goldenPocket!.low)}–${fmt(goldenPocket!.high)}). Stage a limit order at ${fmt(goldenPocket!.fib618)} (61.8% of ${fmt(impulse!.swingLow)}→${fmt(impulse!.swingHigh)}).`;
+  } else if (pivotBounceEnabled && (inBuyZone || approachingBuy) && buyAllowed) {
     signal = "BUY";
     // Anchor entry to the planned limit price at S1, but never above the live
     // print — if price has already dipped at/below S1 the limit would sit
@@ -1293,7 +1431,7 @@ type Levels = ReturnType<typeof computeLevels>;
 
 interface ActiveTrade {
   signal: "BUY" | "SELL";
-  signalType?: "PIVOT_BOUNCE" | "BREAKOUT";
+  signalType?: "PIVOT_BOUNCE" | "BREAKOUT" | "FIB_BOUNCE";
   signalReason: string;
   entryPrice: number;
   stopLoss: number;
