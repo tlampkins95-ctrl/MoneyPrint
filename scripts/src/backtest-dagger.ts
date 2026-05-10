@@ -20,7 +20,7 @@
  * Variants reported
  * -----------------
  *   Simple    — 3-swing: A → B → C, target D = C + AB
- *   Extended  — 5-swing: simple TP2 hit at D; then D → E (38–62% of CD
+ *   Extended  — 5-swing: simple TP2 hit at D; then D → E (40–60% of CD
  *               as new impulse), target F = E + CD. True second-pass detection,
  *               not relabelling.
  *   Confluent — simple setup where a secondary 80-bar lookback also produces
@@ -235,7 +235,7 @@ function findBullStructure(
   }
   const cPrice = slice[cLoc].low;
 
-  // Retracement (B→C) / AB must be 38–62%
+  // Retracement (B→C) / AB must be 40–60%
   const rPct = (bPrice - cPrice) / abLeg;
   if (rPct < DAGGER_LOW || rPct > DAGGER_HIGH) return null;
 
@@ -321,8 +321,8 @@ function findBearStructure(
 
 /**
  * True 5-swing extended detection.
- * Looks for a D→E pullback of 38–62% of CD after a simple TP2 was hit at D.
- * If found and current bar's high crosses within 0.5×ATR of E, returns the setup.
+ * Looks for a D→E pullback of 40–60% of CD after a simple TP2 was hit at D.
+ * If found and current bar's low crosses within 0.5×ATR of E, returns the setup.
  * F target = E + CD.
  */
 function findExtendedBullStructure(
@@ -342,7 +342,7 @@ function findExtendedBullStructure(
   }
   const ePrice = candles[eLoc].low;
 
-  // Retracement (D→E) / CD must be 38–62%
+  // Retracement (D→E) / CD must be 40–60%
   const rPct = (dPrice - ePrice) / cdLeg;
   if (rPct < DAGGER_LOW || rPct > DAGGER_HIGH) return null;
 
@@ -406,7 +406,6 @@ function findExtendedBearStructure(
 
 // ─── Trade Simulator ──────────────────────────────────────────────────────────
 
-const MIN_R_AT_TP2  = 1.5;
 const MAX_BARS_OPEN = 100;
 
 interface SimMeta {
@@ -421,7 +420,8 @@ interface SimMeta {
  * Entry = trigger bar's low (bull) or high (bear) — the actual price at the
  * first bar whose extremum crosses within 0.5×ATR of C/E.
  * SL = C − 0.5×ATR (bull) | C + 0.5×ATR (bear) — anchored to C, not entry.
- * Returns null if the bar already blew through SL or R target is too small.
+ * Returns null only if the trigger bar already blew through SL (structurally
+ * invalid fill). All other triggered setups are simulated regardless of R ratio.
  */
 function simulateTrade(
   candles: CandleRaw[],
@@ -446,7 +446,6 @@ function simulateTrade(
   if (slDist <= 0) return null;
 
   const rAtTp2 = Math.abs(tp2 - entry) / slDist;
-  if (rAtTp2 < MIN_R_AT_TP2) return null;
 
   // Sanity: D must be in the correct direction from entry
   if (isBull  && tp2 <= entry) return null;
