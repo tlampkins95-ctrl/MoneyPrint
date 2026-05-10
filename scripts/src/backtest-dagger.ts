@@ -13,7 +13,7 @@
  * Setup detection finds A (impulse base), B (impulse extreme), C (correction
  * extreme).  The entry trigger fires on the FIRST bar AFTER C is established
  * where bar.low (bull) or bar.high (bear) crosses within 0.5×ATR of C.
- * Entry price = C (limit-order model; assume fill at the level when touched).
+ * Entry price = trigger bar's extremum (bar.low for bull, bar.high for bear).
  * SL = C − 0.5×ATR (bull) | C + 0.5×ATR (bear).
  * TP2 = D = C + AB (bull) | C − AB (bear).
  *
@@ -498,9 +498,10 @@ function backtestSymbol(
   const closes   = candles.map(c => c.close);
   const macdHist = calcMACDHist(closes);
 
-  // cIdx values whose first trigger has fired (consumed on first crossing,
-  // regardless of whether RSI/MACD gates pass — enforces first-crossing semantics).
-  const triggeredCIdx = new Set<number>();
+  // De-dup keys: "bull:cIdx" | "bear:cIdx" | "ext-bull:cIdx" | "ext-bear:cIdx"
+  // Consumed on first trigger crossing regardless of gate outcome (first-crossing semantics).
+  // Direction-scoped to prevent a bull setup from blocking a bear setup at the same bar.
+  const triggeredCIdx = new Set<string>();
 
   // Seeds from completed simple TP2 hits, for extended-matrix scanning
   const extSeeds: ExtendedSeed[] = [];
@@ -517,13 +518,13 @@ function backtestSymbol(
     // ── Simple BULL ───────────────────────────────────────────────────────
     {
       const s = findBullStructure(candles, i, atr, 120);
-      if (s && !triggeredCIdx.has(s.cIdx)) {
+      if (s && !triggeredCIdx.has(`bull:${s.cIdx}`)) {
         // Entry trigger: current bar's LOW must reach within 0.5×ATR of C.
         // Consume this cIdx on first trigger regardless of gate outcome —
         // ensures only the first qualifying crossing bar can enter a trade.
         const fired = candles[i].low <= s.cPrice + atr * ENTRY_ATR_HALF;
         if (fired) {
-          triggeredCIdx.add(s.cIdx);  // consume first crossing unconditionally
+          triggeredCIdx.add(`bull:${s.cIdx}`);  // consume first crossing unconditionally
           const rsiOk  = isNaN(rsiVal) || rsiVal <= 35;
           const macdOk = !macdWarm || hist1 > hist2;
           if (rsiOk && macdOk) {
@@ -559,11 +560,11 @@ function backtestSymbol(
     // ── Simple BEAR ───────────────────────────────────────────────────────
     if (!longOnly) {
       const s = findBearStructure(candles, i, atr, 120);
-      if (s && !triggeredCIdx.has(s.cIdx)) {
+      if (s && !triggeredCIdx.has(`bear:${s.cIdx}`)) {
         // Entry trigger: current bar's HIGH must reach within 0.5×ATR of C
         const fired = candles[i].high >= s.cPrice - atr * ENTRY_ATR_HALF;
         if (fired) {
-          triggeredCIdx.add(s.cIdx);  // consume first crossing unconditionally
+          triggeredCIdx.add(`bear:${s.cIdx}`);  // consume first crossing unconditionally
           const rsiOk  = isNaN(rsiVal) || rsiVal >= 65;
           const macdOk = !macdWarm || hist1 < hist2;
           if (rsiOk && macdOk) {
@@ -598,13 +599,13 @@ function backtestSymbol(
     for (const seed of extSeeds) {
       if (seed.direction !== "bull") continue;
       const ext = findExtendedBullStructure(candles, i, atr, seed);
-      if (!ext || triggeredCIdx.has(ext.cIdx)) continue;
+      if (!ext || triggeredCIdx.has(`ext-bull:${ext.cIdx}`)) continue;
 
       // Entry trigger: bar's LOW reaches within 0.5×ATR of E
       const fired = candles[i].low <= ext.cPrice + atr * ENTRY_ATR_HALF;
       if (!fired) continue;
 
-      triggeredCIdx.add(ext.cIdx);  // consume first crossing unconditionally
+      triggeredCIdx.add(`ext-bull:${ext.cIdx}`);  // consume first crossing unconditionally
       const rsiOk  = isNaN(rsiVal) || rsiVal <= 35;
       const macdOk = !macdWarm || hist1 > hist2;
       if (!rsiOk || !macdOk) continue; // gate failed — try next seed
@@ -635,12 +636,12 @@ function backtestSymbol(
       for (const seed of extSeeds) {
         if (seed.direction !== "bear") continue;
         const ext = findExtendedBearStructure(candles, i, atr, seed);
-        if (!ext || triggeredCIdx.has(ext.cIdx)) continue;
+        if (!ext || triggeredCIdx.has(`ext-bear:${ext.cIdx}`)) continue;
 
         const fired = candles[i].high >= ext.cPrice - atr * ENTRY_ATR_HALF;
         if (!fired) continue;
 
-        triggeredCIdx.add(ext.cIdx);  // consume first crossing unconditionally
+        triggeredCIdx.add(`ext-bear:${ext.cIdx}`);  // consume first crossing unconditionally
         const rsiOk  = isNaN(rsiVal) || rsiVal >= 65;
         const macdOk = !macdWarm || hist1 < hist2;
         if (!rsiOk || !macdOk) continue; // gate failed — try next seed
