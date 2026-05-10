@@ -92,6 +92,12 @@ const TREND_LOOKBACK   = 80;   // bars to look back for A and B
 const SL_BUFFER        = 0.5;  // SL placed C ± 0.5×ATR beyond the reaction extreme
 const WARMUP           = 150;  // bars reserved for indicator warm-up
 
+// Fibonacci retracement zone (optional filter)
+// When requireFib=true, the B→C pullback must be 40–65% of the A→B impulse.
+// This targets the classic "50% fib" pocket seen in the ZEC screenshot.
+const FIB_LOW  = 0.40;
+const FIB_HIGH = 0.65;
+
 // ─── Indicators ──────────────────────────────────────────────────────────────
 
 function calcEMA(values: number[], period: number): number[] {
@@ -171,6 +177,7 @@ function findBullSetup(
   candles: CandleRaw[],
   i: number,
   atr: number,
+  requireFib = false,
 ): DaggerSetup | null {
   if (i < WARMUP + 4 || atr <= 0) return null;
 
@@ -213,6 +220,12 @@ function findBullSetup(
   // Reaction B→C must be significant (not just noise)
   if (bPrice - cPrice < MIN_REACTION_ATR * atr) return null;
 
+  // Optional Fibonacci filter: B→C retracement must land in the 40–65% pocket
+  if (requireFib) {
+    const retracePct = (bPrice - cPrice) / (bPrice - aPrice);
+    if (retracePct < FIB_LOW || retracePct > FIB_HIGH) return null;
+  }
+
   const sl = cPrice - SL_BUFFER * atr;  // below the reaction low
   const tp = bPrice;                    // TP = B (trend resumes to prior swing high)
 
@@ -230,6 +243,7 @@ function findBearSetup(
   candles: CandleRaw[],
   i: number,
   atr: number,
+  requireFib = false,
 ): DaggerSetup | null {
   if (i < WARMUP + 4 || atr <= 0) return null;
 
@@ -263,6 +277,12 @@ function findBearSetup(
   }
 
   if (cPrice - bPrice < MIN_REACTION_ATR * atr) return null;
+
+  // Optional Fibonacci filter: B→C retracement must land in the 40–65% pocket
+  if (requireFib) {
+    const retracePct = (cPrice - bPrice) / (aPrice - bPrice);
+    if (retracePct < FIB_LOW || retracePct > FIB_HIGH) return null;
+  }
 
   const sl = cPrice + SL_BUFFER * atr;
   const tp = bPrice;
@@ -332,6 +352,7 @@ function backtestSymbol(
   candles: CandleRaw[],
   gates: GateMode,
   bullOnly: boolean,
+  requireFib = false,
 ): Trade[] {
   const trades: Trade[] = [];
   if (candles.length < WARMUP + 10) return trades;
@@ -357,7 +378,7 @@ function backtestSymbol(
       // Entry trigger (book Fig 11.2): first bar ticking back up after the reaction
       const triggered = candles[i].high > candles[i - 1].high;
       if (triggered) {
-        const s = findBullSetup(candles, i, atr);
+        const s = findBullSetup(candles, i, atr, requireFib);
         if (s && !triggeredCIdx.has(`bull:${s.cIdx}`)) {
           triggeredCIdx.add(`bull:${s.cIdx}`);  // consume on first trigger
 
@@ -380,7 +401,7 @@ function backtestSymbol(
     if (!bullOnly) {
       const triggered = candles[i].low < candles[i - 1].low;
       if (triggered) {
-        const s = findBearSetup(candles, i, atr);
+        const s = findBearSetup(candles, i, atr, requireFib);
         if (s && !triggeredCIdx.has(`bear:${s.cIdx}`)) {
           triggeredCIdx.add(`bear:${s.cIdx}`);
 
@@ -632,68 +653,74 @@ async function main() {
     }
   }
 
-  // Run each variant
-  for (const gates of variants) {
-    // Bull+Bear and Bull-only
-    for (const bullOnly of [false, true]) {
-      if (gates !== "none" && bullOnly) continue; // only show bull-only for raw
+  type RunCfg = { label: string; gates: GateMode; bullOnly: boolean; requireFib: boolean };
 
-      const rows: Array<{ sym: string; tf: string; stats: Stats }> = [];
-      const allTrades: Trade[] = [];
+  const runs: RunCfg[] = [
+    // ── Ordinal Dagger (no fib constraint) ───────────────────────────────
+    { label: "RAW DAGGER  — no filters, bull+bear (book Fig 11.2, pure price action)",  gates: "none",     bullOnly: false, requireFib: false },
+    { label: "RAW DAGGER  — bull only",                                                  gates: "none",     bullOnly: true,  requireFib: false },
+    { label: "MACD-GATED  — MACD histogram ticking in trade direction",                  gates: "macd",     bullOnly: false, requireFib: false },
+    { label: "MACD + RSI  — MACD ticking + RSI ≤45 (bull) / ≥55 (bear)",               gates: "macd+rsi", bullOnly: false, requireFib: false },
 
-      for (const sym of symKeys) {
-        const cfg = SYMBOLS[sym];
-        for (const tf of TIMEFRAMES) {
-          const candles = candleCache[sym][tf] ?? [];
-          const trades  = candles.length
-            ? backtestSymbol(sym, tf, candles, gates, bullOnly)
-            : [];
-          allTrades.push(...trades);
-          rows.push({ sym: cfg.label, tf, stats: computeStats(trades) });
-        }
+    // ── Fib 40–65% filter (the 50% pocket setup from ZEC screenshot) ─────
+    { label: "FIB 40–65%  — no gate, bull+bear (50% pullback pocket)",                  gates: "none",     bullOnly: false, requireFib: true  },
+    { label: "FIB 40–65%  — bull only",                                                  gates: "none",     bullOnly: true,  requireFib: true  },
+    { label: "FIB + MACD  — 50% pocket + MACD ticking in trade direction",               gates: "macd",     bullOnly: false, requireFib: true  },
+    { label: "FIB + MACD + RSI  — 50% pocket + MACD + RSI exhaustion",                  gates: "macd+rsi", bullOnly: false, requireFib: true  },
+  ];
+
+  for (const run of runs) {
+    const rows: Array<{ sym: string; tf: string; stats: Stats }> = [];
+    const allTrades: Trade[] = [];
+
+    for (const sym of symKeys) {
+      const cfg = SYMBOLS[sym];
+      for (const tf of TIMEFRAMES) {
+        const candles = candleCache[sym][tf] ?? [];
+        const trades  = candles.length
+          ? backtestSymbol(sym, tf, candles, run.gates, run.bullOnly, run.requireFib)
+          : [];
+        allTrades.push(...trades);
+        rows.push({ sym: cfg.label, tf, stats: computeStats(trades) });
+      }
+    }
+
+    printTable(run.label, rows);
+
+    if (allTrades.length > 0) {
+      const all  = computeStats(allTrades);
+      const bull = computeStats(allTrades.filter(t => t.direction === "bull"));
+      const bear = computeStats(allTrades.filter(t => t.direction === "bear"));
+
+      console.log(`\n${"═".repeat(90)}`);
+      console.log("  SUMMARY");
+      console.log(`${"═".repeat(90)}`);
+      console.log(`  Total trades  : ${all.trades}`);
+      console.log(`  Win rate      : ${pct(all.winRate)}`);
+      console.log(`  Avg R/trade   : ${fmt(all.avgR, 3)}`);
+      console.log(`  Total R       : ${fmt(all.totalR, 1)}`);
+      console.log(`  Profit factor : ${fmt(all.profitFactor, 2)}`);
+      console.log(`  Max drawdown  : ${fmt(all.maxDD, 1)}R`);
+      if (!run.bullOnly) {
+        console.log(`  Bull  ${String(bull.trades).padEnd(4)} trades  WR ${pct(bull.winRate)}  AvgR ${fmt(bull.avgR, 2)}  PF ${fmt(bull.profitFactor, 2)}`);
+        console.log(`  Bear  ${String(bear.trades).padEnd(4)} trades  WR ${pct(bear.winRate)}  AvgR ${fmt(bear.avgR, 2)}  PF ${fmt(bear.profitFactor, 2)}`);
       }
 
-      const label = bullOnly
-        ? "RAW DAGGER  — bull only"
-        : varLabels[gates];
-
-      printTable(label, rows);
-
-      if (allTrades.length > 0) {
-        const all  = computeStats(allTrades);
-        const bull = computeStats(allTrades.filter(t => t.direction === "bull"));
-        const bear = computeStats(allTrades.filter(t => t.direction === "bear"));
-
-        console.log(`\n${"═".repeat(90)}`);
-        console.log("  SUMMARY");
-        console.log(`${"═".repeat(90)}`);
-        console.log(`  Total trades  : ${all.trades}`);
-        console.log(`  Win rate      : ${pct(all.winRate)}`);
-        console.log(`  Avg R/trade   : ${fmt(all.avgR, 3)}`);
-        console.log(`  Total R       : ${fmt(all.totalR, 1)}`);
-        console.log(`  Profit factor : ${fmt(all.profitFactor, 2)}`);
-        console.log(`  Max drawdown  : ${fmt(all.maxDD, 1)}R`);
-        if (!bullOnly) {
-          console.log(`  Bull  ${String(bull.trades).padEnd(4)} trades  WR ${pct(bull.winRate)}  AvgR ${fmt(bull.avgR, 2)}  PF ${fmt(bull.profitFactor, 2)}`);
-          console.log(`  Bear  ${String(bear.trades).padEnd(4)} trades  WR ${pct(bear.winRate)}  AvgR ${fmt(bear.avgR, 2)}  PF ${fmt(bear.profitFactor, 2)}`);
-        }
-
-        console.log(`\n  PER-SYMBOL (all TFs combined)`);
-        console.log("  " + "─".repeat(70));
-        console.log("  " + "Symbol      ".padEnd(14) + "Trades".padEnd(8) + "WR%   ".padEnd(8) + "AvgR  ".padEnd(8) + "TotalR  ".padEnd(10) + "PF");
-        console.log("  " + "─".repeat(70));
-        for (const sym of symKeys) {
-          const cfg   = SYMBOLS[sym];
-          const symTs = allTrades.filter(t => t.symbol === sym);
-          if (!symTs.length) continue;
-          const s = computeStats(symTs);
-          console.log(
-            "  " + cfg.label.padEnd(14) +
-            String(s.trades).padEnd(8) + pct(s.winRate).padEnd(8) +
-            fmt(s.avgR, 2).padEnd(8)  + fmt(s.totalR, 1).padEnd(10) +
-            fmt(s.profitFactor, 2)
-          );
-        }
+      console.log(`\n  PER-SYMBOL (all TFs combined)`);
+      console.log("  " + "─".repeat(72));
+      console.log("  " + "Symbol      ".padEnd(14) + "Trades".padEnd(8) + "WR%   ".padEnd(8) + "AvgR  ".padEnd(8) + "TotalR  ".padEnd(10) + "PF");
+      console.log("  " + "─".repeat(72));
+      for (const sym of symKeys) {
+        const cfg   = SYMBOLS[sym];
+        const symTs = allTrades.filter(t => t.symbol === sym);
+        if (!symTs.length) continue;
+        const s = computeStats(symTs);
+        console.log(
+          "  " + cfg.label.padEnd(14) +
+          String(s.trades).padEnd(8) + pct(s.winRate).padEnd(8) +
+          fmt(s.avgR, 2).padEnd(8)  + fmt(s.totalR, 1).padEnd(10) +
+          fmt(s.profitFactor, 2)
+        );
       }
     }
   }
