@@ -406,8 +406,6 @@ function findExtendedBearStructure(
 
 // ─── Trade Simulator ──────────────────────────────────────────────────────────
 
-const MAX_BARS_OPEN = 100;
-
 interface SimMeta {
   isExtended: boolean;
   isConfluent: boolean;
@@ -451,8 +449,10 @@ function simulateTrade(
   if (isBull  && tp2 <= entry) return null;
   if (!isBull && tp2 >= entry) return null;
 
-  const maxBar = Math.min(entryBar + MAX_BARS_OPEN, candles.length - 1);
-  for (let j = entryBar + 1; j <= maxBar; j++) {
+  // Scan all remaining bars until SL or TP2 is hit (no timeout).
+  // If neither is hit by end of data, close at final bar (end-of-data exit).
+  const lastBar = candles.length - 1;
+  for (let j = entryBar + 1; j <= lastBar; j++) {
     const bar = candles[j];
     if (isBull) {
       if (bar.low  <= sl)  return mk("SL",  -1,     j - entryBar, entry, sl, tp2, rAtTp2, setup, meta);
@@ -462,9 +462,10 @@ function simulateTrade(
       if (bar.low  <= tp2) return mk("TP2", rAtTp2, j - entryBar, entry, sl, tp2, rAtTp2, setup, meta);
     }
   }
-  const closeP = candles[maxBar].close;
+  // End-of-data: neither SL nor TP2 was reached; close at final bar's close.
+  const closeP = candles[lastBar].close;
   const expR   = isBull ? (closeP - entry) / slDist : (entry - closeP) / slDist;
-  return mk("EXPIRED", expR, maxBar - entryBar, entry, sl, tp2, rAtTp2, setup, meta);
+  return mk("EXPIRED", expR, lastBar - entryBar, entry, sl, tp2, rAtTp2, setup, meta);
 }
 
 function mk(
@@ -497,8 +498,9 @@ function backtestSymbol(
   const closes   = candles.map(c => c.close);
   const macdHist = calcMACDHist(closes);
 
-  // cIdx values that have already generated a trade (prevents double-entry)
-  const usedCIdx = new Set<number>();
+  // cIdx values whose first trigger has fired (consumed on first crossing,
+  // regardless of whether RSI/MACD gates pass — enforces first-crossing semantics).
+  const triggeredCIdx = new Set<number>();
 
   // Seeds from completed simple TP2 hits, for extended-matrix scanning
   const extSeeds: ExtendedSeed[] = [];
@@ -515,10 +517,13 @@ function backtestSymbol(
     // ── Simple BULL ───────────────────────────────────────────────────────
     {
       const s = findBullStructure(candles, i, atr, 120);
-      if (s && !usedCIdx.has(s.cIdx)) {
-        // Entry trigger: current bar's LOW must reach within 0.5×ATR of C
-        const triggered = candles[i].low <= s.cPrice + atr * ENTRY_ATR_HALF;
-        if (triggered) {
+      if (s && !triggeredCIdx.has(s.cIdx)) {
+        // Entry trigger: current bar's LOW must reach within 0.5×ATR of C.
+        // Consume this cIdx on first trigger regardless of gate outcome —
+        // ensures only the first qualifying crossing bar can enter a trade.
+        const fired = candles[i].low <= s.cPrice + atr * ENTRY_ATR_HALF;
+        if (fired) {
+          triggeredCIdx.add(s.cIdx);  // consume first crossing unconditionally
           const rsiOk  = isNaN(rsiVal) || rsiVal <= 35;
           const macdOk = !macdWarm || hist1 > hist2;
           if (rsiOk && macdOk) {
@@ -533,7 +538,6 @@ function backtestSymbol(
             if (t) {
               t.entryBar = i;
               trades.push(t);
-              usedCIdx.add(s.cIdx);
 
               // If TP2 was hit, seed an extended watch for the CD leg
               if (t.outcome === "TP2") {
@@ -555,10 +559,11 @@ function backtestSymbol(
     // ── Simple BEAR ───────────────────────────────────────────────────────
     if (!longOnly) {
       const s = findBearStructure(candles, i, atr, 120);
-      if (s && !usedCIdx.has(s.cIdx)) {
+      if (s && !triggeredCIdx.has(s.cIdx)) {
         // Entry trigger: current bar's HIGH must reach within 0.5×ATR of C
-        const triggered = candles[i].high >= s.cPrice - atr * ENTRY_ATR_HALF;
-        if (triggered) {
+        const fired = candles[i].high >= s.cPrice - atr * ENTRY_ATR_HALF;
+        if (fired) {
+          triggeredCIdx.add(s.cIdx);  // consume first crossing unconditionally
           const rsiOk  = isNaN(rsiVal) || rsiVal >= 65;
           const macdOk = !macdWarm || hist1 < hist2;
           if (rsiOk && macdOk) {
@@ -572,7 +577,6 @@ function backtestSymbol(
             if (t) {
               t.entryBar = i;
               trades.push(t);
-              usedCIdx.add(s.cIdx);
 
               if (t.outcome === "TP2") {
                 const hitBar = i + t.barsHeld;
@@ -594,15 +598,16 @@ function backtestSymbol(
     for (const seed of extSeeds) {
       if (seed.direction !== "bull") continue;
       const ext = findExtendedBullStructure(candles, i, atr, seed);
-      if (!ext || usedCIdx.has(ext.cIdx)) continue;
+      if (!ext || triggeredCIdx.has(ext.cIdx)) continue;
 
       // Entry trigger: bar's LOW reaches within 0.5×ATR of E
-      const triggered = candles[i].low <= ext.cPrice + atr * ENTRY_ATR_HALF;
-      if (!triggered) continue;
+      const fired = candles[i].low <= ext.cPrice + atr * ENTRY_ATR_HALF;
+      if (!fired) continue;
 
+      triggeredCIdx.add(ext.cIdx);  // consume first crossing unconditionally
       const rsiOk  = isNaN(rsiVal) || rsiVal <= 35;
       const macdOk = !macdWarm || hist1 > hist2;
-      if (!rsiOk || !macdOk) continue;
+      if (!rsiOk || !macdOk) break;
 
       const t = simulateTrade(candles, i, ext, atr, {
         isExtended: true, isConfluent: false, symbol, timeframe,
@@ -610,7 +615,6 @@ function backtestSymbol(
       if (t) {
         t.entryBar = i;
         trades.push(t);
-        usedCIdx.add(ext.cIdx);
         // Extended chain: seed another level if TP2 hit
         if (t.outcome === "TP2") {
           const hitBar = i + t.barsHeld;
@@ -631,14 +635,15 @@ function backtestSymbol(
       for (const seed of extSeeds) {
         if (seed.direction !== "bear") continue;
         const ext = findExtendedBearStructure(candles, i, atr, seed);
-        if (!ext || usedCIdx.has(ext.cIdx)) continue;
+        if (!ext || triggeredCIdx.has(ext.cIdx)) continue;
 
-        const triggered = candles[i].high >= ext.cPrice - atr * ENTRY_ATR_HALF;
-        if (!triggered) continue;
+        const fired = candles[i].high >= ext.cPrice - atr * ENTRY_ATR_HALF;
+        if (!fired) continue;
 
+        triggeredCIdx.add(ext.cIdx);  // consume first crossing unconditionally
         const rsiOk  = isNaN(rsiVal) || rsiVal >= 65;
         const macdOk = !macdWarm || hist1 < hist2;
-        if (!rsiOk || !macdOk) continue;
+        if (!rsiOk || !macdOk) break;
 
         const t = simulateTrade(candles, i, ext, atr, {
           isExtended: true, isConfluent: false, symbol, timeframe,
@@ -646,7 +651,6 @@ function backtestSymbol(
         if (t) {
           t.entryBar = i;
           trades.push(t);
-          usedCIdx.add(ext.cIdx);
           if (t.outcome === "TP2") {
             const hitBar = i + t.barsHeld;
             extSeeds.push({
@@ -817,16 +821,17 @@ function printTable(
   console.log("  " + "─".repeat(84));
   let sumT = 0, sumW = 0, sumR = 0;
   for (const { sym, tf, stats: s } of rows) {
-    if (s.trades === 0) continue;
+    // Print every symbol×TF row — including zero-trade cells — for full matrix visibility
+    const tradeStr = String(s.trades);
     console.log(
       "  " +
       sym.padEnd(12) + tf.padEnd(6) +
-      String(s.trades).padEnd(8) +
-      pct(s.winRate).padEnd(8) +
-      fmt(s.avgR, 2).padEnd(8) +
-      fmt(s.totalR, 1).padEnd(9) +
-      fmt(s.profitFactor, 2).padEnd(8) +
-      fmt(s.maxDD, 1) + "R"
+      tradeStr.padEnd(8) +
+      (s.trades > 0 ? pct(s.winRate) : "—").padEnd(8) +
+      (s.trades > 0 ? fmt(s.avgR, 2) : "—").padEnd(8) +
+      (s.trades > 0 ? fmt(s.totalR, 1) : "—").padEnd(9) +
+      (s.trades > 0 ? fmt(s.profitFactor, 2) : "—").padEnd(8) +
+      (s.trades > 0 ? fmt(s.maxDD, 1) + "R" : "—")
     );
     sumT += s.trades; sumW += s.wins; sumR += s.totalR;
   }
