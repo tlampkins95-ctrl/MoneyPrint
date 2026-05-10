@@ -176,8 +176,8 @@ function calcMACDHist(closes: number[], fast = 12, slow = 26, sig = 9): number[]
 const MIN_IMPULSE_ATR    = 3.0;   // impulse must span ≥3×ATR
 const MIN_SH_BARS_AGO    = 3;     // B must be established ≥3 bars before current
 const MIN_RETRACE_PCTG   = 0.10;  // price must have pulled back ≥10% of AB from B
-const DAGGER_LOW         = 0.38;  // min correction percentage
-const DAGGER_HIGH        = 0.62;  // max correction percentage
+const DAGGER_LOW         = 0.40;  // min correction percentage (40%)
+const DAGGER_HIGH        = 0.60;  // max correction percentage (60%)
 const ENTRY_ATR_HALF     = 0.5;   // trigger: bar's low/high must reach within 0.5×ATR of C
 
 /**
@@ -417,9 +417,11 @@ interface SimMeta {
 }
 
 /**
- * Simulates a trade entered at `cPrice` (limit order) on bar `entryBar`.
- * SL = cPrice − 0.5×ATR (bull) | cPrice + 0.5×ATR (bear).
- * Returns null if the setup doesn't meet minimum R requirement.
+ * Simulates a trade entered on the trigger bar.
+ * Entry = trigger bar's low (bull) or high (bear) — the actual price at the
+ * first bar whose extremum crosses within 0.5×ATR of C/E.
+ * SL = C − 0.5×ATR (bull) | C + 0.5×ATR (bear) — anchored to C, not entry.
+ * Returns null if the bar already blew through SL or R target is too small.
  */
 function simulateTrade(
   candles: CandleRaw[],
@@ -430,9 +432,14 @@ function simulateTrade(
 ): Trade | null {
   const isBull = setup.direction === "bull";
 
-  // Entry at the C level (limit order at the correction extreme)
-  const entry = setup.cPrice;
-  const sl    = isBull ? entry - atr * ENTRY_ATR_HALF : entry + atr * ENTRY_ATR_HALF;
+  // Entry = extremum of trigger bar (low for bull, high for bear)
+  const entry = isBull ? candles[entryBar].low : candles[entryBar].high;
+  // SL anchored to C (the correction extreme), not to the trigger bar
+  const sl    = isBull ? setup.cPrice - atr * ENTRY_ATR_HALF : setup.cPrice + atr * ENTRY_ATR_HALF;
+
+  // If the trigger bar already blew through SL, skip (entry worse than SL)
+  if (isBull && entry <= sl) return null;
+  if (!isBull && entry >= sl) return null;
   const tp2   = setup.dTarget;
 
   const slDist = Math.abs(entry - sl);
