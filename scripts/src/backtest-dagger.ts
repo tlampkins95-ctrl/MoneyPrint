@@ -607,7 +607,7 @@ function backtestSymbol(
       triggeredCIdx.add(ext.cIdx);  // consume first crossing unconditionally
       const rsiOk  = isNaN(rsiVal) || rsiVal <= 35;
       const macdOk = !macdWarm || hist1 > hist2;
-      if (!rsiOk || !macdOk) break;
+      if (!rsiOk || !macdOk) continue; // gate failed — try next seed
 
       const t = simulateTrade(candles, i, ext, atr, {
         isExtended: true, isConfluent: false, symbol, timeframe,
@@ -627,7 +627,7 @@ function backtestSymbol(
           });
         }
       }
-      break; // one extended trade per seed per bar
+      break; // one extended trade placed — stop evaluating further seeds this bar
     }
 
     // ── Extended BEAR (5-swing) ────────────────────────────────────────────
@@ -643,7 +643,7 @@ function backtestSymbol(
         triggeredCIdx.add(ext.cIdx);  // consume first crossing unconditionally
         const rsiOk  = isNaN(rsiVal) || rsiVal >= 65;
         const macdOk = !macdWarm || hist1 < hist2;
-        if (!rsiOk || !macdOk) break;
+        if (!rsiOk || !macdOk) continue; // gate failed — try next seed
 
         const t = simulateTrade(candles, i, ext, atr, {
           isExtended: true, isConfluent: false, symbol, timeframe,
@@ -662,7 +662,7 @@ function backtestSymbol(
             });
           }
         }
-        break;
+        break; // one extended trade placed — stop evaluating further seeds this bar
       }
     }
   }
