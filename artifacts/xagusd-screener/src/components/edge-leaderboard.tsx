@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useGetBacktest } from "@workspace/api-client-react";
+import { useGetBacktest, type GetBacktestSymbol } from "@workspace/api-client-react";
 import { ChevronDown, ChevronRight, Trophy, Loader2, AlertTriangle } from "lucide-react";
 import { ALL_SYMBOLS, SYMBOLS, type Symbol } from "@/lib/symbols";
 import { cn } from "@/lib/utils";
@@ -32,7 +32,7 @@ type SignalTypeMode = "PIVOT_BOUNCE" | "BREAKOUT";
 
 function useCell(symbol: Symbol, timeframe: Timeframe, enabled: boolean, signalType: SignalTypeMode): CellStats {
   const { data, isLoading, isError } = useGetBacktest(
-    { symbol, timeframe, signalType },
+    { symbol: symbol as GetBacktestSymbol, timeframe, signalType },
     {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       query: { enabled, staleTime: STALE_TIME_MS, refetchOnWindowFocus: false } as any,

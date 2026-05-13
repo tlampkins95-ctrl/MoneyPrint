@@ -12,7 +12,6 @@ export type GetBacktestSymbol =
 export const GetBacktestSymbol = {
   XAGUSD: "XAGUSD",
   XAUUSD: "XAUUSD",
-  EURUSD: "EURUSD",
   GBPUSD: "GBPUSD",
   AUDUSD: "AUDUSD",
   BTCUSD: "BTCUSD",

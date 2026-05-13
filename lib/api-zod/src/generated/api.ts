@@ -92,9 +92,9 @@ export const GetLevelsResponse = zod.object({
     .enum(["BUY", "SELL", "WAIT"])
     .describe("Single clear trade signal"),
   signalType: zod
-    .enum(["PIVOT_BOUNCE", "BREAKOUT", "FIB_BOUNCE"])
+    .enum(["PIVOT_BOUNCE", "BREAKOUT", "FIB_BOUNCE", "DAGGER"])
     .describe(
-      "Which signal mode generated this signal. PIVOT_BOUNCE = price is at S1\/R1 zone and bouncing (classic pivot fade). BREAKOUT = price cleared R2 (BUY) or broke S2 (SELL) with confirmed momentum — RSI 55-78, MACD positive+rising, EMA21>50, above EMA200. FIB_BOUNCE = price retracing into 61.8–65% golden pocket of most recent impulse swing.",
+      "Which signal mode generated this signal. PIVOT_BOUNCE = price at S1\/R1 zone bounce. BREAKOUT = momentum break above R2\/below S2. FIB_BOUNCE = golden pocket 61.8% retracement. DAGGER = 50% pullback on wave 1 (A→B impulse, 40–65% retracement to C, entry on first tick back in trend direction).",
     ),
   signalReason: zod
     .string()
@@ -345,7 +345,6 @@ export const GetBacktestQueryParams = zod.object({
     .enum([
       "XAGUSD",
       "XAUUSD",
-      "EURUSD",
       "GBPUSD",
       "AUDUSD",
       "BTCUSD",
@@ -360,10 +359,10 @@ export const GetBacktestQueryParams = zod.object({
     .default(getBacktestQueryTimeframeDefault)
     .describe("Bar timeframe used for the backtest"),
   signalType: zod
-    .enum(["PIVOT_BOUNCE", "BREAKOUT", "FIB_BOUNCE"])
+    .enum(["PIVOT_BOUNCE", "BREAKOUT"])
     .default(getBacktestQuerySignalTypeDefault)
     .describe(
-      "Which signal mode to backtest. PIVOT_BOUNCE = classic S1\/R1 fade (default). BREAKOUT = momentum breakout above R2 \/ breakdown below S2. FIB_BOUNCE = golden pocket 61.8–65% retracement entry.",
+      "Which signal mode to backtest. PIVOT_BOUNCE = classic S1\/R1 fade (default). BREAKOUT = momentum breakout above R2 \/ breakdown below S2.",
     ),
 });
 
@@ -491,9 +490,9 @@ export const GetActiveSignalsResponse = zod.object({
               .enum(["BUY", "SELL", "WAIT"])
               .describe("Single clear trade signal"),
             signalType: zod
-              .enum(["PIVOT_BOUNCE", "BREAKOUT", "FIB_BOUNCE"])
+              .enum(["PIVOT_BOUNCE", "BREAKOUT", "FIB_BOUNCE", "DAGGER"])
               .describe(
-                "Which signal mode generated this signal. PIVOT_BOUNCE = price is at S1\/R1 zone and bouncing (classic pivot fade). BREAKOUT = price cleared R2 (BUY) or broke S2 (SELL) with confirmed momentum — RSI 55-78, MACD positive+rising, EMA21>50, above EMA200. FIB_BOUNCE = golden pocket entry.",
+                "Which signal mode generated this signal. PIVOT_BOUNCE = price at S1\/R1 zone bounce. BREAKOUT = momentum break above R2\/below S2. FIB_BOUNCE = golden pocket 61.8% retracement. DAGGER = 50% pullback on wave 1 (A→B impulse, 40–65% retracement to C, entry on first tick back in trend direction).",
               ),
             signalReason: zod
               .string()
@@ -896,7 +895,12 @@ export const GetTradeHistoryResponse = zod.object({
       symbol: zod.string(),
       timeframe: zod.string(),
       signal: zod.enum(["BUY", "SELL"]),
-      signalType: zod.enum(["PIVOT_BOUNCE", "BREAKOUT", "FIB_BOUNCE"]),
+      signalType: zod.enum([
+        "PIVOT_BOUNCE",
+        "BREAKOUT",
+        "FIB_BOUNCE",
+        "DAGGER",
+      ]),
       entryPrice: zod.number(),
       stopLoss: zod.number(),
       takeProfit1: zod.number(),
@@ -948,7 +952,6 @@ export const GetPriceHistoryQueryParams = zod.object({
     .enum([
       "XAGUSD",
       "XAUUSD",
-      "EURUSD",
       "GBPUSD",
       "AUDUSD",
       "BTCUSD",

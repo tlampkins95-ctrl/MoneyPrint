@@ -451,6 +451,148 @@ const TIMEFRAME_LABELS: Record<Timeframe, string> = {
   "1d": "daily",
 };
 
+// ─── Dagger Setup Detection (50% Pullback on Wave 1) ─────────────────────────
+// Book Fig 11.2 ordinal technique.
+//   A = impulse base (lowest low before B)
+//   B = wave 1 peak (swing high that defines the impulse)
+//   C = wave 2 low  (deepest pullback, must land in 40–65% of A→B)
+//   Entry = current bar ticking back above the prior bar's high (wave 3 start)
+//   SL    = C − 0.5×ATR (below the wave 2 low)
+//   TP    = B (wave 1 high — wave 3 targets prior top)
+// Bear mirrors the above with inverted direction.
+
+const DAGGER_MIN_TREND_ATR    = 2.0;  // A→B wave 1 must be ≥ 2×ATR
+const DAGGER_MIN_REACTION_ATR = 0.5;  // B→C pullback must be ≥ 0.5×ATR
+const DAGGER_MAX_REACTION_BARS = 50;  // wave 2 can't drag on indefinitely
+const DAGGER_TREND_LOOKBACK   = 80;   // bars to scan for B
+const DAGGER_SL_BUFFER        = 0.5;  // SL = C ± SL_BUFFER × ATR
+const DAGGER_FIB_LOW          = 0.40; // retracement lower bound (40%)
+const DAGGER_FIB_HIGH         = 0.65; // retracement upper bound (65%)
+const DAGGER_WARMUP           = 50;   // minimum bars before scanning
+
+interface DaggerSetup {
+  direction: "bull" | "bear";
+  aPrice: number;
+  bPrice: number;
+  cPrice: number;
+  bIdx: number;
+  cIdx: number;
+  tp: number;
+  sl: number;
+  retracePct: number;
+}
+
+function findDaggerBullSetup(
+  candles: CandleRaw[],
+  i: number,
+  atr: number,
+): DaggerSetup | null {
+  if (i < DAGGER_WARMUP + 4 || atr <= 0) return null;
+
+  // B = highest high in lookback, settled ≥ 3 bars before i
+  const bEnd   = i - 3;
+  const bStart = Math.max(0, i - DAGGER_TREND_LOOKBACK);
+  if (bEnd <= bStart) return null;
+
+  let bIdx = bStart, bPrice = candles[bStart].high;
+  for (let j = bStart + 1; j <= bEnd; j++) {
+    if (candles[j].high > bPrice) { bPrice = candles[j].high; bIdx = j; }
+  }
+
+  // No new high after B through bar i-1 (wave 1 complete, wave 2 in progress)
+  for (let j = bIdx + 1; j < i; j++) {
+    if (candles[j].high >= bPrice) return null;
+  }
+
+  // A = lowest low before B (wave 1 base)
+  const aStart = Math.max(0, bIdx - DAGGER_TREND_LOOKBACK);
+  if (aStart >= bIdx) return null;
+  let aPrice = candles[aStart].low;
+  for (let j = aStart + 1; j < bIdx; j++) {
+    if (candles[j].low < aPrice) aPrice = candles[j].low;
+  }
+
+  // Wave 1 (A→B) must be a significant move
+  if (bPrice - aPrice < DAGGER_MIN_TREND_ATR * atr) return null;
+
+  // Wave 2 can't drag on forever
+  if (i - bIdx > DAGGER_MAX_REACTION_BARS) return null;
+
+  // C = deepest low between B and bar i-1 (wave 2 low)
+  if (bIdx + 1 > i - 1) return null;
+  let cIdx = bIdx + 1, cPrice = candles[bIdx + 1].low;
+  for (let j = bIdx + 2; j <= i - 1; j++) {
+    if (candles[j].low < cPrice) { cPrice = candles[j].low; cIdx = j; }
+  }
+
+  // Wave 2 pullback must be meaningful
+  if (bPrice - cPrice < DAGGER_MIN_REACTION_ATR * atr) return null;
+
+  // Fib 40–65% filter — the 50% pocket
+  const retracePct = (bPrice - cPrice) / (bPrice - aPrice);
+  if (retracePct < DAGGER_FIB_LOW || retracePct > DAGGER_FIB_HIGH) return null;
+
+  return {
+    direction:  "bull",
+    aPrice, bPrice, cPrice,
+    bIdx, cIdx,
+    tp: bPrice,
+    sl: cPrice - DAGGER_SL_BUFFER * atr,
+    retracePct,
+  };
+}
+
+function findDaggerBearSetup(
+  candles: CandleRaw[],
+  i: number,
+  atr: number,
+): DaggerSetup | null {
+  if (i < DAGGER_WARMUP + 4 || atr <= 0) return null;
+
+  const bEnd   = i - 3;
+  const bStart = Math.max(0, i - DAGGER_TREND_LOOKBACK);
+  if (bEnd <= bStart) return null;
+
+  let bIdx = bStart, bPrice = candles[bStart].low;
+  for (let j = bStart + 1; j <= bEnd; j++) {
+    if (candles[j].low < bPrice) { bPrice = candles[j].low; bIdx = j; }
+  }
+
+  for (let j = bIdx + 1; j < i; j++) {
+    if (candles[j].low <= bPrice) return null;
+  }
+
+  const aStart = Math.max(0, bIdx - DAGGER_TREND_LOOKBACK);
+  if (aStart >= bIdx) return null;
+  let aPrice = candles[aStart].high;
+  for (let j = aStart + 1; j < bIdx; j++) {
+    if (candles[j].high > aPrice) aPrice = candles[j].high;
+  }
+
+  if (aPrice - bPrice < DAGGER_MIN_TREND_ATR * atr) return null;
+  if (i - bIdx > DAGGER_MAX_REACTION_BARS) return null;
+
+  if (bIdx + 1 > i - 1) return null;
+  let cIdx = bIdx + 1, cPrice = candles[bIdx + 1].high;
+  for (let j = bIdx + 2; j <= i - 1; j++) {
+    if (candles[j].high > cPrice) { cPrice = candles[j].high; cIdx = j; }
+  }
+
+  if (cPrice - bPrice < DAGGER_MIN_REACTION_ATR * atr) return null;
+
+  const retracePct = (cPrice - bPrice) / (aPrice - bPrice);
+  if (retracePct < DAGGER_FIB_LOW || retracePct > DAGGER_FIB_HIGH) return null;
+
+  return {
+    direction:  "bear",
+    aPrice, bPrice, cPrice,
+    bIdx, cIdx,
+    tp: bPrice,
+    sl: cPrice + DAGGER_SL_BUFFER * atr,
+    retracePct,
+  };
+}
+
 // Minimum R-multiple targets. The structural target (pivot, opposite zone) is
 // kept when it is further from entry than these floors; otherwise the target
 // is pushed out so a winning trade always pays at least this many R.
@@ -1141,7 +1283,7 @@ export function computeLevels(
     !(symbolKey === "XAUUSD" && timeframe !== "1h");   // XAUUSD fib only viable on 1h
 
   let signal: "BUY" | "SELL" | "WAIT" = "WAIT";
-  let signalType: "PIVOT_BOUNCE" | "BREAKOUT" | "FIB_BOUNCE" = "PIVOT_BOUNCE";
+  let signalType: "PIVOT_BOUNCE" | "BREAKOUT" | "FIB_BOUNCE" | "DAGGER" = "PIVOT_BOUNCE";
   let signalReason = "";
   let entryPrice = currentPrice;
   let stopLoss = currentPrice;
@@ -1356,6 +1498,46 @@ export function computeLevels(
       : `[${tfLabel}] FIB GOLDEN POCKET approaching: Price (${fmt(currentPrice)}) is within ${fmt(currentPrice - goldenPocket!.high)} of the golden pocket (${fmt(goldenPocket!.low)}–${fmt(goldenPocket!.high)}). Stage a limit order at ${fmt(goldenPocket!.fib618)} (61.8% of ${fmt(impulse!.swingLow)}→${fmt(impulse!.swingHigh)}).`;
   }
 
+  // ─── DAGGER: 50% pullback on wave 1 ──────────────────────────────────────────
+  // Fires when: valid A→B→C structure (wave 1 impulse, wave 2 retrace 40–65%),
+  // the current bar's high has ticked above the prior bar's high (wave 3 launch),
+  // and MACD is confirming momentum in the trade direction.
+  // Bull and bear both implemented; longOnly symbols suppress the bear side.
+  if (signal === "WAIT") {
+    const n   = candles.length;
+    const bullTrigger = last.high > prev.high;
+    const bearTrigger = last.low  < prev.low;
+
+    if (bullTrigger && macdBuyOk) {
+      const ds = findDaggerBullSetup(candles, n - 1, atr);
+      // Entry bar must not have violated the wave 2 low (C still intact)
+      if (ds && last.low > ds.cPrice) {
+        signal     = "BUY";
+        signalType = "DAGGER";
+        entryPrice  = round(currentPrice);
+        stopLoss    = round(ds.sl);
+        takeProfit1 = round(floorTarget(entryPrice, stopLoss, ds.tp,              MIN_RR_TP1, "BUY"));
+        takeProfit2 = round(floorTarget(entryPrice, stopLoss, ds.tp + atr * 0.5,  MIN_RR_TP2, "BUY"));
+        const fibPct = Math.round(ds.retracePct * 100);
+        signalReason = `[${tfLabel}] DAGGER BUY: Wave 1 peaked at ${fmt(ds.bPrice)}, wave 2 retraced ${fibPct}% to ${fmt(ds.cPrice)} (50% pocket). First bar ticking up — wave 3 launch. Entry ${fmt(entryPrice)}, SL ${fmt(stopLoss)} (below wave 2 low), TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)} (wave 1 peak).`;
+      }
+    }
+
+    if (signal === "WAIT" && bearTrigger && macdSellOk && !isLongOnly) {
+      const ds = findDaggerBearSetup(candles, n - 1, atr);
+      if (ds && last.high < ds.cPrice) {
+        signal     = "SELL";
+        signalType = "DAGGER";
+        entryPrice  = round(currentPrice);
+        stopLoss    = round(ds.sl);
+        takeProfit1 = round(floorTarget(entryPrice, stopLoss, ds.tp,             MIN_RR_TP1, "SELL"));
+        takeProfit2 = round(floorTarget(entryPrice, stopLoss, ds.tp - atr * 0.5, MIN_RR_TP2, "SELL"));
+        const fibPct = Math.round(ds.retracePct * 100);
+        signalReason = `[${tfLabel}] DAGGER SELL: Wave 1 dropped to ${fmt(ds.bPrice)}, wave 2 bounced ${fibPct}% to ${fmt(ds.cPrice)} (50% pocket). First bar ticking down — wave 3 drop. Entry ${fmt(entryPrice)}, SL ${fmt(stopLoss)} (above wave 2 high), TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)} (wave 1 low).`;
+      }
+    }
+  }
+
   const riskDist = Math.abs(entryPrice - stopLoss);
   const rewardDist = Math.abs(takeProfit1 - entryPrice);
   const riskRewardRatio = riskDist > 0 ? Math.round((rewardDist / riskDist) * 100) / 100 : 0;
@@ -1446,7 +1628,7 @@ type Levels = ReturnType<typeof computeLevels>;
 
 interface ActiveTrade {
   signal: "BUY" | "SELL";
-  signalType?: "PIVOT_BOUNCE" | "BREAKOUT" | "FIB_BOUNCE";
+  signalType?: "PIVOT_BOUNCE" | "BREAKOUT" | "FIB_BOUNCE" | "DAGGER";
   signalReason: string;
   entryPrice: number;
   stopLoss: number;
