@@ -98,6 +98,11 @@ export function getNotifierStatus(): NotifierStatus {
   };
 }
 
+// Instruments that receive Telegram/web-push alerts.
+// Focus set to the two instruments actively being traded. Everything else
+// remains visible in the UI and the API — just no notifications.
+const ALERT_SYMBOLS: Symbol[] = ["XAGUSD", "EURUSD"];
+
 // Alert on 30m, 1h (intraday entries) and 1d (catches major daily moves like metals pumps).
 const TRACKED_TIMEFRAMES: Timeframe[] = ["30m", "1h", "1d"];
 // Only seed-alert on 30m at startup/restart. 1h and 1d seeds create a barrage
@@ -534,7 +539,7 @@ async function checkTrendingSymbol(
 
 async function tick(): Promise<void> {
   const tasks: Promise<void>[] = [];
-  for (const symbol of ALL_SYMBOLS) {
+  for (const symbol of ALERT_SYMBOLS) {
     for (const tf of TRACKED_TIMEFRAMES) {
       tasks.push(checkSymbol(symbol, tf));
     }
