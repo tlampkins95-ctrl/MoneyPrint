@@ -258,6 +258,20 @@ async function checkSymbol(
       tradeAlreadyAlerted;
 
     if (transitioned && !cooldownActive && !alreadyInSameDirection) {
+      // Hard type filter: only alert on signal types that have demonstrated edge.
+      // BREAKOUT and FIB_BOUNCE are disabled in signals.ts, but guard here too
+      // so any accidental re-enable doesn't silently spam Telegram.
+      const signalTypeAllowed =
+        levels.signalType === "DAGGER" || levels.signalType === "PIVOT_BOUNCE";
+      if (!signalTypeAllowed) {
+        logger.info(
+          { symbol, timeframe, signalType: levels.signalType },
+          "Signal alert suppressed (signal type not allowed for notifications)",
+        );
+        stateMap.set(k, { ...(prev ?? {}), signal: levels.signal, lastAlertAt: prev?.lastAlertAt ?? 0 });
+        return;
+      }
+
       // Gate: pending signals must be confirmed by the next higher TF before alerting.
       // 30m is gated by 1h; 1h is gated by 1d. Filled trades are exempt.
       // Direction flips (BUY→SELL or SELL→BUY) are also exempt: a lower-TF
@@ -512,17 +526,11 @@ async function tick(): Promise<void> {
       tasks.push(checkSymbol(symbol, tf));
     }
   }
-  // Also check trending coins.
-  try {
-    const { getTrendingSymbols } = await import("./trending-discovery");
-    for (const t of getTrendingSymbols()) {
-      for (const tf of TRACKED_TIMEFRAMES) {
-        tasks.push(checkTrendingSymbol(t.symbolKey, tf));
-      }
-    }
-  } catch {
-    // trending-discovery not yet loaded — skip
-  }
+  // Trending coins are intentionally excluded from Telegram/web-push alerts.
+  // Production data (May 2025): every trending coin tracked — ARUSDT, SKYAIUSDT,
+  // SUSDT, KSMUSDT, JUPUSDT, MONUSDT, ICPUSDT, FILUSDT, MINAUSDT — showed 0% WR
+  // with -6R to -11R per symbol. They remain visible in the UI (API still serves
+  // them) but sending alerts for instruments with no edge is pure noise.
   await Promise.allSettled(tasks);
 }
 
