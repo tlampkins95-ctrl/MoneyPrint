@@ -1266,21 +1266,13 @@ export function computeLevels(
   const approachingBuy = !inBuyZone && currentPrice > buyZoneHigh && (currentPrice - buyZoneHigh) < atr * 0.5;
   const approachingSell = !inSellZone && currentPrice < sellZoneLow && (sellZoneLow - currentPrice) < atr * 0.5;
 
-  // Strategy kill-switches by timeframe (backed by full sweep analysis).
+  // Strategy kill-switches — backed by production data (320 live trades, May 2025).
+  // BREAKOUT: 105 BUY + 12 SELL trades, 4%/0% WR, -64.79R / -10.00R → OFF permanently.
+  // FIB_BOUNCE: 25 trades, 4% WR, -9.98R → OFF permanently.
   // PIVOT_BOUNCE on 1d: daily pivot ranges too wide on metals → negative edge.
-  // BREAKOUT on 30m: signal misfires too often; 1h is the only live breakout TF.
-  // FIB_BOUNCE kill-switches (backed by full 3-way sweep — see backtest disabled list).
-  // XAGUSD: PIVOT dominates (pf 1.41–2.31 vs fib 0.49–0.96).
-  // AUDUSD: fib loses across all TFs (-6 to -12R), PIVOT is far better.
-  // XAUUSD 15m/30m: fib 0 wins on 15m, marginally losing on 30m; PIVOT is solid.
   const pivotBounceEnabled = timeframe !== "1d";
-  const breakoutEnabled    = timeframe !== "30m" &&
-    !(timeframe === "1h" && symbolKey === "XAGUSD") && // -1.37R, no edge
-    !(timeframe === "1h" && symbolKey === "ETHUSD");   // -1.40R, no edge (body% filter tested, no improvement)
-  const fibBounceAllowed   =
-    symbolKey !== "XAGUSD" &&                          // PIVOT far superior
-    symbolKey !== "AUDUSD" &&                          // fib -6 to -12R across all TFs
-    !(symbolKey === "XAUUSD" && timeframe !== "1h");   // XAUUSD fib only viable on 1h
+  const breakoutEnabled    = false; // -74.79R production, 4% WR — never works
+  const fibBounceAllowed   = false; // -9.98R production, 4% WR — disabled
 
   let signal: "BUY" | "SELL" | "WAIT" = "WAIT";
   let signalType: "PIVOT_BOUNCE" | "BREAKOUT" | "FIB_BOUNCE" | "DAGGER" = "PIVOT_BOUNCE";
@@ -1314,8 +1306,13 @@ export function computeLevels(
   const buyAllowed  = (isNaN(rsi) || rsi <= RSI_OVERSOLD)
     && macdBuyOk
     && ema200BuyOk;
+  // SELL gate: RSI overbought + trend is NOT an established uptrend.
+  // Selling into a strong uptrend = fighting momentum. Mean-reversion shorts
+  // only have edge in ranging or downtrending markets. Production data: SELL
+  // signals in UPTREND regime → 0% WR, -12R. The trend filter stops that.
   const sellAllowed = (isNaN(rsi) || rsi >= RSI_OVERBOUGHT)
-    && !isLongOnly;
+    && !isLongOnly
+    && trend !== "UPTREND";
 
   // ─── Golden-pocket inputs (computed here; FIB_BOUNCE fires last — see below) ──
   // FIB_BOUNCE is lowest priority: PIVOT_BOUNCE and BREAKOUT always get first
@@ -1374,34 +1371,26 @@ export function computeLevels(
   // Only runs when DAGGER didn't fire. PIVOT_BOUNCE checks S1/R1 zone touches;
   // BREAKOUT checks R2/S2 momentum breaks. FIB_BOUNCE follows below.
   if (signal === "WAIT") {
-  if (pivotBounceEnabled && (inBuyZone || approachingBuy) && buyAllowed) {
+  if (pivotBounceEnabled && inBuyZone && buyAllowed) {
+    // Only fire when price is ACTUALLY IN the buy zone — not approaching from above.
+    // "Approaching" signals generated 46 MISSED trades in production (price went
+    // to TP without filling the limit at S1, or filled into a falling knife).
+    // Market entry at currentPrice when inside the zone eliminates phantom pending.
     signal = "BUY";
-    // Anchor entry to the planned limit price at S1, but never above the live
-    // print — if price has already dipped at/below S1 the limit would sit
-    // ABOVE market and only fill on a bounce, immediately putting the trade
-    // in drawdown if it reverses (the original "BUY entry above price" bug).
-    // Clamping to currentPrice turns those cases into a market-style entry at
-    // the better fill, while pullback approaches from above still stage at S1.
-    entryPrice = round(Math.min(pivots.s1, currentPrice));
+    entryPrice = round(currentPrice);
     stopLoss = round(buyZoneLow - atr * 0.5);
     takeProfit1 = round(floorTarget(entryPrice, stopLoss, pivots.pivot, MIN_RR_TP1, "BUY"));
     takeProfit2 = round(floorTarget(entryPrice, stopLoss, sellZoneLow, MIN_RR_TP2, "BUY"));
-    signalReason = inBuyZone
-      ? `[${tfLabel}] Price is at the buy zone around pivot S1 (${fmt(pivots.s1)}). ${trend === "UPTREND" ? "Uptrend intact — bounce setup." : "EMA trend neutral — look for a bullish reversal candle to confirm entry."}`
-      : `[${tfLabel}] Price is within ${fmt(currentPrice - buyZoneHigh)} of the buy zone (${fmt(buyZoneLow)}–${fmt(buyZoneHigh)}). Stage a limit order near S1 ${fmt(pivots.s1)}.`;
-  } else if (pivotBounceEnabled && (inSellZone || approachingSell) && sellAllowed) {
+    signalReason = `[${tfLabel}] PIVOT BUY: Price (${fmt(currentPrice)}) in buy zone ${fmt(buyZoneLow)}–${fmt(buyZoneHigh)} around S1 ${fmt(pivots.s1)}. ${trend === "UPTREND" ? "Uptrend intact — pullback to support." : "Watch for bullish reversal candle."} Entry ${fmt(entryPrice)}, SL ${fmt(stopLoss)}, TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)}.`;
+  } else if (pivotBounceEnabled && inSellZone && sellAllowed) {
+    // Same logic as buy: only fire when price is ACTUALLY IN the sell zone.
+    // Market entry at currentPrice — no phantom limit orders.
     signal = "SELL";
-    // Mirror of BUY clamp: never set the SELL entry below the live print, or
-    // the limit would sit at a worse price than market and only fill on a
-    // pullback up. Clamp to currentPrice on rallies-into-zone, keep R1 on
-    // approaches from below.
-    entryPrice = round(Math.max(pivots.r1, currentPrice));
+    entryPrice = round(currentPrice);
     stopLoss = round(sellZoneHigh + atr * 0.5);
     takeProfit1 = round(floorTarget(entryPrice, stopLoss, pivots.pivot, MIN_RR_TP1, "SELL"));
     takeProfit2 = round(floorTarget(entryPrice, stopLoss, buyZoneHigh, MIN_RR_TP2, "SELL"));
-    signalReason = inSellZone
-      ? `[${tfLabel}] Price is at the sell zone around pivot R1 (${fmt(pivots.r1)}). ${trend === "DOWNTREND" ? "Downtrend in force — distribution zone." : "EMA trend neutral — look for a bearish rejection candle to confirm short entry."}`
-      : `[${tfLabel}] Price is within ${fmt(sellZoneLow - currentPrice)} of the sell zone (${fmt(sellZoneLow)}–${fmt(sellZoneHigh)}). Stage a limit sell order near R1 ${fmt(pivots.r1)}.`;
+    signalReason = `[${tfLabel}] PIVOT SELL: Price (${fmt(currentPrice)}) in sell zone ${fmt(sellZoneLow)}–${fmt(sellZoneHigh)} around R1 ${fmt(pivots.r1)}. ${trend === "DOWNTREND" ? "Downtrend in force — distribution zone." : "Ranging market — look for a bearish rejection candle to confirm."} Entry ${fmt(entryPrice)}, SL ${fmt(stopLoss)}, TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)}.`;
   } else if (inBuyZone && !buyAllowed) {
     signal = "WAIT";
     const blockNote =
