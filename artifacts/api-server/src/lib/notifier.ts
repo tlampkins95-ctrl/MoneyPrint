@@ -455,6 +455,19 @@ async function checkTrendingSymbol(
       prev.lastAlertSignal === levels.signal;
 
     if (transitioned && !cooldownActive) {
+      // DAGGER-only guard for trending coins. PIVOT_BOUNCE and BREAKOUT on
+      // trending symbols showed 0% WR across every coin in production.
+      // DAGGER is structure-agnostic — if the Elliott Wave 2 setup is there,
+      // the coin doesn't matter. Everything else stays silent.
+      if (levels.signalType !== "DAGGER") {
+        logger.info(
+          { symbolKey, timeframe, signalType: levels.signalType },
+          "Trending signal alert suppressed (only DAGGER allowed on trending coins)",
+        );
+        stateMap.set(k, { ...(prev ?? {}), signal: levels.signal, lastAlertAt: prev?.lastAlertAt ?? 0 });
+        return;
+      }
+
       // Gate: pending signals must be confirmed by the next higher TF before alerting.
       // 30m is gated by 1h; 1h is gated by 1d. Filled trades are exempt.
       const isFilledTrade =
@@ -493,7 +506,7 @@ async function checkTrendingSymbol(
       if (isWebPushEnabled()) {
         const sideEmoji = levels.signal === "BUY" ? "🟢" : "🔴";
         const sideWord = levels.signal === "BUY" ? "BUY" : "SELL";
-        const typeTagT = levels.signalType === "BREAKOUT" ? " ◈ BREAKOUT" : " ↕ PIVOT";
+        const typeTagT = " 🗡 DAGGER"; // only DAGGER reaches this point for trending coins
         const fmtN = (n: number) => `$${n.toFixed(tMeta.decimals)}`;
         const lines = [
           `${tfLabel} · ${fmtN(levels.currentPrice)}`,
@@ -526,11 +539,20 @@ async function tick(): Promise<void> {
       tasks.push(checkSymbol(symbol, tf));
     }
   }
-  // Trending coins are intentionally excluded from Telegram/web-push alerts.
-  // Production data (May 2025): every trending coin tracked — ARUSDT, SKYAIUSDT,
-  // SUSDT, KSMUSDT, JUPUSDT, MONUSDT, ICPUSDT, FILUSDT, MINAUSDT — showed 0% WR
-  // with -6R to -11R per symbol. They remain visible in the UI (API still serves
-  // them) but sending alerts for instruments with no edge is pure noise.
+  // Trending coins ARE checked — but only DAGGER signals on them will alert
+  // (the guard inside checkTrendingSymbol enforces this). PIVOT_BOUNCE and
+  // BREAKOUT on trending coins produced 0% WR in production; DAGGER is
+  // signal-type agnostic and can fire on any instrument with the right structure.
+  try {
+    const { getTrendingSymbols } = await import("./trending-discovery");
+    for (const t of getTrendingSymbols()) {
+      for (const tf of TRACKED_TIMEFRAMES) {
+        tasks.push(checkTrendingSymbol(t.symbolKey, tf));
+      }
+    }
+  } catch {
+    // trending-discovery not yet loaded — skip
+  }
   await Promise.allSettled(tasks);
 }
 
