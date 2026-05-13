@@ -1330,6 +1330,50 @@ export function computeLevels(
     currentPrice > goldenPocket!.high && (currentPrice - goldenPocket!.high) < atr * 0.5;
   const fibBounceEnabled = fibBounceAllowed && pivotBounceEnabled && gpValid;
 
+  // ─── DAGGER: highest priority — 50% pullback on wave 1 ──────────────────────
+  // Fires when: valid A→B→C structure (wave 1 impulse, wave 2 retrace 40–65%),
+  // the current bar's high/low has ticked back in trend direction (wave 3 launch),
+  // and MACD histogram is confirming momentum. Bull and bear both implemented;
+  // longOnly symbols suppress the bear side. Checked first — overrides all others.
+  {
+    const n   = candles.length;
+    const bullTrigger = last.high > prev.high;
+    const bearTrigger = last.low  < prev.low;
+
+    if (bullTrigger && macdBuyOk) {
+      const ds = findDaggerBullSetup(candles, n - 1, atr);
+      // Entry bar must not have violated the wave 2 low (C still intact)
+      if (ds && last.low > ds.cPrice) {
+        signal     = "BUY";
+        signalType = "DAGGER";
+        entryPrice  = round(currentPrice);
+        stopLoss    = round(ds.sl);
+        takeProfit1 = round(floorTarget(entryPrice, stopLoss, ds.tp,              MIN_RR_TP1, "BUY"));
+        takeProfit2 = round(floorTarget(entryPrice, stopLoss, ds.tp + atr * 0.5,  MIN_RR_TP2, "BUY"));
+        const fibPct = Math.round(ds.retracePct * 100);
+        signalReason = `[${tfLabel}] DAGGER BUY: Wave 1 peaked at ${fmt(ds.bPrice)}, wave 2 retraced ${fibPct}% to ${fmt(ds.cPrice)} (50% pocket). First bar ticking up — wave 3 launch. Entry ${fmt(entryPrice)}, SL ${fmt(stopLoss)} (below wave 2 low), TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)} (wave 1 peak).`;
+      }
+    }
+
+    if (signal === "WAIT" && bearTrigger && macdSellOk && !isLongOnly) {
+      const ds = findDaggerBearSetup(candles, n - 1, atr);
+      if (ds && last.high < ds.cPrice) {
+        signal     = "SELL";
+        signalType = "DAGGER";
+        entryPrice  = round(currentPrice);
+        stopLoss    = round(ds.sl);
+        takeProfit1 = round(floorTarget(entryPrice, stopLoss, ds.tp,             MIN_RR_TP1, "SELL"));
+        takeProfit2 = round(floorTarget(entryPrice, stopLoss, ds.tp - atr * 0.5, MIN_RR_TP2, "SELL"));
+        const fibPct = Math.round(ds.retracePct * 100);
+        signalReason = `[${tfLabel}] DAGGER SELL: Wave 1 dropped to ${fmt(ds.bPrice)}, wave 2 bounced ${fibPct}% to ${fmt(ds.cPrice)} (50% pocket). First bar ticking down — wave 3 drop. Entry ${fmt(entryPrice)}, SL ${fmt(stopLoss)} (above wave 2 high), TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)} (wave 1 low).`;
+      }
+    }
+  }
+
+  // ─── PIVOT_BOUNCE + BREAKOUT ─────────────────────────────────────────────────
+  // Only runs when DAGGER didn't fire. PIVOT_BOUNCE checks S1/R1 zone touches;
+  // BREAKOUT checks R2/S2 momentum breaks. FIB_BOUNCE follows below.
+  if (signal === "WAIT") {
   if (pivotBounceEnabled && (inBuyZone || approachingBuy) && buyAllowed) {
     signal = "BUY";
     // Anchor entry to the planned limit price at S1, but never above the live
@@ -1474,6 +1518,7 @@ export function computeLevels(
       takeProfit2 = round(floorTarget(entryPrice, stopLoss, structural2, MIN_RR_TP2, dir));
     }
   }
+  } // end if (signal === "WAIT") — PIVOT_BOUNCE + BREAKOUT
 
   // ─── FIB_BOUNCE: lowest priority — only fires when PIVOT and BREAKOUT both ──
   // leave signal = WAIT. FIB_BOUNCE only fires on BUY (long bias — pocket
@@ -1496,46 +1541,6 @@ export function computeLevels(
     signalReason = inGoldenPocket
       ? `[${tfLabel}] FIB GOLDEN POCKET BUY: Price (${fmt(currentPrice)}) is retracing into the 61.8–65% golden pocket (${fmt(goldenPocket!.low)}–${fmt(goldenPocket!.high)}) of the ${fmt(impulse!.swingLow)}→${fmt(impulse!.swingHigh)} impulse. High-probability bounce zone — limit entry near ${fmt(entryPrice)}, SL ${fmt(stopLoss)}, TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)}.`
       : `[${tfLabel}] FIB GOLDEN POCKET approaching: Price (${fmt(currentPrice)}) is within ${fmt(currentPrice - goldenPocket!.high)} of the golden pocket (${fmt(goldenPocket!.low)}–${fmt(goldenPocket!.high)}). Stage a limit order at ${fmt(goldenPocket!.fib618)} (61.8% of ${fmt(impulse!.swingLow)}→${fmt(impulse!.swingHigh)}).`;
-  }
-
-  // ─── DAGGER: 50% pullback on wave 1 ──────────────────────────────────────────
-  // Fires when: valid A→B→C structure (wave 1 impulse, wave 2 retrace 40–65%),
-  // the current bar's high has ticked above the prior bar's high (wave 3 launch),
-  // and MACD is confirming momentum in the trade direction.
-  // Bull and bear both implemented; longOnly symbols suppress the bear side.
-  if (signal === "WAIT") {
-    const n   = candles.length;
-    const bullTrigger = last.high > prev.high;
-    const bearTrigger = last.low  < prev.low;
-
-    if (bullTrigger && macdBuyOk) {
-      const ds = findDaggerBullSetup(candles, n - 1, atr);
-      // Entry bar must not have violated the wave 2 low (C still intact)
-      if (ds && last.low > ds.cPrice) {
-        signal     = "BUY";
-        signalType = "DAGGER";
-        entryPrice  = round(currentPrice);
-        stopLoss    = round(ds.sl);
-        takeProfit1 = round(floorTarget(entryPrice, stopLoss, ds.tp,              MIN_RR_TP1, "BUY"));
-        takeProfit2 = round(floorTarget(entryPrice, stopLoss, ds.tp + atr * 0.5,  MIN_RR_TP2, "BUY"));
-        const fibPct = Math.round(ds.retracePct * 100);
-        signalReason = `[${tfLabel}] DAGGER BUY: Wave 1 peaked at ${fmt(ds.bPrice)}, wave 2 retraced ${fibPct}% to ${fmt(ds.cPrice)} (50% pocket). First bar ticking up — wave 3 launch. Entry ${fmt(entryPrice)}, SL ${fmt(stopLoss)} (below wave 2 low), TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)} (wave 1 peak).`;
-      }
-    }
-
-    if (signal === "WAIT" && bearTrigger && macdSellOk && !isLongOnly) {
-      const ds = findDaggerBearSetup(candles, n - 1, atr);
-      if (ds && last.high < ds.cPrice) {
-        signal     = "SELL";
-        signalType = "DAGGER";
-        entryPrice  = round(currentPrice);
-        stopLoss    = round(ds.sl);
-        takeProfit1 = round(floorTarget(entryPrice, stopLoss, ds.tp,             MIN_RR_TP1, "SELL"));
-        takeProfit2 = round(floorTarget(entryPrice, stopLoss, ds.tp - atr * 0.5, MIN_RR_TP2, "SELL"));
-        const fibPct = Math.round(ds.retracePct * 100);
-        signalReason = `[${tfLabel}] DAGGER SELL: Wave 1 dropped to ${fmt(ds.bPrice)}, wave 2 bounced ${fibPct}% to ${fmt(ds.cPrice)} (50% pocket). First bar ticking down — wave 3 drop. Entry ${fmt(entryPrice)}, SL ${fmt(stopLoss)} (above wave 2 high), TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)} (wave 1 low).`;
-      }
-    }
   }
 
   const riskDist = Math.abs(entryPrice - stopLoss);
