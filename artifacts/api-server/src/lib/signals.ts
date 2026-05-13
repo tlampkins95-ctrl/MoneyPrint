@@ -1150,19 +1150,29 @@ export function computeLevels(
 
   const tfLabel = TIMEFRAME_LABELS[timeframe];
 
-  // Entry gates: RSI exhaustion + MACD momentum turn + EMA200 regime.
-  // EMA21/50 trend direction is intentionally NOT a gate — when price pumps
-  // into the sell zone, EMA21 > EMA50 as a direct result of the pump itself,
-  // which suppresses the exact reversal setup we want. MACD and EMA200 are
-  // kept as gates: MACD confirms momentum is turning at the zone; EMA200
-  // confirms the broader institutional regime. Neither moves in lockstep
-  // with a short-term pump the way EMA21/50 does.
+  // Entry gates for PIVOT_BOUNCE direction.
+  //
+  // BUY zone: RSI ≤ 50 (selling exhausting) + MACD ticking up + EMA200 bull
+  // regime. These are appropriate because a bounce from support needs
+  // momentum to be visibly cooling before fading into the move.
+  //
+  // SELL zone: RSI ≥ 55 (buying exhausting) only. MACD and EMA200 are
+  // intentionally excluded here:
+  //   • EMA200: when price pumps into the sell zone the close is almost
+  //     always above EMA200 (the pump IS why EMA21 > EMA200). Gating on
+  //     close ≤ EMA200 would suppress every mean-reversion short at the top
+  //     of an upswing — the exact setup we want. The correct read is the
+  //     opposite: price extended above EMA200 AND in sell zone = prime fade.
+  //   • MACD: at a genuine top the histogram is still rising when price
+  //     enters the sell zone. Waiting for a tick-down adds 1–2 bars of lag
+  //     and moves entry past the best price. RSI exhaustion alone is the
+  //     right gate for a zone-fade short.
+  // Breakdown SELLs (BREAKOUT path) keep their own independent gates
+  // including MACD and EMA200 — those are appropriate for momentum breaks.
   const buyAllowed  = (isNaN(rsi) || rsi <= RSI_OVERSOLD)
     && macdBuyOk
     && ema200BuyOk;
   const sellAllowed = (isNaN(rsi) || rsi >= RSI_OVERBOUGHT)
-    && macdSellOk
-    && ema200SellOk
     && !isLongOnly;
 
   // ─── Golden-pocket inputs (computed here; FIB_BOUNCE fires last — see below) ──
