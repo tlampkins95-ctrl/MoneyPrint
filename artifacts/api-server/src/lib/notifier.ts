@@ -332,7 +332,7 @@ async function checkSymbol(
       if (isWebPushEnabled()) {
         const sideEmoji = levels.signal === "BUY" ? "🟢" : "🔴";
         const sideWord = levels.signal === "BUY" ? "BUY" : "SELL";
-        const typeTag = levels.signalType === "BREAKOUT" ? " ◈ BREAKOUT" : " ↕ PIVOT";
+        const typeTag = levels.signalType === "DAGGER" ? " 🗡 DAGGER" : levels.signalType === "BREAKOUT" ? " ◈ BREAKOUT" : " ↕ PIVOT";
         const m = SYMBOLS[symbol];
         const fmtN = (n: number) => `${m.prefix}${n.toFixed(m.decimals)}`;
         // Body keeps the most decision-relevant numbers within the

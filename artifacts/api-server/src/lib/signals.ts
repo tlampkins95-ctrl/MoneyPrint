@@ -2029,7 +2029,7 @@ async function syncFromDb(): Promise<void> {
       activeTrades.set(row.key, {
         ...(v as ActiveTrade),
         signalType:
-          v.signalType === "PIVOT_BOUNCE" || v.signalType === "BREAKOUT"
+          v.signalType === "PIVOT_BOUNCE" || v.signalType === "BREAKOUT" || v.signalType === "DAGGER"
             ? v.signalType
             : "PIVOT_BOUNCE",
         triggered: typeof v.triggered === "boolean" ? v.triggered : false,
@@ -2086,7 +2086,7 @@ function loadActiveTradesFromDisk(): void {
       const migrated: ActiveTrade = {
         ...(v as ActiveTrade),
         signalType:
-          v.signalType === "PIVOT_BOUNCE" || v.signalType === "BREAKOUT"
+          v.signalType === "PIVOT_BOUNCE" || v.signalType === "BREAKOUT" || v.signalType === "DAGGER"
             ? v.signalType
             : "PIVOT_BOUNCE",
         triggered: typeof v.triggered === "boolean" ? v.triggered : false,
@@ -2704,7 +2704,7 @@ export function seedActiveTrades(raw: Record<string, unknown>): number {
     activeTrades.set(k, {
       ...(p as ActiveTrade),
       signalType:
-        p.signalType === "PIVOT_BOUNCE" || p.signalType === "BREAKOUT"
+        p.signalType === "PIVOT_BOUNCE" || p.signalType === "BREAKOUT" || p.signalType === "DAGGER"
           ? p.signalType
           : "PIVOT_BOUNCE",
       triggered: typeof p.triggered === "boolean" ? p.triggered : false,
