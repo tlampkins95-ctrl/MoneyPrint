@@ -66,6 +66,13 @@ export const SYMBOLS: Record<Symbol, SymbolMeta> = {
     category: "forex",
     goldApi: "XAG",
     hasFuturesBasis: true,
+    // Phemex XAG/USDT linear perp — 1 oz per contract, 1 oz minimum.
+    // This allows proper risk sizing on small accounts ($500) that MT5's
+    // 5,000 oz standard lot makes impossible at 1-2% risk.
+    phemexPerp: "XAGUSDT",
+    phemexMinQty: 1,
+    phemexQtyStep: 1,
+    venue: "Phemex · USDT perp",
   },
   XAUUSD: {
     yahoo: "GC=F",

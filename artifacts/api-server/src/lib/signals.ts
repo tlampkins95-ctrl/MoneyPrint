@@ -1087,12 +1087,47 @@ function computePositionSizing(
     };
   }
 
-  // ─── Metals (XAG, XAU) — venue: MT5 ───
-  // OANDA std lot conventions: XAG = 5,000 oz, XAU = 100 oz. SL distance is
-  // already in $/oz so risk_$ = ozHeld × slDist exactly. We still emit the
-  // risk-budget-derived sizing for context, but the AUTHORITATIVE block for
-  // MT5 venue is `mt5` (lots × contractSize → exact $ P&L).
+  // ─── Metals — venue: Phemex perp (when configured) or MT5 fallback ───
+  // XAG: Phemex XAGUSDT perp trades in 1 oz increments (vs MT5's 5,000 oz
+  // standard lot). On a $500 account, Phemex allows proper 1-2% sizing;
+  // MT5 forces a 20%+ blowout on minimum lot. Route to Phemex when the symbol
+  // has `phemexPerp` — otherwise fall through to MT5 for XAU and others.
   if (meta.goldApi) {
+    if (meta.phemexPerp) {
+      const positionSize = riskAmount / slDist; // oz
+      const notional = positionSize * entry;
+      const leverage = Math.max(1, Math.ceil(notional / accountSize));
+      let leverageNote: string | undefined;
+      if (leverage > 50) leverageNote = "Required leverage > 50x — high liquidation risk. Consider a larger account.";
+      else if (leverage > 25) leverageNote = "High leverage — keep meaningful free margin to absorb wicks.";
+      else if (leverage > 10) leverageNote = "Moderate-high leverage — keep extra margin in reserve.";
+      return {
+        venue: "PHEMEX",
+        accountSize: r(accountSize),
+        riskAmount: r(riskAmount),
+        riskPct: r(riskPct * 100, 2),
+        positionSize: r(positionSize, 2),
+        positionSizeUnit: "oz",
+        notional: r(notional),
+        leverage,
+        leverageNote,
+        achievable: computeAchievable(
+          { positionSize, notional, positionSizeUnit: "oz" },
+          riskAmount,
+          accountSize,
+          entry,
+          stopLoss,
+          takeProfit1,
+          takeProfit2,
+          minCollateral,
+          maxLeverage,
+          meta.phemexMinQty,
+          meta.phemexQtyStep,
+        ),
+      };
+    }
+    // MT5 fallback (XAU and any metal without a Phemex perp).
+    // OANDA std lot conventions: XAG = 5,000 oz, XAU = 100 oz.
     const ozPerStd = symbolKey === "XAGUSD" ? 5000 : 100;
     const positionSize = riskAmount / slDist; // oz
     const notional = positionSize * entry;
