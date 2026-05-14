@@ -17,5 +17,7 @@
 //   export type InsertPost = z.infer<typeof insertPostSchema>;
 //   export type Post = typeof postsTable.$inferSelect;
 
+export * from "./active-trades";
+export * from "./closed-trades";
 export * from "./push-subscriptions";
 export * from "./trending-symbols";
