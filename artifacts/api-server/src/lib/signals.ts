@@ -1528,7 +1528,7 @@ export function computeLevels(
     // A bull DAGGER in a confirmed downtrend is a counter-trend fade — blocked.
     // A bear DAGGER in a confirmed uptrend is the same — blocked.
     // When ranging (ADX < 25) both sides are allowed; wave structure is its own filter.
-    if (bullTrigger && macdBuyOk && trend !== "DOWNTREND") {
+    if (bullTrigger && macdBreakoutBuyOk && trend !== "DOWNTREND") {
       const ds = findDaggerBullSetup(candles, n - 1, atr);
       // Entry bar must not have violated the wave 2 low (C still intact)
       if (ds && last.low > ds.cPrice) {
@@ -1543,7 +1543,7 @@ export function computeLevels(
       }
     }
 
-    if (signal === "WAIT" && bearTrigger && macdSellOk && !isLongOnly && trend !== "UPTREND") {
+    if (signal === "WAIT" && bearTrigger && macdBreakoutSellOk && !isLongOnly && trend !== "UPTREND") {
       const ds = findDaggerBearSetup(candles, n - 1, atr);
       if (ds && last.high < ds.cPrice) {
         signal     = "SELL";
