@@ -1266,14 +1266,17 @@ export function computeLevels(
   const approachingBuy = !inBuyZone && currentPrice > buyZoneHigh && (currentPrice - buyZoneHigh) < atr * 0.5;
   const approachingSell = !inSellZone && currentPrice < sellZoneLow && (sellZoneLow - currentPrice) < atr * 0.5;
 
-  // Strategy kill-switches — backed by production data (320 live trades, May 2025).
-  // PIVOT_BOUNCE: 159 BUY + 18 SELL trades, 1%/0% WR, -89.67R / -12.00R → OFF.
-  // BREAKOUT: 105 BUY + 12 SELL trades, 4%/0% WR, -64.79R / -10.00R → OFF.
-  // FIB_BOUNCE: 25 trades, 4% WR, -9.98R → OFF.
-  // DAGGER is the only active signal type.
-  const pivotBounceEnabled = false; // -101.67R production — disabled permanently
-  const breakoutEnabled    = false; // -74.79R production — disabled permanently
-  const fibBounceAllowed   = false; // -9.98R production  — disabled permanently
+  // Strategy selection is regime-aware:
+  //   RANGING  → PIVOT_BOUNCE enabled (mean-reversion has edge in oscillating markets)
+  //   UPTREND  → PIVOT_BOUNCE suppressed; DAGGER only (trend-continuation entry)
+  //   DOWNTREND→ PIVOT_BOUNCE suppressed; DAGGER only (trend-continuation entry)
+  //
+  // Production failure post-mortem (320 trades): PIVOT_BOUNCE was firing in
+  // UPTREND/DOWNTREND conditions (-101.67R, 1%/0% WR). Now gated to RANGING only.
+  // BREAKOUT (-74.79R, 4% WR) and FIB_BOUNCE (-9.98R, 4% WR) remain off permanently.
+  const pivotBounceEnabled = trend === "RANGING" && timeframe !== "1d";
+  const breakoutEnabled    = false; // -74.79R production — no edge at any timeframe
+  const fibBounceAllowed   = false; // -9.98R production  — no edge at any timeframe
 
   let signal: "BUY" | "SELL" | "WAIT" = "WAIT";
   let signalType: "PIVOT_BOUNCE" | "BREAKOUT" | "FIB_BOUNCE" | "DAGGER" = "PIVOT_BOUNCE";
@@ -1382,7 +1385,7 @@ export function computeLevels(
     stopLoss = round(buyZoneLow - atr * 0.5);
     takeProfit1 = round(floorTarget(entryPrice, stopLoss, pivots.pivot, MIN_RR_TP1, "BUY"));
     takeProfit2 = round(floorTarget(entryPrice, stopLoss, sellZoneLow, MIN_RR_TP2, "BUY"));
-    signalReason = `[${tfLabel}] PIVOT BUY: Price (${fmt(currentPrice)}) in buy zone ${fmt(buyZoneLow)}–${fmt(buyZoneHigh)} around S1 ${fmt(pivots.s1)}. ${trend === "UPTREND" ? "Uptrend intact — pullback to support." : "Watch for bullish reversal candle."} Entry ${fmt(entryPrice)}, SL ${fmt(stopLoss)}, TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)}.`;
+    signalReason = `[${tfLabel}] PIVOT BUY (RANGING): Price (${fmt(currentPrice)}) at S1 support zone ${fmt(buyZoneLow)}–${fmt(buyZoneHigh)}. Market is ranging — mean-reversion setup. Watch for bullish reversal candle. Entry ${fmt(entryPrice)}, SL ${fmt(stopLoss)}, TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)}.`;
   } else if (pivotBounceEnabled && inSellZone && sellAllowed) {
     // Same logic as buy: only fire when price is ACTUALLY IN the sell zone.
     // Market entry at currentPrice — no phantom limit orders.
@@ -1391,7 +1394,7 @@ export function computeLevels(
     stopLoss = round(sellZoneHigh + atr * 0.5);
     takeProfit1 = round(floorTarget(entryPrice, stopLoss, pivots.pivot, MIN_RR_TP1, "SELL"));
     takeProfit2 = round(floorTarget(entryPrice, stopLoss, buyZoneHigh, MIN_RR_TP2, "SELL"));
-    signalReason = `[${tfLabel}] PIVOT SELL: Price (${fmt(currentPrice)}) in sell zone ${fmt(sellZoneLow)}–${fmt(sellZoneHigh)} around R1 ${fmt(pivots.r1)}. ${trend === "DOWNTREND" ? "Downtrend in force — distribution zone." : "Ranging market — look for a bearish rejection candle to confirm."} Entry ${fmt(entryPrice)}, SL ${fmt(stopLoss)}, TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)}.`;
+    signalReason = `[${tfLabel}] PIVOT SELL (RANGING): Price (${fmt(currentPrice)}) at R1 resistance zone ${fmt(sellZoneLow)}–${fmt(sellZoneHigh)}. Market is ranging — mean-reversion setup. Watch for bearish rejection candle. Entry ${fmt(entryPrice)}, SL ${fmt(stopLoss)}, TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)}.`;
   } else if (inBuyZone && !buyAllowed) {
     signal = "WAIT";
     const blockNote =

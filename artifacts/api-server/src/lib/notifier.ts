@@ -263,9 +263,11 @@ async function checkSymbol(
       tradeAlreadyAlerted;
 
     if (transitioned && !cooldownActive && !alreadyInSameDirection) {
-      // Hard type filter: DAGGER only. PIVOT_BOUNCE, BREAKOUT, and FIB_BOUNCE
-      // are all disabled in signals.ts and blocked here as a second layer.
-      const signalTypeAllowed = levels.signalType === "DAGGER";
+      // Hard type filter: DAGGER and PIVOT_BOUNCE (in RANGING regime only — enforced
+      // in signals.ts via `pivotBounceEnabled = trend === "RANGING"`).
+      // BREAKOUT and FIB_BOUNCE remain permanently disabled at both layers.
+      const signalTypeAllowed =
+        levels.signalType === "DAGGER" || levels.signalType === "PIVOT_BOUNCE";
       if (!signalTypeAllowed) {
         logger.info(
           { symbol, timeframe, signalType: levels.signalType },
