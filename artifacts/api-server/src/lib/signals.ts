@@ -416,6 +416,63 @@ function getDailyPivotCandle(
   };
 }
 
+// Wilder's Average Directional Index (ADX-14).
+// Returns current ADX value (0–100). NaN when fewer than 2×period+1 bars available.
+// ADX < 25 = ranging / no directional energy.
+// ADX 25–50 = clear trend in force.
+// ADX > 50 = very strong trend.
+function calcADX(candles: CandleRaw[], period = 14): number {
+  if (candles.length < period * 2 + 1) return NaN;
+
+  const trs: number[] = [];
+  const plusDMs: number[] = [];
+  const minusDMs: number[] = [];
+
+  for (let i = 1; i < candles.length; i++) {
+    const cur  = candles[i];
+    const prev = candles[i - 1];
+    const tr = Math.max(
+      cur.high - cur.low,
+      Math.abs(cur.high - prev.close),
+      Math.abs(cur.low  - prev.close),
+    );
+    const upMove   = cur.high - prev.high;
+    const downMove = prev.low  - cur.low;
+    const plusDM  = upMove > downMove && upMove   > 0 ? upMove   : 0;
+    const minusDM = downMove > upMove && downMove > 0 ? downMove : 0;
+    trs.push(tr);
+    plusDMs.push(plusDM);
+    minusDMs.push(minusDM);
+  }
+
+  // Wilder's initial sums (first `period` raw bars)
+  let smoothTR      = trs.slice(0, period).reduce((a, b) => a + b, 0);
+  let smoothPlusDM  = plusDMs.slice(0, period).reduce((a, b) => a + b, 0);
+  let smoothMinusDM = minusDMs.slice(0, period).reduce((a, b) => a + b, 0);
+
+  // First pass: build DX series using Wilder smoothing
+  const dxValues: number[] = [];
+  for (let i = period; i < trs.length; i++) {
+    smoothTR      = smoothTR      - smoothTR      / period + trs[i];
+    smoothPlusDM  = smoothPlusDM  - smoothPlusDM  / period + plusDMs[i];
+    smoothMinusDM = smoothMinusDM - smoothMinusDM / period + minusDMs[i];
+    const plusDI  = smoothTR > 0 ? (100 * smoothPlusDM)  / smoothTR : 0;
+    const minusDI = smoothTR > 0 ? (100 * smoothMinusDM) / smoothTR : 0;
+    const diSum   = plusDI + minusDI;
+    dxValues.push(diSum > 0 ? (100 * Math.abs(plusDI - minusDI)) / diSum : 0);
+  }
+
+  if (dxValues.length < period) return NaN;
+
+  // Second pass: Wilder MA of DX → ADX
+  let adx = dxValues.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  for (let i = period; i < dxValues.length; i++) {
+    adx = (adx * (period - 1) + dxValues[i]) / period;
+  }
+
+  return Math.round(adx * 10) / 10;
+}
+
 // MACD(12,26,9) histogram. Returns array aligned with `closes` (NaN until warm).
 // Used as momentum-turn confirmation: only fade S1 when histogram is ticking UP
 // (selling pressure cooling), only fade R1 when ticking DOWN (buying pressure
@@ -1158,14 +1215,24 @@ export function computeLevels(
   const macdBuyOk  = !macdWarm || histPrev1 > histPrev2; // histogram ticking up
   const macdSellOk = !macdWarm || histPrev1 < histPrev2; // histogram ticking down
 
+  const adx = calcADX(candles, 14);
+  const adxWarm = Number.isFinite(adx);
+
+  // Primary regime gate: ADX ≥ 25 = directional energy confirmed.
+  // Direction is then determined by EMA21 vs EMA50.
+  // ADX < 25 (or not yet warm) = RANGING regardless of EMA crossover.
+  // This prevents PIVOT_BOUNCE from firing during early-trend or trend-tail
+  // phases where EMAs are close but price is still being pushed directionally.
   let trend: "UPTREND" | "DOWNTREND" | "RANGING" = "RANGING";
-  let trendStrength = 30;
-  if (last21 > last50 && slopeUp) {
-    trend = "UPTREND";
-    trendStrength = Math.min(100, Math.round(((last21 - last50) / last50) * 1000 + 50));
-  } else if (last21 < last50 && !slopeUp) {
-    trend = "DOWNTREND";
-    trendStrength = Math.min(100, Math.round(((last50 - last21) / last50) * 1000 + 50));
+  let trendStrength = adxWarm ? Math.round(adx) : 30;
+  if (!adxWarm) {
+    // Fallback when ADX hasn't warmed yet: EMA crossover + slope
+    if (last21 > last50 && slopeUp) trend = "UPTREND";
+    else if (last21 < last50 && !slopeUp) trend = "DOWNTREND";
+  } else if (adx >= 25) {
+    if (last21 > last50) trend = "UPTREND";
+    else if (last21 < last50) trend = "DOWNTREND";
+    // else: EMAs are neutral despite high ADX — keep RANGING
   }
 
   // EMA200 regime gate (institutional trend bias). When the 200-EMA is warm
@@ -1602,6 +1669,7 @@ export function computeLevels(
     pivot: pivots.pivot,
     trend,
     trendStrength,
+    adx: adxWarm ? adx : undefined,
     rsi: isNaN(rsi) ? undefined : rsi,
     lastUpdated: new Date().toISOString(),
     positionSizing,

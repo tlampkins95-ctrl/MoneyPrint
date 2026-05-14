@@ -142,7 +142,15 @@ export const GetLevelsResponse = zod.object({
   trend: zod
     .enum(["UPTREND", "DOWNTREND", "RANGING"])
     .describe("Current market structure"),
-  trendStrength: zod.number().describe("0-100 strength score"),
+  trendStrength: zod
+    .number()
+    .describe("0-100 strength score (equals ADX value when ADX is warm)"),
+  adx: zod
+    .number()
+    .optional()
+    .describe(
+      "ADX-14 value (0-100). <25 = ranging, 25-50 = trending, >50 = strong trend. Absent when insufficient candle history.",
+    ),
   rsi: zod
     .number()
     .optional()
@@ -546,7 +554,17 @@ export const GetActiveSignalsResponse = zod.object({
             trend: zod
               .enum(["UPTREND", "DOWNTREND", "RANGING"])
               .describe("Current market structure"),
-            trendStrength: zod.number().describe("0-100 strength score"),
+            trendStrength: zod
+              .number()
+              .describe(
+                "0-100 strength score (equals ADX value when ADX is warm)",
+              ),
+            adx: zod
+              .number()
+              .optional()
+              .describe(
+                "ADX-14 value (0-100). <25 = ranging, 25-50 = trending, >50 = strong trend. Absent when insufficient candle history.",
+              ),
             rsi: zod
               .number()
               .optional()

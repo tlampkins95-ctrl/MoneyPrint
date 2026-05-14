@@ -44,8 +44,10 @@ export interface LevelsData {
   pivot: number;
   /** Current market structure */
   trend: LevelsDataTrend;
-  /** 0-100 strength score */
+  /** 0-100 strength score (equals ADX value when ADX is warm) */
   trendStrength: number;
+  /** ADX-14 value (0-100). <25 = ranging, 25-50 = trending, >50 = strong trend. Absent when insufficient candle history. */
+  adx?: number;
   /** RSI-14 value (0-100). BUY signals require ≤40; SELL signals require ≥60. */
   rsi?: number;
   lastUpdated: string;
