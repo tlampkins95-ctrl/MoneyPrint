@@ -35,6 +35,7 @@ export * from "./healthStatus";
 export * from "./levelsData";
 export * from "./levelsDataSignal";
 export * from "./levelsDataSignalType";
+export * from "./levelsDataSwingRhythm";
 export * from "./levelsDataTradeState";
 export * from "./levelsDataTrend";
 export * from "./mT5Sizing";

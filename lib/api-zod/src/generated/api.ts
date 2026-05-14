@@ -151,6 +151,31 @@ export const GetLevelsResponse = zod.object({
     .describe(
       "ADX-14 value (0-100). <25 = ranging, 25-50 = trending, >50 = strong trend. Absent when insufficient candle history.",
     ),
+  choppiness: zod
+    .number()
+    .optional()
+    .describe(
+      "Choppiness Index-14 (0-100). >61.8 = thick\/choppy market (ranges, mean-reversion favoured). <38.2 = thin\/directional market (trending, momentum favoured). Thresholds are Fibonacci levels.",
+    ),
+  swingRhythm: zod
+    .object({
+      avgBarsPerSwing: zod
+        .number()
+        .optional()
+        .describe(
+          "Average number of bars between consecutive swing highs and lows (time rhythm).",
+        ),
+      avgPricePerSwing: zod
+        .number()
+        .optional()
+        .describe(
+          "Average price distance per swing, expressed as a multiple of ATR-14 (amplitude rhythm).",
+        ),
+    })
+    .optional()
+    .describe(
+      "Cadence of recent price oscillations over the last 60 bars. Absent when fewer than 3 pivot highs\/lows are found.",
+    ),
   rsi: zod
     .number()
     .optional()
@@ -564,6 +589,31 @@ export const GetActiveSignalsResponse = zod.object({
               .optional()
               .describe(
                 "ADX-14 value (0-100). <25 = ranging, 25-50 = trending, >50 = strong trend. Absent when insufficient candle history.",
+              ),
+            choppiness: zod
+              .number()
+              .optional()
+              .describe(
+                "Choppiness Index-14 (0-100). >61.8 = thick\/choppy market (ranges, mean-reversion favoured). <38.2 = thin\/directional market (trending, momentum favoured). Thresholds are Fibonacci levels.",
+              ),
+            swingRhythm: zod
+              .object({
+                avgBarsPerSwing: zod
+                  .number()
+                  .optional()
+                  .describe(
+                    "Average number of bars between consecutive swing highs and lows (time rhythm).",
+                  ),
+                avgPricePerSwing: zod
+                  .number()
+                  .optional()
+                  .describe(
+                    "Average price distance per swing, expressed as a multiple of ATR-14 (amplitude rhythm).",
+                  ),
+              })
+              .optional()
+              .describe(
+                "Cadence of recent price oscillations over the last 60 bars. Absent when fewer than 3 pivot highs\/lows are found.",
               ),
             rsi: zod
               .number()

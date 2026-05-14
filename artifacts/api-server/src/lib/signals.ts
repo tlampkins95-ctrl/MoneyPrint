@@ -473,6 +473,75 @@ function calcADX(candles: CandleRaw[], period = 14): number {
   return Math.round(adx * 10) / 10;
 }
 
+// Choppiness Index (CI-14) — measures how much a market ranges vs trends.
+// Formula: 100 × log10(Σ ATR(1) over N bars / (N-bar highest high − lowest low)) / log10(N)
+// Scale: >61.8 = choppy/thick (market oscillates, mean-reversion favoured)
+//         <38.2 = directional/thin (trend in force, breakout/continuation favoured)
+//        38.2–61.8 = transitional
+// Thresholds are Fibonacci levels — not arbitrary.
+function calcChoppiness(candles: CandleRaw[], period = 14): number {
+  if (candles.length < period + 1) return NaN;
+  const slice = candles.slice(-(period + 1));
+  let sumTR = 0;
+  for (let i = 1; i < slice.length; i++) {
+    sumTR += Math.max(
+      slice[i].high - slice[i].low,
+      Math.abs(slice[i].high - slice[i - 1].close),
+      Math.abs(slice[i].low  - slice[i - 1].close),
+    );
+  }
+  const hh = Math.max(...slice.map((c) => c.high));
+  const ll = Math.min(...slice.map((c) => c.low));
+  const totalRange = hh - ll;
+  if (totalRange <= 0 || sumTR <= 0) return NaN;
+  const ci = (100 * Math.log10(sumTR / totalRange)) / Math.log10(period);
+  return Math.round(Math.min(100, Math.max(0, ci)) * 10) / 10;
+}
+
+// Swing Rhythm — measures the cadence (price × time) of market oscillations.
+// Locates pivot highs and lows (1-bar confirmation on each side) over the
+// lookback window, then computes:
+//   avgBarsPerSwing — average bars between consecutive pivot highs/lows (time rhythm)
+//   avgPricePerSwing — average price move per swing, expressed as ATR multiples (amplitude)
+// A consistent rhythm (low variance) signals a market in a predictable oscillation.
+// Returns null when fewer than 3 pivots are found (not enough data to average).
+function calcSwingRhythm(
+  candles: CandleRaw[],
+  atr: number,
+  lookback = 60,
+): { avgBarsPerSwing: number; avgPricePerSwing: number } | null {
+  if (atr <= 0) return null;
+  const slice = candles.slice(-lookback);
+  if (slice.length < 10) return null;
+
+  // 1-bar pivot confirmation: high[i] is higher than both neighbours → pivot high.
+  const pivots: { idx: number; price: number }[] = [];
+  for (let i = 1; i < slice.length - 1; i++) {
+    if (slice[i].high > slice[i - 1].high && slice[i].high > slice[i + 1].high) {
+      pivots.push({ idx: i, price: slice[i].high });
+    } else if (slice[i].low < slice[i - 1].low && slice[i].low < slice[i + 1].low) {
+      pivots.push({ idx: i, price: slice[i].low });
+    }
+  }
+
+  if (pivots.length < 3) return null;
+
+  const barGaps: number[] = [];
+  const priceMoves: number[] = [];
+  for (let i = 1; i < pivots.length; i++) {
+    barGaps.push(pivots[i].idx - pivots[i - 1].idx);
+    priceMoves.push(Math.abs(pivots[i].price - pivots[i - 1].price));
+  }
+
+  const avgBars  = barGaps.reduce((a, b) => a + b, 0)   / barGaps.length;
+  const avgPrice = priceMoves.reduce((a, b) => a + b, 0) / priceMoves.length;
+
+  return {
+    avgBarsPerSwing:  Math.round(avgBars  * 10) / 10,
+    avgPricePerSwing: Math.round((avgPrice / atr) * 10) / 10,
+  };
+}
+
 // MACD(12,26,9) histogram. Returns array aligned with `closes` (NaN until warm).
 // Used as momentum-turn confirmation: only fade S1 when histogram is ticking UP
 // (selling pressure cooling), only fade R1 when ticking DOWN (buying pressure
@@ -1215,6 +1284,8 @@ export function computeLevels(
   const macdBuyOk  = !macdWarm || histPrev1 > histPrev2; // histogram ticking up
   const macdSellOk = !macdWarm || histPrev1 < histPrev2; // histogram ticking down
 
+  const choppiness = calcChoppiness(candles, 14);
+  const swingRhythm = calcSwingRhythm(candles, atr);
   const adx = calcADX(candles, 14);
   const adxWarm = Number.isFinite(adx);
 
@@ -1670,6 +1741,8 @@ export function computeLevels(
     trend,
     trendStrength,
     adx: adxWarm ? adx : undefined,
+    choppiness: Number.isFinite(choppiness) ? choppiness : undefined,
+    swingRhythm: swingRhythm ?? undefined,
     rsi: isNaN(rsi) ? undefined : rsi,
     lastUpdated: new Date().toISOString(),
     positionSizing,

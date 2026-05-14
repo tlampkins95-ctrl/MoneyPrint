@@ -7,6 +7,7 @@
  */
 import type { LevelsDataSignal } from "./levelsDataSignal";
 import type { LevelsDataSignalType } from "./levelsDataSignalType";
+import type { LevelsDataSwingRhythm } from "./levelsDataSwingRhythm";
 import type { LevelsDataTradeState } from "./levelsDataTradeState";
 import type { LevelsDataTrend } from "./levelsDataTrend";
 import type { PositionSizing } from "./positionSizing";
@@ -48,6 +49,10 @@ export interface LevelsData {
   trendStrength: number;
   /** ADX-14 value (0-100). <25 = ranging, 25-50 = trending, >50 = strong trend. Absent when insufficient candle history. */
   adx?: number;
+  /** Choppiness Index-14 (0-100). >61.8 = thick/choppy market (ranges, mean-reversion favoured). <38.2 = thin/directional market (trending, momentum favoured). Thresholds are Fibonacci levels. */
+  choppiness?: number;
+  /** Cadence of recent price oscillations over the last 60 bars. Absent when fewer than 3 pivot highs/lows are found. */
+  swingRhythm?: LevelsDataSwingRhythm;
   /** RSI-14 value (0-100). BUY signals require ≤40; SELL signals require ≥60. */
   rsi?: number;
   lastUpdated: string;

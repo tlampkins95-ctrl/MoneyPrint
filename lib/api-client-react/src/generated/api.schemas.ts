@@ -130,6 +130,16 @@ export const LevelsDataTrend = {
 } as const;
 
 /**
+ * Cadence of recent price oscillations over the last 60 bars. Absent when fewer than 3 pivot highs/lows are found.
+ */
+export type LevelsDataSwingRhythm = {
+  /** Average number of bars between consecutive swing highs and lows (time rhythm). */
+  avgBarsPerSwing?: number;
+  /** Average price distance per swing, expressed as a multiple of ATR-14 (amplitude rhythm). */
+  avgPricePerSwing?: number;
+};
+
+/**
  * Which trading venue this symbol uses. PHEMEX = Phemex USDT-margined perps (BTC/ETH, collateral × leverage, up to 100×). MT5 = MetaTrader 5 (forex/metals, lot-based sizing). PHEMEX_SPOT = Phemex spot (no leverage, whole-token sizing).
  */
 export type PositionSizingVenue =
@@ -292,6 +302,10 @@ export interface LevelsData {
   trendStrength: number;
   /** ADX-14 value (0-100). <25 = ranging, 25-50 = trending, >50 = strong trend. Absent when insufficient candle history. */
   adx?: number;
+  /** Choppiness Index-14 (0-100). >61.8 = thick/choppy market (ranges, mean-reversion favoured). <38.2 = thin/directional market (trending, momentum favoured). Thresholds are Fibonacci levels. */
+  choppiness?: number;
+  /** Cadence of recent price oscillations over the last 60 bars. Absent when fewer than 3 pivot highs/lows are found. */
+  swingRhythm?: LevelsDataSwingRhythm;
   /** RSI-14 value (0-100). BUY signals require ≤40; SELL signals require ≥60. */
   rsi?: number;
   lastUpdated: string;
