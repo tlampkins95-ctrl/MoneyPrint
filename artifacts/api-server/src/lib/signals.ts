@@ -1404,15 +1404,25 @@ export function computeLevels(
   const approachingBuy = !inBuyZone && currentPrice > buyZoneHigh && (currentPrice - buyZoneHigh) < atr * 0.5;
   const approachingSell = !inSellZone && currentPrice < sellZoneLow && (sellZoneLow - currentPrice) < atr * 0.5;
 
-  // Strategy selection is regime-aware:
-  //   RANGING  → PIVOT_BOUNCE enabled (mean-reversion has edge in oscillating markets)
-  //   UPTREND  → PIVOT_BOUNCE suppressed; DAGGER only (trend-continuation entry)
-  //   DOWNTREND→ PIVOT_BOUNCE suppressed; DAGGER only (trend-continuation entry)
+  // Strategy selection uses three independent regime filters before PIVOT_BOUNCE fires:
   //
-  // Production failure post-mortem (320 trades): PIVOT_BOUNCE was firing in
-  // UPTREND/DOWNTREND conditions (-101.67R, 1%/0% WR). Now gated to RANGING only.
+  //   1. ADX < 25 (trend === "RANGING"): no meaningful directional energy in the market.
+  //      Computed from EMA21 vs EMA50 as fallback when ADX hasn't warmed yet.
+  //
+  //   2. Choppiness Index > 55: price is spending more time oscillating than trending.
+  //      CI 38.2 = strongly directional, CI 61.8 = strongly choppy (Fibonacci thresholds).
+  //      55 is the permissive midpoint — avoids blocking valid setups while the market
+  //      is still transitioning. Falls open when CI hasn't warmed (< period+1 bars).
+  //
+  //   Both filters must agree before a pivot fade is taken. A market can look "ranging"
+  //   by EMA alone while CI reveals it's still eating through a one-sided directional
+  //   move — those are exactly the stop-out setups we want to eliminate.
+  //
+  // Production failure post-mortem (320 trades, -101.67R): PIVOT_BOUNCE fired in trending
+  // markets. ADX gate fixed the primary issue; CI adds a second independent layer.
   // BREAKOUT (-74.79R, 4% WR) and FIB_BOUNCE (-9.98R, 4% WR) remain off permanently.
-  const pivotBounceEnabled = trend === "RANGING";
+  const choppinessOk = !Number.isFinite(choppiness) || choppiness > 55;
+  const pivotBounceEnabled = trend === "RANGING" && choppinessOk;
   const breakoutEnabled    = false; // -74.79R production — no edge at any timeframe
   const fibBounceAllowed   = false; // -9.98R production  — no edge at any timeframe
 
@@ -1523,7 +1533,8 @@ export function computeLevels(
     stopLoss = round(buyZoneLow - atr * 0.5);
     takeProfit1 = round(floorTarget(entryPrice, stopLoss, pivots.pivot, MIN_RR_TP1, "BUY"));
     takeProfit2 = round(floorTarget(entryPrice, stopLoss, sellZoneLow, MIN_RR_TP2, "BUY"));
-    signalReason = `[${tfLabel}] PIVOT BUY (RANGING): Price (${fmt(currentPrice)}) at S1 support zone ${fmt(buyZoneLow)}–${fmt(buyZoneHigh)}. Market is ranging — mean-reversion setup. Watch for bullish reversal candle. Entry ${fmt(entryPrice)}, SL ${fmt(stopLoss)}, TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)}.`;
+    const pivotRegimeTag = `ADX ${adxWarm ? adx.toFixed(1) : "—"} · CI ${Number.isFinite(choppiness) ? choppiness.toFixed(1) : "—"}`;
+    signalReason = `[${tfLabel}] PIVOT BUY (RANGING): Price (${fmt(currentPrice)}) at S1 support zone ${fmt(buyZoneLow)}–${fmt(buyZoneHigh)}. Market is ranging — mean-reversion setup (${pivotRegimeTag}). Watch for bullish reversal candle. Entry ${fmt(entryPrice)}, SL ${fmt(stopLoss)}, TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)}.`;
   } else if (pivotBounceEnabled && inSellZone && sellAllowed) {
     // Same logic as buy: only fire when price is ACTUALLY IN the sell zone.
     // Market entry at currentPrice — no phantom limit orders.
@@ -1532,7 +1543,8 @@ export function computeLevels(
     stopLoss = round(sellZoneHigh + atr * 0.5);
     takeProfit1 = round(floorTarget(entryPrice, stopLoss, pivots.pivot, MIN_RR_TP1, "SELL"));
     takeProfit2 = round(floorTarget(entryPrice, stopLoss, buyZoneHigh, MIN_RR_TP2, "SELL"));
-    signalReason = `[${tfLabel}] PIVOT SELL (RANGING): Price (${fmt(currentPrice)}) at R1 resistance zone ${fmt(sellZoneLow)}–${fmt(sellZoneHigh)}. Market is ranging — mean-reversion setup. Watch for bearish rejection candle. Entry ${fmt(entryPrice)}, SL ${fmt(stopLoss)}, TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)}.`;
+    const pivotRegimeTagSell = `ADX ${adxWarm ? adx.toFixed(1) : "—"} · CI ${Number.isFinite(choppiness) ? choppiness.toFixed(1) : "—"}`;
+    signalReason = `[${tfLabel}] PIVOT SELL (RANGING): Price (${fmt(currentPrice)}) at R1 resistance zone ${fmt(sellZoneLow)}–${fmt(sellZoneHigh)}. Market is ranging — mean-reversion setup (${pivotRegimeTagSell}). Watch for bearish rejection candle. Entry ${fmt(entryPrice)}, SL ${fmt(stopLoss)}, TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)}.`;
   } else if (inBuyZone && !buyAllowed) {
     signal = "WAIT";
     const blockNote =

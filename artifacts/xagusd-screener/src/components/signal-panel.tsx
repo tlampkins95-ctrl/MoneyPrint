@@ -975,6 +975,89 @@ export function SignalPanel({
                   </div>
                 );
               })()}
+
+              {/* ADX-14 row */}
+              {data.adx != null && (() => {
+                const adxVal = data.adx!;
+                const adxLabel = adxVal < 25 ? "RANGING" : adxVal < 50 ? "TRENDING" : "STRONG";
+                const adxColor = adxVal < 25 ? "#f59e0b" : adxVal < 50 ? "#e53e3e" : "#ff2244";
+                const adxBarColor = adxVal < 25 ? "bg-amber-500" : adxVal < 50 ? "bg-[#e53e3e]" : "bg-[#ff2244]";
+                return (
+                  <div className="flex items-center justify-between px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-sans font-semibold text-zinc-400">ADX-14</span>
+                      <span
+                        className="text-[9px] font-bold tracking-widest px-1.5 py-0.5 rounded"
+                        style={{ color: adxColor, backgroundColor: `${adxColor}18` }}
+                      >
+                        {adxLabel}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 w-28">
+                      <div className="flex-1 h-1.5 bg-zinc-900 rounded-full overflow-hidden">
+                        <div
+                          className={cn("h-full rounded-full transition-all duration-500", adxBarColor)}
+                          style={{ width: `${Math.min(adxVal, 100)}%` }}
+                        />
+                      </div>
+                      <span className="text-xs font-bold w-7 text-right tabular-nums" style={{ color: adxColor }}>
+                        {adxVal.toFixed(1)}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Choppiness Index row */}
+              {data.choppiness != null && (() => {
+                const ci = data.choppiness!;
+                const ciLabel = ci > 61.8 ? "THICK" : ci > 38.2 ? "MIXED" : "THIN";
+                // Thick (>61.8) = ranging = green (good for pivot). Thin (<38.2) = directional = red.
+                const ciColor = ci > 61.8 ? "#00c950" : ci > 38.2 ? "#f59e0b" : "#e53e3e";
+                const ciBarColor = ci > 61.8 ? "bg-[#00c950]" : ci > 38.2 ? "bg-amber-500" : "bg-[#e53e3e]";
+                return (
+                  <div className="flex items-center justify-between px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-sans font-semibold text-zinc-400">CHOPPINESS</span>
+                      <span
+                        className="text-[9px] font-bold tracking-widest px-1.5 py-0.5 rounded"
+                        style={{ color: ciColor, backgroundColor: `${ciColor}18` }}
+                      >
+                        {ciLabel}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 w-28">
+                      <div className="flex-1 h-1.5 bg-zinc-900 rounded-full overflow-hidden">
+                        <div
+                          className={cn("h-full rounded-full transition-all duration-500", ciBarColor)}
+                          style={{ width: `${ci}%` }}
+                        />
+                      </div>
+                      <span className="text-xs font-bold w-7 text-right tabular-nums" style={{ color: ciColor }}>
+                        {ci.toFixed(1)}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Swing Rhythm row */}
+              {data.swingRhythm != null && (
+                <div className="flex items-center justify-between px-4 py-3">
+                  <span className="text-xs font-sans font-semibold text-zinc-400">RHYTHM</span>
+                  <div className="flex items-center gap-3 text-xs tabular-nums">
+                    <span className="text-zinc-300 font-bold">
+                      {data.swingRhythm.avgBarsPerSwing}
+                      <span className="text-zinc-500 font-normal ml-0.5">bars</span>
+                    </span>
+                    <span className="text-zinc-700">·</span>
+                    <span className="text-zinc-300 font-bold">
+                      {data.swingRhythm.avgPricePerSwing}
+                      <span className="text-zinc-500 font-normal ml-0.5">×ATR</span>
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
