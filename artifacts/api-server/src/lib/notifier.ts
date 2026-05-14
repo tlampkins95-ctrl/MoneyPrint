@@ -537,7 +537,7 @@ async function checkTrendingSymbol(
 
 async function tick(): Promise<void> {
   const tasks: Promise<void>[] = [];
-  for (const symbol of ALERT_SYMBOLS) {
+  for (const symbol of ALL_SYMBOLS) {
     for (const tf of TRACKED_TIMEFRAMES) {
       tasks.push(checkSymbol(symbol, tf));
     }
