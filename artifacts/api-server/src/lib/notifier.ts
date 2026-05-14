@@ -263,11 +263,9 @@ async function checkSymbol(
       tradeAlreadyAlerted;
 
     if (transitioned && !cooldownActive && !alreadyInSameDirection) {
-      // Hard type filter: only alert on signal types that have demonstrated edge.
-      // BREAKOUT and FIB_BOUNCE are disabled in signals.ts, but guard here too
-      // so any accidental re-enable doesn't silently spam Telegram.
-      const signalTypeAllowed =
-        levels.signalType === "DAGGER" || levels.signalType === "PIVOT_BOUNCE";
+      // Hard type filter: DAGGER only. PIVOT_BOUNCE, BREAKOUT, and FIB_BOUNCE
+      // are all disabled in signals.ts and blocked here as a second layer.
+      const signalTypeAllowed = levels.signalType === "DAGGER";
       if (!signalTypeAllowed) {
         logger.info(
           { symbol, timeframe, signalType: levels.signalType },

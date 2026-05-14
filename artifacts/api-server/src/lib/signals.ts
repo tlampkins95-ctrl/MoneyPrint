@@ -1267,12 +1267,13 @@ export function computeLevels(
   const approachingSell = !inSellZone && currentPrice < sellZoneLow && (sellZoneLow - currentPrice) < atr * 0.5;
 
   // Strategy kill-switches — backed by production data (320 live trades, May 2025).
-  // BREAKOUT: 105 BUY + 12 SELL trades, 4%/0% WR, -64.79R / -10.00R → OFF permanently.
-  // FIB_BOUNCE: 25 trades, 4% WR, -9.98R → OFF permanently.
-  // PIVOT_BOUNCE on 1d: daily pivot ranges too wide on metals → negative edge.
-  const pivotBounceEnabled = timeframe !== "1d";
-  const breakoutEnabled    = false; // -74.79R production, 4% WR — never works
-  const fibBounceAllowed   = false; // -9.98R production, 4% WR — disabled
+  // PIVOT_BOUNCE: 159 BUY + 18 SELL trades, 1%/0% WR, -89.67R / -12.00R → OFF.
+  // BREAKOUT: 105 BUY + 12 SELL trades, 4%/0% WR, -64.79R / -10.00R → OFF.
+  // FIB_BOUNCE: 25 trades, 4% WR, -9.98R → OFF.
+  // DAGGER is the only active signal type.
+  const pivotBounceEnabled = false; // -101.67R production — disabled permanently
+  const breakoutEnabled    = false; // -74.79R production — disabled permanently
+  const fibBounceAllowed   = false; // -9.98R production  — disabled permanently
 
   let signal: "BUY" | "SELL" | "WAIT" = "WAIT";
   let signalType: "PIVOT_BOUNCE" | "BREAKOUT" | "FIB_BOUNCE" | "DAGGER" = "PIVOT_BOUNCE";
