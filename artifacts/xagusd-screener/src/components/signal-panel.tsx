@@ -668,6 +668,23 @@ export function SignalPanel({
                 )}
               </div>
 
+              {/* ── Risk oversize warning ────────────────────────────────── */}
+              {isMT5 && data.positionSizing.mt5 &&
+                data.positionSizing.mt5.riskPctOfAccount > 5 && (
+                <div className="mt-2 rounded-lg border border-red-500/50 bg-red-950/40 px-3 py-2.5 flex items-start gap-2">
+                  <AlertTriangle className="w-3.5 h-3.5 text-red-400 shrink-0 mt-0.5" />
+                  <div className="text-[11px] text-red-300 leading-snug">
+                    <span className="font-bold text-red-200">Oversized: </span>
+                    {data.positionSizing.mt5.riskPctOfAccount.toFixed(1)}% of account at risk
+                    per trade — professional max is 1–2%. Use the{" "}
+                    <span className="font-bold text-amber-300">
+                      ≈ {data.positionSizing.mt5.recommendedLots} lots
+                    </span>{" "}
+                    button above to auto-size correctly.
+                  </div>
+                </div>
+              )}
+
               {/* ── EXACT EXCHANGE SETUP ─────────────────────────────────── */}
               {/* Two parallel renderings: PHEMEX (BTC/ETH) shows COLLATERAL/LEVERAGE/POSITION,
                   MT5 (forex/metals) shows LOTS/POSITION/NOTIONAL. The IF SL/TP1/TP2

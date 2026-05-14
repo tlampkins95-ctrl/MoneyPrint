@@ -591,7 +591,7 @@ const DAGGER_MIN_TREND_ATR    = 2.0;  // A→B wave 1 must be ≥ 2×ATR
 const DAGGER_MIN_REACTION_ATR = 0.5;  // B→C pullback must be ≥ 0.5×ATR
 const DAGGER_MAX_REACTION_BARS = 50;  // wave 2 can't drag on indefinitely
 const DAGGER_TREND_LOOKBACK   = 80;   // bars to scan for B
-const DAGGER_SL_BUFFER        = 0.5;  // SL = C ± SL_BUFFER × ATR
+const DAGGER_SL_BUFFER        = 1.0;  // SL = C ± SL_BUFFER × ATR (1 ATR gives room past wick)
 const DAGGER_FIB_LOW          = 0.40; // retracement lower bound (40%)
 const DAGGER_FIB_HIGH         = 0.65; // retracement upper bound (65%)
 const DAGGER_WARMUP           = 50;   // minimum bars before scanning
@@ -1489,7 +1489,11 @@ export function computeLevels(
     const bullTrigger = last.high > prev.high;
     const bearTrigger = last.low  < prev.low;
 
-    if (bullTrigger && macdBuyOk) {
+    // Trend-alignment gate: only trade DAGGER WITH the regime.
+    // A bull DAGGER in a confirmed downtrend is a counter-trend fade — blocked.
+    // A bear DAGGER in a confirmed uptrend is the same — blocked.
+    // When ranging (ADX < 25) both sides are allowed; wave structure is its own filter.
+    if (bullTrigger && macdBuyOk && trend !== "DOWNTREND") {
       const ds = findDaggerBullSetup(candles, n - 1, atr);
       // Entry bar must not have violated the wave 2 low (C still intact)
       if (ds && last.low > ds.cPrice) {
@@ -1500,11 +1504,11 @@ export function computeLevels(
         takeProfit1 = round(floorTarget(entryPrice, stopLoss, ds.tp,              MIN_RR_TP1, "BUY"));
         takeProfit2 = round(floorTarget(entryPrice, stopLoss, ds.tp + atr * 0.5,  MIN_RR_TP2, "BUY"));
         const fibPct = Math.round(ds.retracePct * 100);
-        signalReason = `[${tfLabel}] DAGGER BUY: Wave 1 peaked at ${fmt(ds.bPrice)}, wave 2 retraced ${fibPct}% to ${fmt(ds.cPrice)} (50% pocket). First bar ticking up — wave 3 launch. Entry ${fmt(entryPrice)}, SL ${fmt(stopLoss)} (below wave 2 low), TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)} (wave 1 peak).`;
+        signalReason = `[${tfLabel}] DAGGER BUY: Wave 1 peaked at ${fmt(ds.bPrice)}, wave 2 retraced ${fibPct}% to ${fmt(ds.cPrice)} (50% pocket). Trend: ${trend}. First bar ticking up — wave 3 launch. Entry ${fmt(entryPrice)}, SL ${fmt(stopLoss)} (1 ATR below wave 2 low), TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)} (wave 1 peak).`;
       }
     }
 
-    if (signal === "WAIT" && bearTrigger && macdSellOk && !isLongOnly) {
+    if (signal === "WAIT" && bearTrigger && macdSellOk && !isLongOnly && trend !== "UPTREND") {
       const ds = findDaggerBearSetup(candles, n - 1, atr);
       if (ds && last.high < ds.cPrice) {
         signal     = "SELL";
@@ -1514,7 +1518,7 @@ export function computeLevels(
         takeProfit1 = round(floorTarget(entryPrice, stopLoss, ds.tp,             MIN_RR_TP1, "SELL"));
         takeProfit2 = round(floorTarget(entryPrice, stopLoss, ds.tp - atr * 0.5, MIN_RR_TP2, "SELL"));
         const fibPct = Math.round(ds.retracePct * 100);
-        signalReason = `[${tfLabel}] DAGGER SELL: Wave 1 dropped to ${fmt(ds.bPrice)}, wave 2 bounced ${fibPct}% to ${fmt(ds.cPrice)} (50% pocket). First bar ticking down — wave 3 drop. Entry ${fmt(entryPrice)}, SL ${fmt(stopLoss)} (above wave 2 high), TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)} (wave 1 low).`;
+        signalReason = `[${tfLabel}] DAGGER SELL: Wave 1 dropped to ${fmt(ds.bPrice)}, wave 2 bounced ${fibPct}% to ${fmt(ds.cPrice)} (50% pocket). Trend: ${trend}. First bar ticking down — wave 3 drop. Entry ${fmt(entryPrice)}, SL ${fmt(stopLoss)} (1 ATR above wave 2 high), TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)} (wave 1 low).`;
       }
     }
   }
