@@ -84,6 +84,13 @@ export const SYMBOLS: Record<Symbol, SymbolMeta> = {
     category: "forex",
     goldApi: "XAU",
     hasFuturesBasis: true,
+    // Phemex XAU/USDT linear perp — 0.1 oz per contract minimum.
+    // Gold at ~$3,000/oz means 0.1 oz = $0.30/pip SL granularity,
+    // enabling proper 1-2% risk sizing on a $500 account.
+    phemexPerp: "XAUUSDT",
+    phemexMinQty: 0.1,
+    phemexQtyStep: 0.1,
+    venue: "Phemex · USDT perp",
   },
   EURUSD: {
     yahoo: "EURUSD=X",
