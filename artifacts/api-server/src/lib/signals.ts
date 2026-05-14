@@ -1274,7 +1274,7 @@ export function computeLevels(
   // Production failure post-mortem (320 trades): PIVOT_BOUNCE was firing in
   // UPTREND/DOWNTREND conditions (-101.67R, 1%/0% WR). Now gated to RANGING only.
   // BREAKOUT (-74.79R, 4% WR) and FIB_BOUNCE (-9.98R, 4% WR) remain off permanently.
-  const pivotBounceEnabled = trend === "RANGING" && timeframe !== "1d";
+  const pivotBounceEnabled = trend === "RANGING";
   const breakoutEnabled    = false; // -74.79R production — no edge at any timeframe
   const fibBounceAllowed   = false; // -9.98R production  — no edge at any timeframe
 
