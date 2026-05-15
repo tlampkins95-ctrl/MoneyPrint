@@ -1506,18 +1506,21 @@ export function computeLevels(
   //     right gate for a zone-fade short.
   // Breakdown SELLs (BREAKOUT path) keep their own independent gates
   // including MACD and EMA200 — those are appropriate for momentum breaks.
+  // Intrinsic buy/sell readiness — pattern gate NOT included here.
+  // Pattern veto is applied inline at each signal branch so causality is trackable:
+  // `patternVetoed` is only set when the pattern is specifically the blocking factor
+  // (all other conditions met). Without tracking, the annotation would fire even
+  // when the WAIT is caused by price being out of zone entirely.
   const buyAllowed  = (isNaN(rsi) || rsi <= RSI_OVERSOLD)
     && macdBuyOk
-    && ema200BuyOk
-    && !patternBearish; // confirmed bearish pattern (H&S / Double Top) vetos BUY
+    && ema200BuyOk;
   // SELL gate: RSI overbought + trend is NOT an established uptrend.
   // Selling into a strong uptrend = fighting momentum. Mean-reversion shorts
   // only have edge in ranging or downtrending markets. Production data: SELL
   // signals in UPTREND regime → 0% WR, -12R. The trend filter stops that.
   const sellAllowed = (isNaN(rsi) || rsi >= RSI_OVERBOUGHT)
     && !isLongOnly
-    && trend !== "UPTREND"
-    && !patternBullish; // confirmed bullish pattern (Inv H&S / Double Bottom) vetos SELL
+    && trend !== "UPTREND";
 
   // ─── Golden-pocket inputs (computed here; FIB_BOUNCE fires last — see below) ──
   // FIB_BOUNCE is lowest priority: PIVOT_BOUNCE and BREAKOUT always get first
@@ -1537,6 +1540,10 @@ export function computeLevels(
   // the current bar's high/low has ticked back in trend direction (wave 3 launch),
   // and MACD histogram is confirming momentum. Bull and bear both implemented;
   // longOnly symbols suppress the bear side. Checked first — overrides all others.
+  //
+  // `patternVetoed` is true only when the DAGGER setup WAS found but the confirmed
+  // pattern gate specifically suppressed it. Used for annotation causality.
+  let patternVetoed = false;
   {
     const n   = candles.length;
     const bullTrigger = last.high > prev.high;
@@ -1546,32 +1553,40 @@ export function computeLevels(
     // A bull DAGGER in a confirmed downtrend is a counter-trend fade — blocked.
     // A bear DAGGER in a confirmed uptrend is the same — blocked.
     // When ranging (ADX < 25) both sides are allowed; wave structure is its own filter.
-    if (bullTrigger && macdBreakoutBuyOk && trend !== "DOWNTREND" && !patternBearish) {
+    if (bullTrigger && macdBreakoutBuyOk && trend !== "DOWNTREND") {
       const ds = findDaggerBullSetup(candles, n - 1, atr);
       // Entry bar must not have violated the wave 2 low (C still intact)
       if (ds && last.low > ds.cPrice) {
-        signal     = "BUY";
-        signalType = "DAGGER";
-        entryPrice  = round(currentPrice);
-        stopLoss    = round(ds.sl);
-        takeProfit1 = round(floorTarget(entryPrice, stopLoss, ds.tp,              MIN_RR_TP1, "BUY"));
-        takeProfit2 = round(floorTarget(entryPrice, stopLoss, ds.tp + atr * 0.5,  MIN_RR_TP2, "BUY"));
-        const fibPct = Math.round(ds.retracePct * 100);
-        signalReason = `[${tfLabel}] DAGGER BUY: Wave 1 peaked at ${fmt(ds.bPrice)}, wave 2 retraced ${fibPct}% to ${fmt(ds.cPrice)} (50% pocket). Trend: ${trend}. First bar ticking up — wave 3 launch. Entry ${fmt(entryPrice)}, SL ${fmt(stopLoss)} (1 ATR below wave 2 low), TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)} (wave 1 peak).`;
+        if (patternBearish) {
+          patternVetoed = true; // pattern blocked an otherwise-valid DAGGER BUY
+        } else {
+          signal     = "BUY";
+          signalType = "DAGGER";
+          entryPrice  = round(currentPrice);
+          stopLoss    = round(ds.sl);
+          takeProfit1 = round(floorTarget(entryPrice, stopLoss, ds.tp,              MIN_RR_TP1, "BUY"));
+          takeProfit2 = round(floorTarget(entryPrice, stopLoss, ds.tp + atr * 0.5,  MIN_RR_TP2, "BUY"));
+          const fibPct = Math.round(ds.retracePct * 100);
+          signalReason = `[${tfLabel}] DAGGER BUY: Wave 1 peaked at ${fmt(ds.bPrice)}, wave 2 retraced ${fibPct}% to ${fmt(ds.cPrice)} (50% pocket). Trend: ${trend}. First bar ticking up — wave 3 launch. Entry ${fmt(entryPrice)}, SL ${fmt(stopLoss)} (1 ATR below wave 2 low), TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)} (wave 1 peak).`;
+        }
       }
     }
 
-    if (signal === "WAIT" && bearTrigger && macdBreakoutSellOk && !isLongOnly && trend !== "UPTREND" && !patternBullish) {
+    if (signal === "WAIT" && !patternVetoed && bearTrigger && macdBreakoutSellOk && !isLongOnly && trend !== "UPTREND") {
       const ds = findDaggerBearSetup(candles, n - 1, atr);
       if (ds && last.high < ds.cPrice) {
-        signal     = "SELL";
-        signalType = "DAGGER";
-        entryPrice  = round(currentPrice);
-        stopLoss    = round(ds.sl);
-        takeProfit1 = round(floorTarget(entryPrice, stopLoss, ds.tp,             MIN_RR_TP1, "SELL"));
-        takeProfit2 = round(floorTarget(entryPrice, stopLoss, ds.tp - atr * 0.5, MIN_RR_TP2, "SELL"));
-        const fibPct = Math.round(ds.retracePct * 100);
-        signalReason = `[${tfLabel}] DAGGER SELL: Wave 1 dropped to ${fmt(ds.bPrice)}, wave 2 bounced ${fibPct}% to ${fmt(ds.cPrice)} (50% pocket). Trend: ${trend}. First bar ticking down — wave 3 drop. Entry ${fmt(entryPrice)}, SL ${fmt(stopLoss)} (1 ATR above wave 2 high), TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)} (wave 1 low).`;
+        if (patternBullish) {
+          patternVetoed = true; // pattern blocked an otherwise-valid DAGGER SELL
+        } else {
+          signal     = "SELL";
+          signalType = "DAGGER";
+          entryPrice  = round(currentPrice);
+          stopLoss    = round(ds.sl);
+          takeProfit1 = round(floorTarget(entryPrice, stopLoss, ds.tp,             MIN_RR_TP1, "SELL"));
+          takeProfit2 = round(floorTarget(entryPrice, stopLoss, ds.tp - atr * 0.5, MIN_RR_TP2, "SELL"));
+          const fibPct = Math.round(ds.retracePct * 100);
+          signalReason = `[${tfLabel}] DAGGER SELL: Wave 1 dropped to ${fmt(ds.bPrice)}, wave 2 bounced ${fibPct}% to ${fmt(ds.cPrice)} (50% pocket). Trend: ${trend}. First bar ticking down — wave 3 drop. Entry ${fmt(entryPrice)}, SL ${fmt(stopLoss)} (1 ATR above wave 2 high), TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)} (wave 1 low).`;
+        }
       }
     }
   }
@@ -1580,7 +1595,7 @@ export function computeLevels(
   // Only runs when DAGGER didn't fire. PIVOT_BOUNCE checks S1/R1 zone touches;
   // BREAKOUT checks R2/S2 momentum breaks. FIB_BOUNCE follows below.
   if (signal === "WAIT") {
-  if (pivotBounceEnabled && inBuyZone && buyAllowed) {
+  if (pivotBounceEnabled && inBuyZone && buyAllowed && !patternBearish) {
     // Only fire when price is ACTUALLY IN the buy zone — not approaching from above.
     // "Approaching" signals generated 46 MISSED trades in production (price went
     // to TP without filling the limit at S1, or filled into a falling knife).
@@ -1592,7 +1607,18 @@ export function computeLevels(
     takeProfit2 = round(floorTarget(entryPrice, stopLoss, sellZoneLow, MIN_RR_TP2, "BUY"));
     const pivotRegimeTag = `ADX ${adxWarm ? adx.toFixed(1) : "—"} · CI ${Number.isFinite(choppiness) ? choppiness.toFixed(1) : "—"}`;
     signalReason = `[${tfLabel}] PIVOT BUY (RANGING): Price (${fmt(currentPrice)}) at S1 support zone ${fmt(buyZoneLow)}–${fmt(buyZoneHigh)}. Market is ranging — mean-reversion setup (${pivotRegimeTag}). Watch for bullish reversal candle. Entry ${fmt(entryPrice)}, SL ${fmt(stopLoss)}, TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)}.`;
-  } else if (pivotBounceEnabled && inSellZone && sellAllowed) {
+  } else if (pivotBounceEnabled && inBuyZone && buyAllowed && patternBearish) {
+    // All zone + indicator conditions are met but a confirmed bearish chart pattern
+    // specifically blocks this BUY. Mark `patternVetoed` so the annotation correctly
+    // attributes the suppression to the pattern rather than zone/indicator conditions.
+    patternVetoed = true;
+    signal = "WAIT";
+    entryPrice = round(pivots.s1);
+    stopLoss = round(buyZoneLow - atr * 0.5);
+    takeProfit1 = round(floorTarget(entryPrice, stopLoss, pivots.pivot, MIN_RR_TP1, "BUY"));
+    takeProfit2 = round(floorTarget(entryPrice, stopLoss, sellZoneLow, MIN_RR_TP2, "BUY"));
+    signalReason = `[${tfLabel}] Price is in the buy zone (${fmt(buyZoneLow)}–${fmt(buyZoneHigh)}) and all conditions are met, but entry is blocked by a confirmed bearish chart pattern.`;
+  } else if (pivotBounceEnabled && inSellZone && sellAllowed && !patternBullish) {
     // Same logic as buy: only fire when price is ACTUALLY IN the sell zone.
     // Market entry at currentPrice — no phantom limit orders.
     signal = "SELL";
@@ -1602,6 +1628,16 @@ export function computeLevels(
     takeProfit2 = round(floorTarget(entryPrice, stopLoss, buyZoneHigh, MIN_RR_TP2, "SELL"));
     const pivotRegimeTagSell = `ADX ${adxWarm ? adx.toFixed(1) : "—"} · CI ${Number.isFinite(choppiness) ? choppiness.toFixed(1) : "—"}`;
     signalReason = `[${tfLabel}] PIVOT SELL (RANGING): Price (${fmt(currentPrice)}) at R1 resistance zone ${fmt(sellZoneLow)}–${fmt(sellZoneHigh)}. Market is ranging — mean-reversion setup (${pivotRegimeTagSell}). Watch for bearish rejection candle. Entry ${fmt(entryPrice)}, SL ${fmt(stopLoss)}, TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)}.`;
+  } else if (pivotBounceEnabled && inSellZone && sellAllowed && patternBullish) {
+    // All zone + indicator conditions are met but a confirmed bullish chart pattern
+    // specifically blocks this SELL.
+    patternVetoed = true;
+    signal = "WAIT";
+    entryPrice = round(pivots.r1);
+    stopLoss = round(sellZoneHigh + atr * 0.5);
+    takeProfit1 = round(floorTarget(entryPrice, stopLoss, pivots.pivot, MIN_RR_TP1, "SELL"));
+    takeProfit2 = round(floorTarget(entryPrice, stopLoss, buyZoneHigh, MIN_RR_TP2, "SELL"));
+    signalReason = `[${tfLabel}] Price is in the sell zone (${fmt(sellZoneLow)}–${fmt(sellZoneHigh)}) and all conditions are met, but entry is blocked by a confirmed bullish chart pattern.`;
   } else if (inBuyZone && !buyAllowed) {
     signal = "WAIT";
     const blockNote =
@@ -1752,7 +1788,9 @@ export function computeLevels(
   if (patternResult && signalReason) {
     const label = PATTERN_LABELS[patternResult.pattern] ?? patternResult.pattern;
     const confirmedStr = patternResult.confirmed ? "confirmed" : "forming";
-    if (signal === "WAIT" && (patternBearish || patternBullish)) {
+    if (patternVetoed) {
+      // Only append veto text when the pattern was specifically the blocking factor —
+      // not when signal is WAIT for unrelated reasons (price out of zone, etc.).
       const blocked = patternBearish ? "BUY" : "SELL";
       signalReason += ` [${label} (${confirmedStr}) — ${blocked} entry suppressed by pattern gate.]`;
     } else if (signal !== "WAIT") {
