@@ -28,7 +28,6 @@ function toUTC(dateStr: string): UTCTimestamp {
   return Math.floor(new Date(dateStr).getTime() / 1000) as UTCTimestamp;
 }
 
-
 export function LevelsChart({
   symbol,
   timeframe,
@@ -36,15 +35,17 @@ export function LevelsChart({
   symbol: string;
   timeframe: Timeframe;
 }) {
-  const containerRef    = useRef<HTMLDivElement>(null);
-  const chartRef        = useRef<IChartApi | null>(null);
-  const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
-  const buyZoneRef      = useRef<ISeriesApi<"Baseline"> | null>(null);
-  const sellZoneRef     = useRef<ISeriesApi<"Baseline"> | null>(null);
-  const linesRef        = useRef<IPriceLine[]>([]);
+  const containerRef      = useRef<HTMLDivElement>(null);
+  const chartRef          = useRef<IChartApi | null>(null);
+  const candleSeriesRef   = useRef<ISeriesApi<"Candlestick"> | null>(null);
+  const buyZoneRef        = useRef<ISeriesApi<"Baseline"> | null>(null);
+  const sellZoneRef       = useRef<ISeriesApi<"Baseline"> | null>(null);
+  const linesRef          = useRef<IPriceLine[]>([]);
   // First / last candle timestamps — used to anchor zone band data
-  const firstTsRef      = useRef<UTCTimestamp | null>(null);
-  const lastTsRef       = useRef<UTCTimestamp | null>(null);
+  const firstTsRef        = useRef<UTCTimestamp | null>(null);
+  const lastTsRef         = useRef<UTCTimestamp | null>(null);
+  // Only scroll to real-time once per chart instance (not on every 10s refetch)
+  const hasScrolledRef    = useRef(false);
 
   const histParams = { symbol: symbol as GetPriceHistorySymbol, timeframe, bars: 200 };
 
@@ -103,36 +104,34 @@ export function LevelsChart({
     });
 
     // ── Buy zone band (BaselineSeries) ────────────────────────────────────
-    // The baseline is set to buyZone.low; the series data value is buyZone.high.
-    // lightweight-charts fills the area between the value line and the baseline
-    // with topFillColor (above baseline) making a clean horizontal band.
+    // baseline = zone.low, data value = zone.high → fills the band between them
     const buyZone = chart.addSeries(BaselineSeries, {
-      priceScaleId:        "right",
-      baseValue:           { type: "price", price: 0 },
-      topFillColor1:       "rgba(34,197,94,0.18)",
-      topFillColor2:       "rgba(34,197,94,0.06)",
-      bottomFillColor1:    "rgba(0,0,0,0)",
-      bottomFillColor2:    "rgba(0,0,0,0)",
-      topLineColor:        "rgba(34,197,94,0.5)",
-      bottomLineColor:     "rgba(0,0,0,0)",
-      lineWidth:           1 as LineWidth,
-      priceLineVisible:    false,
-      lastValueVisible:    false,
+      priceScaleId:     "right",
+      baseValue:        { type: "price", price: 0 },
+      topFillColor1:    "rgba(34,197,94,0.18)",
+      topFillColor2:    "rgba(34,197,94,0.06)",
+      bottomFillColor1: "rgba(0,0,0,0)",
+      bottomFillColor2: "rgba(0,0,0,0)",
+      topLineColor:     "rgba(34,197,94,0.5)",
+      bottomLineColor:  "rgba(0,0,0,0)",
+      lineWidth:        1 as LineWidth,
+      priceLineVisible: false,
+      lastValueVisible: false,
     });
 
     // ── Sell zone band (BaselineSeries) ───────────────────────────────────
     const sellZone = chart.addSeries(BaselineSeries, {
-      priceScaleId:        "right",
-      baseValue:           { type: "price", price: 0 },
-      topFillColor1:       "rgba(239,68,68,0.18)",
-      topFillColor2:       "rgba(239,68,68,0.06)",
-      bottomFillColor1:    "rgba(0,0,0,0)",
-      bottomFillColor2:    "rgba(0,0,0,0)",
-      topLineColor:        "rgba(239,68,68,0.5)",
-      bottomLineColor:     "rgba(0,0,0,0)",
-      lineWidth:           1 as LineWidth,
-      priceLineVisible:    false,
-      lastValueVisible:    false,
+      priceScaleId:     "right",
+      baseValue:        { type: "price", price: 0 },
+      topFillColor1:    "rgba(239,68,68,0.18)",
+      topFillColor2:    "rgba(239,68,68,0.06)",
+      bottomFillColor1: "rgba(0,0,0,0)",
+      bottomFillColor2: "rgba(0,0,0,0)",
+      topLineColor:     "rgba(239,68,68,0.5)",
+      bottomLineColor:  "rgba(0,0,0,0)",
+      lineWidth:        1 as LineWidth,
+      priceLineVisible: false,
+      lastValueVisible: false,
     });
 
     candleSeriesRef.current = candles;
@@ -141,6 +140,8 @@ export function LevelsChart({
     chartRef.current        = chart;
     linesRef.current        = [];
     firstTsRef.current      = null;
+    lastTsRef.current       = null;
+    hasScrolledRef.current  = false;
 
     return () => {
       linesRef.current        = [];
@@ -149,6 +150,7 @@ export function LevelsChart({
       sellZoneRef.current     = null;
       firstTsRef.current      = null;
       lastTsRef.current       = null;
+      hasScrolledRef.current  = false;
       try { chart.remove(); } catch { /**/ }
       chartRef.current = null;
     };
@@ -170,14 +172,20 @@ export function LevelsChart({
     series.setData(data);
     firstTsRef.current = toUTC(history.candles[0].date);
     lastTsRef.current  = toUTC(history.candles[history.candles.length - 1].date);
-    chartRef.current?.timeScale().scrollToRealTime();
+
+    // Only scroll to the right edge on first load; don't yank the view back
+    // every time price-history refreshes (every 10 s).
+    if (!hasScrolledRef.current) {
+      chartRef.current?.timeScale().scrollToRealTime();
+      hasScrolledRef.current = true;
+    }
   }, [history]);
 
   // ── Refresh price lines + zone bands whenever levels change ───────────
   useEffect(() => {
-    const series    = candleSeriesRef.current;
-    const buyZone   = buyZoneRef.current;
-    const sellZone  = sellZoneRef.current;
+    const series   = candleSeriesRef.current;
+    const buyZone  = buyZoneRef.current;
+    const sellZone = sellZoneRef.current;
     if (!series || !buyZone || !sellZone || !levels) return;
 
     // Remove stale price lines
@@ -187,11 +195,11 @@ export function LevelsChart({
     linesRef.current = [];
 
     const addLine = (
-      price:  number,
-      color:  string,
-      title:  string,
-      style:  LineStyle = LineStyle.Solid,
-      width:  LineWidth = 1,
+      price: number,
+      color: string,
+      title: string,
+      style: LineStyle = LineStyle.Solid,
+      width: LineWidth = 1,
     ) => {
       const pl = series.createPriceLine({ price, color, title, lineWidth: width, lineStyle: style, axisLabelVisible: true });
       linesRef.current.push(pl);
@@ -200,15 +208,15 @@ export function LevelsChart({
     const isBuy  = levels.signal === "BUY";
     const isSell = levels.signal === "SELL";
 
-    // ── Active trade lines ───────────────────────────────────────────────
+    // ── Active trade lines ────────────────────────────────────────────────
     if (isBuy || isSell) {
       addLine(levels.entryPrice, isBuy ? "#22c55e" : "#ef4444", "Entry", LineStyle.Solid, 2);
-      addLine(levels.stopLoss,    "#ef4444", "SL",  LineStyle.Dashed, 1);
-      addLine(levels.takeProfit1, "#10b981", "TP1", LineStyle.Dashed, 1);
-      addLine(levels.takeProfit2, "#10b981", "TP2", LineStyle.Dashed, 1);
+      addLine(levels.stopLoss,    "#ef4444", "SL",  LineStyle.Dashed);
+      addLine(levels.takeProfit1, "#10b981", "TP1", LineStyle.Dashed);
+      addLine(levels.takeProfit2, "#10b981", "TP2", LineStyle.Dashed);
     }
 
-    // ── Pivot structure (S1–S3, R1–R3, Pivot from levels array) ─────────
+    // ── Pivot structure (S1–S3, R1–R3, Pivot) ────────────────────────────
     for (const { label, price, type } of levels.levels) {
       if (label.startsWith("Fib") || label.startsWith("Swing")) continue;
       addLine(
@@ -218,15 +226,21 @@ export function LevelsChart({
       );
     }
 
-    // ── Pattern neckline ─────────────────────────────────────────────────
+    // ── Pattern neckline ──────────────────────────────────────────────────
+    // Draw more prominently (solid, thicker) when the pattern is confirmed.
     if (levels.patternNeckline != null) {
-      addLine(levels.patternNeckline, "#a855f7", "Neckline", LineStyle.SparseDotted);
+      const confirmed = levels.patternConfirmed === true;
+      addLine(
+        levels.patternNeckline,
+        confirmed ? "#e879f9" : "#a855f7",
+        confirmed ? "Neckline ✓" : "Neckline",
+        confirmed ? LineStyle.Solid : LineStyle.SparseDotted,
+        confirmed ? 2 : 1,
+      );
     }
 
-    // ── Zone bands (BaselineSeries) ──────────────────────────────────────
-    // Anchor the band from the earliest loaded candle to the most recent one.
-    // Skip if candle timestamps aren't available yet — the effect will re-run
-    // once history arrives (it is listed as a dependency).
+    // ── Zone bands (BaselineSeries) ───────────────────────────────────────
+    // Skip until candle timestamps are available (effect re-runs with history dep).
     const anchorTs = firstTsRef.current;
     const latestTs = lastTsRef.current;
 
@@ -247,10 +261,25 @@ export function LevelsChart({
 
   // ── UI ────────────────────────────────────────────────────────────────
   const meta = getSymbolMeta(symbol);
+
   const signalColor =
     levels?.signal === "BUY"  ? "bg-emerald-500/95 text-black border-emerald-400" :
     levels?.signal === "SELL" ? "bg-red-500/95 text-black border-red-400" :
                                 "bg-amber-500/95 text-black border-amber-400";
+
+  const isPatternConfirmed =
+    levels?.patternConfirmed === true &&
+    levels?.detectedPattern != null;
+
+  const patternLabel = (() => {
+    if (!isPatternConfirmed || !levels?.detectedPattern) return null;
+    const raw = levels.detectedPattern as string;
+    const dir = levels.patternDirection as string | undefined;
+    // "DOUBLE_TOP" → "Double Top"
+    const name = raw.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+    const arrow = dir === "bearish" ? "▼" : dir === "bullish" ? "▲" : "";
+    return `${arrow} ${name} Confirmed`;
+  })();
 
   return (
     <div className="relative h-full w-full rounded-sm overflow-hidden border border-zinc-800">
@@ -270,6 +299,15 @@ export function LevelsChart({
           </span>
           <span className="px-2 py-0.5 rounded-sm bg-black/80 border border-zinc-700 text-zinc-100 text-[11px]">
             {fmtPriceMeta(meta, levels.currentPrice)}
+          </span>
+        </div>
+      )}
+
+      {/* Pattern badge — bottom-left, only when confirmed */}
+      {patternLabel && (
+        <div className="absolute bottom-6 left-3 z-20 pointer-events-none select-none">
+          <span className="px-2 py-0.5 rounded-sm font-mono font-semibold text-[11px] bg-fuchsia-950/90 border border-fuchsia-500/60 text-fuchsia-300 tracking-wide">
+            {patternLabel}
           </span>
         </div>
       )}
