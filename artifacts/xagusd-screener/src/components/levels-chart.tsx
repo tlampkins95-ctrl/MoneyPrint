@@ -8,6 +8,7 @@ import {
   type ISeriesApi,
   type IPriceLine,
   type UTCTimestamp,
+  type BusinessDay,
   type Time,
   type LineWidth,
 } from "lightweight-charts";
@@ -23,15 +24,17 @@ import { getSymbolMeta, fmtPriceMeta } from "@/lib/symbols";
 
 // Convert a candle date string to the correct lightweight-charts Time type.
 //
-// Daily candles:   "2026-05-11"               → returned as-is (business day string).
-//   lightweight-charts spaces business days evenly — no weekend/holiday gaps.
+// Daily candles:    "2026-05-11"                → BusinessDay object { year, month, day }.
+//   lightweight-charts spaces BusinessDay values as consecutive trading days,
+//   so Saturday/Sunday never appear as blank columns.
 // Intraday candles: "2026-05-15T04:00:00.000Z" → UTCTimestamp (epoch seconds).
-//   Real calendar timestamps are needed so bars land on their correct time slot.
+//   Real calendar timestamps are needed so bars land on the correct clock slot.
 function toTime(dateStr: string): Time {
   if (dateStr.includes("T")) {
     return Math.floor(new Date(dateStr).getTime() / 1000) as UTCTimestamp;
   }
-  return dateStr as Time;
+  const [year, month, day] = dateStr.split("-").map(Number);
+  return { year, month, day } as BusinessDay;
 }
 
 export function LevelsChart({
