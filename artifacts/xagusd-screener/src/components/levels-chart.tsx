@@ -226,17 +226,14 @@ export function LevelsChart({
       );
     }
 
-    // ── Pattern neckline ──────────────────────────────────────────────────
-    // Draw more prominently (solid, thicker) when the pattern is confirmed.
+    // ── Pattern key level ─────────────────────────────────────────────────
+    // "Neckline" is a Head & Shoulders concept; double top/bottom use a
+    // breakdown/breakout support level instead.
     if (levels.patternNeckline != null) {
-      const confirmed = levels.patternConfirmed === true;
-      addLine(
-        levels.patternNeckline,
-        confirmed ? "#e879f9" : "#a855f7",
-        confirmed ? "Neckline ✓" : "Neckline",
-        confirmed ? LineStyle.Solid : LineStyle.SparseDotted,
-        confirmed ? 2 : 1,
-      );
+      const p = levels.detectedPattern;
+      const isHS = p === "HEAD_AND_SHOULDERS" || p === "INVERSE_HEAD_AND_SHOULDERS";
+      const label = isHS ? "Neckline" : "Break Lvl";
+      addLine(levels.patternNeckline, "#a855f7", label, LineStyle.SparseDotted, 1);
     }
 
     // ── Zone bands (BaselineSeries) ───────────────────────────────────────
