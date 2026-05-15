@@ -242,7 +242,7 @@ export function LevelsChart({
       { time: anchorTs as Time, value: levels.sellZone.high },
       { time: latestTs as Time, value: levels.sellZone.high },
     ]);
-  }, [levels]);
+  }, [levels, history]);
 
   // ── UI ────────────────────────────────────────────────────────────────
   const meta = getSymbolMeta(symbol);
