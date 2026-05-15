@@ -407,6 +407,7 @@ export const GetBacktestQueryParams = zod.object({
     .enum([
       "XAGUSD",
       "XAUUSD",
+      "EURUSD",
       "GBPUSD",
       "AUDUSD",
       "BTCUSD",
@@ -1078,6 +1079,7 @@ export const GetPriceHistoryQueryParams = zod.object({
     .enum([
       "XAGUSD",
       "XAUUSD",
+      "EURUSD",
       "GBPUSD",
       "AUDUSD",
       "BTCUSD",
