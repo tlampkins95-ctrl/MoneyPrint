@@ -5,6 +5,7 @@ import { SYMBOLS, makeRounder, type Symbol, type SymbolMeta } from "./symbols";
 import { type CandleRaw, type Timeframe } from "./yahoo-fetch";
 import { fetchOkxPerpPrice, fetchPhemexPerpPrice } from "./crypto-perp-fetch";
 import { fetchPythPrice } from "./pyth-fetch";
+import { detectReversalPattern, type PatternResult } from "./patterns";
 
 // ─── Live spot price (per-symbol cache) ──────────────────────────────────────
 
@@ -1458,6 +1459,21 @@ export function computeLevels(
   // BREAKOUT (-74.79R, 4% WR) and FIB_BOUNCE (-9.98R, 4% WR) remain off permanently.
   const choppinessOk = !Number.isFinite(choppiness) || choppiness > 55;
   const pivotBounceEnabled = trend === "RANGING" && choppinessOk;
+
+  // ─── Chart-pattern recognition gate ─────────────────────────────────────────
+  // Detects H&S, Inv H&S, Double Top, Double Bottom on the current candle set.
+  // Only CONFIRMED patterns (neckline break on a closed bar) veto signal entries.
+  // Forming (unconfirmed) patterns are returned in the response for UI display
+  // but do not block entries — the pattern may still fail before completing.
+  const patternResult: PatternResult | null = detectReversalPattern(candles);
+  const patternBearish = patternResult?.confirmed === true && patternResult.direction === "bearish";
+  const patternBullish = patternResult?.confirmed === true && patternResult.direction === "bullish";
+  const PATTERN_LABELS: Record<string, string> = {
+    HEAD_AND_SHOULDERS:          "Head & Shoulders",
+    INVERSE_HEAD_AND_SHOULDERS:  "Inv. Head & Shoulders",
+    DOUBLE_TOP:                  "Double Top",
+    DOUBLE_BOTTOM:               "Double Bottom",
+  };
   const breakoutEnabled    = false; // -74.79R production — no edge at any timeframe
   const fibBounceAllowed   = false; // -9.98R production  — no edge at any timeframe
 
@@ -1492,14 +1508,16 @@ export function computeLevels(
   // including MACD and EMA200 — those are appropriate for momentum breaks.
   const buyAllowed  = (isNaN(rsi) || rsi <= RSI_OVERSOLD)
     && macdBuyOk
-    && ema200BuyOk;
+    && ema200BuyOk
+    && !patternBearish; // confirmed bearish pattern (H&S / Double Top) vetos BUY
   // SELL gate: RSI overbought + trend is NOT an established uptrend.
   // Selling into a strong uptrend = fighting momentum. Mean-reversion shorts
   // only have edge in ranging or downtrending markets. Production data: SELL
   // signals in UPTREND regime → 0% WR, -12R. The trend filter stops that.
   const sellAllowed = (isNaN(rsi) || rsi >= RSI_OVERBOUGHT)
     && !isLongOnly
-    && trend !== "UPTREND";
+    && trend !== "UPTREND"
+    && !patternBullish; // confirmed bullish pattern (Inv H&S / Double Bottom) vetos SELL
 
   // ─── Golden-pocket inputs (computed here; FIB_BOUNCE fires last — see below) ──
   // FIB_BOUNCE is lowest priority: PIVOT_BOUNCE and BREAKOUT always get first
@@ -1528,7 +1546,7 @@ export function computeLevels(
     // A bull DAGGER in a confirmed downtrend is a counter-trend fade — blocked.
     // A bear DAGGER in a confirmed uptrend is the same — blocked.
     // When ranging (ADX < 25) both sides are allowed; wave structure is its own filter.
-    if (bullTrigger && macdBreakoutBuyOk && trend !== "DOWNTREND") {
+    if (bullTrigger && macdBreakoutBuyOk && trend !== "DOWNTREND" && !patternBearish) {
       const ds = findDaggerBullSetup(candles, n - 1, atr);
       // Entry bar must not have violated the wave 2 low (C still intact)
       if (ds && last.low > ds.cPrice) {
@@ -1543,7 +1561,7 @@ export function computeLevels(
       }
     }
 
-    if (signal === "WAIT" && bearTrigger && macdBreakoutSellOk && !isLongOnly && trend !== "UPTREND") {
+    if (signal === "WAIT" && bearTrigger && macdBreakoutSellOk && !isLongOnly && trend !== "UPTREND" && !patternBullish) {
       const ds = findDaggerBearSetup(candles, n - 1, atr);
       if (ds && last.high < ds.cPrice) {
         signal     = "SELL";
@@ -1725,6 +1743,26 @@ export function computeLevels(
       : `[${tfLabel}] FIB GOLDEN POCKET approaching: Price (${fmt(currentPrice)}) is within ${fmt(currentPrice - goldenPocket!.high)} of the golden pocket (${fmt(goldenPocket!.low)}–${fmt(goldenPocket!.high)}). Stage a limit order at ${fmt(goldenPocket!.fib618)} (61.8% of ${fmt(impulse!.swingLow)}→${fmt(impulse!.swingHigh)}).`;
   }
 
+  // ─── Pattern annotation (append to signalReason) ─────────────────────────────
+  // Adds a brief suffix so the trader can see pattern context in the reason text.
+  // Veto note: when a confirmed pattern blocked an entry the signal is WAIT;
+  //   append which pattern caused the gate so it is visible in the UI.
+  // Reinforce note: when the signal direction agrees with the pattern append a
+  //   confirmation marker — useful for trade conviction.
+  if (patternResult && signalReason) {
+    const label = PATTERN_LABELS[patternResult.pattern] ?? patternResult.pattern;
+    const confirmedStr = patternResult.confirmed ? "confirmed" : "forming";
+    if (signal === "WAIT" && (patternBearish || patternBullish)) {
+      const blocked = patternBearish ? "BUY" : "SELL";
+      signalReason += ` [${label} (${confirmedStr}) — ${blocked} entry suppressed by pattern gate.]`;
+    } else if (signal !== "WAIT") {
+      const signalDir = signal === "BUY" ? "bullish" : "bearish";
+      if (signalDir === patternResult.direction) {
+        signalReason += ` [Aligned with ${label} (${confirmedStr}).]`;
+      }
+    }
+  }
+
   const riskDist = Math.abs(entryPrice - stopLoss);
   const rewardDist = Math.abs(takeProfit1 - entryPrice);
   const riskRewardRatio = riskDist > 0 ? Math.round((rewardDist / riskDist) * 100) / 100 : 0;
@@ -1795,6 +1833,10 @@ export function computeLevels(
     choppiness: Number.isFinite(choppiness) ? choppiness : undefined,
     swingRhythm: swingRhythm ?? undefined,
     rsi: isNaN(rsi) ? undefined : rsi,
+    detectedPattern: patternResult?.pattern,
+    patternDirection: patternResult?.direction,
+    patternConfirmed: patternResult?.confirmed,
+    patternNeckline: patternResult?.necklinePrice,
     lastUpdated: new Date().toISOString(),
     positionSizing,
   };

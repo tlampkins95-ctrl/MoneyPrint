@@ -241,11 +241,36 @@ export function SignalPanel({
               <span className="mt-1 px-3 py-0.5 text-[10px] font-bold tracking-widest rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/40">
                 ◈ BREAKOUT
               </span>
+            ) : data.signalType === "DAGGER" ? (
+              <span className="mt-1 px-3 py-0.5 text-[10px] font-bold tracking-widest rounded-full bg-violet-500/20 text-violet-300 border border-violet-500/40">
+                🗡 DAGGER
+              </span>
             ) : (
               <span className="mt-1 px-3 py-0.5 text-[10px] font-bold tracking-widest rounded-full bg-zinc-700/40 text-zinc-400 border border-zinc-600/40">
                 ↕ PIVOT BOUNCE
               </span>
             )
+          )}
+          {data.detectedPattern && (
+            <span className={[
+              "mt-1 px-2 py-0.5 text-[9px] font-bold tracking-widest rounded-full border",
+              data.patternConfirmed
+                ? data.patternDirection === "bearish"
+                  ? "bg-rose-950/70 text-rose-300 border-rose-700/50"
+                  : "bg-emerald-950/70 text-emerald-300 border-emerald-700/50"
+                : "bg-zinc-800/60 text-zinc-400 border-zinc-600/40",
+            ].join(" ")}>
+              {data.patternConfirmed
+                ? data.patternDirection === "bearish" ? "⚠ " : "✓ "
+                : "◌ "}
+              {{
+                HEAD_AND_SHOULDERS:         "H&S",
+                INVERSE_HEAD_AND_SHOULDERS: "Inv H&S",
+                DOUBLE_TOP:                 "Double Top",
+                DOUBLE_BOTTOM:              "Double Bottom",
+              }[data.detectedPattern] ?? data.detectedPattern}
+              {data.patternConfirmed ? " (confirmed)" : " (forming)"}
+            </span>
           )}
           {poorWinRate && btData && (
             <div className="mt-2 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-950/60 border border-rose-700/50 text-rose-300 text-[10px] font-mono font-semibold tracking-wide">

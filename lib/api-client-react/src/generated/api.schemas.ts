@@ -140,6 +140,30 @@ export type LevelsDataSwingRhythm = {
 };
 
 /**
+ * Classical reversal pattern detected on this symbol/timeframe. Absent when none found. Confirmed patterns (neckline break on a closed bar) gate signal entries; forming patterns are informational only.
+ */
+export type LevelsDataDetectedPattern =
+  (typeof LevelsDataDetectedPattern)[keyof typeof LevelsDataDetectedPattern];
+
+export const LevelsDataDetectedPattern = {
+  HEAD_AND_SHOULDERS: "HEAD_AND_SHOULDERS",
+  INVERSE_HEAD_AND_SHOULDERS: "INVERSE_HEAD_AND_SHOULDERS",
+  DOUBLE_TOP: "DOUBLE_TOP",
+  DOUBLE_BOTTOM: "DOUBLE_BOTTOM",
+} as const;
+
+/**
+ * Trade direction implied by the detected pattern. Absent when no pattern is detected.
+ */
+export type LevelsDataPatternDirection =
+  (typeof LevelsDataPatternDirection)[keyof typeof LevelsDataPatternDirection];
+
+export const LevelsDataPatternDirection = {
+  bearish: "bearish",
+  bullish: "bullish",
+} as const;
+
+/**
  * Which trading venue this symbol uses. PHEMEX = Phemex USDT-margined perps (BTC/ETH, collateral × leverage, up to 100×). MT5 = MetaTrader 5 (forex/metals, lot-based sizing). PHEMEX_SPOT = Phemex spot (no leverage, whole-token sizing).
  */
 export type PositionSizingVenue =
@@ -308,6 +332,14 @@ export interface LevelsData {
   swingRhythm?: LevelsDataSwingRhythm;
   /** RSI-14 value (0-100). BUY signals require ≤40; SELL signals require ≥60. */
   rsi?: number;
+  /** Classical reversal pattern detected on this symbol/timeframe. Absent when none found. Confirmed patterns (neckline break on a closed bar) gate signal entries; forming patterns are informational only. */
+  detectedPattern?: LevelsDataDetectedPattern;
+  /** Trade direction implied by the detected pattern. Absent when no pattern is detected. */
+  patternDirection?: LevelsDataPatternDirection;
+  /** True when the neckline/valley break has closed (not just wicked). Only confirmed patterns are used as veto gates. */
+  patternConfirmed?: boolean;
+  /** Price level of the pattern neckline or valley (the break level). Absent when no pattern detected. */
+  patternNeckline?: number;
   lastUpdated: string;
   positionSizing?: PositionSizing;
 }

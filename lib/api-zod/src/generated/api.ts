@@ -182,6 +182,35 @@ export const GetLevelsResponse = zod.object({
     .describe(
       "RSI-14 value (0-100). BUY signals require ≤40; SELL signals require ≥60.",
     ),
+  detectedPattern: zod
+    .enum([
+      "HEAD_AND_SHOULDERS",
+      "INVERSE_HEAD_AND_SHOULDERS",
+      "DOUBLE_TOP",
+      "DOUBLE_BOTTOM",
+    ])
+    .optional()
+    .describe(
+      "Classical reversal pattern detected on this symbol\/timeframe. Absent when none found. Confirmed patterns (neckline break on a closed bar) gate signal entries; forming patterns are informational only.",
+    ),
+  patternDirection: zod
+    .enum(["bearish", "bullish"])
+    .optional()
+    .describe(
+      "Trade direction implied by the detected pattern. Absent when no pattern is detected.",
+    ),
+  patternConfirmed: zod
+    .boolean()
+    .optional()
+    .describe(
+      "True when the neckline\/valley break has closed (not just wicked). Only confirmed patterns are used as veto gates.",
+    ),
+  patternNeckline: zod
+    .number()
+    .optional()
+    .describe(
+      "Price level of the pattern neckline or valley (the break level). Absent when no pattern detected.",
+    ),
   lastUpdated: zod.string(),
   positionSizing: zod
     .object({
@@ -620,6 +649,35 @@ export const GetActiveSignalsResponse = zod.object({
               .optional()
               .describe(
                 "RSI-14 value (0-100). BUY signals require ≤40; SELL signals require ≥60.",
+              ),
+            detectedPattern: zod
+              .enum([
+                "HEAD_AND_SHOULDERS",
+                "INVERSE_HEAD_AND_SHOULDERS",
+                "DOUBLE_TOP",
+                "DOUBLE_BOTTOM",
+              ])
+              .optional()
+              .describe(
+                "Classical reversal pattern detected on this symbol\/timeframe. Absent when none found. Confirmed patterns (neckline break on a closed bar) gate signal entries; forming patterns are informational only.",
+              ),
+            patternDirection: zod
+              .enum(["bearish", "bullish"])
+              .optional()
+              .describe(
+                "Trade direction implied by the detected pattern. Absent when no pattern is detected.",
+              ),
+            patternConfirmed: zod
+              .boolean()
+              .optional()
+              .describe(
+                "True when the neckline\/valley break has closed (not just wicked). Only confirmed patterns are used as veto gates.",
+              ),
+            patternNeckline: zod
+              .number()
+              .optional()
+              .describe(
+                "Price level of the pattern neckline or valley (the break level). Absent when no pattern detected.",
               ),
             lastUpdated: zod.string(),
             positionSizing: zod

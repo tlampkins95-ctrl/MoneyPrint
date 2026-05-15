@@ -5,6 +5,8 @@
  * XAGUSD Screener API
  * OpenAPI spec version: 0.2.0
  */
+import type { LevelsDataDetectedPattern } from "./levelsDataDetectedPattern";
+import type { LevelsDataPatternDirection } from "./levelsDataPatternDirection";
 import type { LevelsDataSignal } from "./levelsDataSignal";
 import type { LevelsDataSignalType } from "./levelsDataSignalType";
 import type { LevelsDataSwingRhythm } from "./levelsDataSwingRhythm";
@@ -55,6 +57,14 @@ export interface LevelsData {
   swingRhythm?: LevelsDataSwingRhythm;
   /** RSI-14 value (0-100). BUY signals require ≤40; SELL signals require ≥60. */
   rsi?: number;
+  /** Classical reversal pattern detected on this symbol/timeframe. Absent when none found. Confirmed patterns (neckline break on a closed bar) gate signal entries; forming patterns are informational only. */
+  detectedPattern?: LevelsDataDetectedPattern;
+  /** Trade direction implied by the detected pattern. Absent when no pattern is detected. */
+  patternDirection?: LevelsDataPatternDirection;
+  /** True when the neckline/valley break has closed (not just wicked). Only confirmed patterns are used as veto gates. */
+  patternConfirmed?: boolean;
+  /** Price level of the pattern neckline or valley (the break level). Absent when no pattern detected. */
+  patternNeckline?: number;
   lastUpdated: string;
   positionSizing?: PositionSizing;
 }

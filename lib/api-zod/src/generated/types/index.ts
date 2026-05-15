@@ -33,6 +33,8 @@ export * from "./getPriceHistoryTimeframe";
 export * from "./getTradeHistoryParams";
 export * from "./healthStatus";
 export * from "./levelsData";
+export * from "./levelsDataDetectedPattern";
+export * from "./levelsDataPatternDirection";
 export * from "./levelsDataSignal";
 export * from "./levelsDataSignalType";
 export * from "./levelsDataSwingRhythm";
