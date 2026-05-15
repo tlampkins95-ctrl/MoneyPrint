@@ -2,10 +2,12 @@ import { useEffect, useRef } from "react";
 import {
   createChart,
   CandlestickSeries,
+  BaselineSeries,
   LineStyle,
   type IChartApi,
   type ISeriesApi,
   type IPriceLine,
+  type UTCTimestamp,
   type Time,
   type LineWidth,
 } from "lightweight-charts";
@@ -19,6 +21,14 @@ import {
 import type { Timeframe } from "@/components/timeframe-selector";
 import { getSymbolMeta, fmtPriceMeta } from "@/lib/symbols";
 
+// Convert any ISO date/datetime string to a UTCTimestamp (seconds) that
+// lightweight-charts requires for the time axis. Works for both daily
+// ("2026-05-11") and intraday ("2026-05-15T04:00:00.000Z") formats.
+function toUTC(dateStr: string): UTCTimestamp {
+  return Math.floor(new Date(dateStr).getTime() / 1000) as UTCTimestamp;
+}
+
+
 export function LevelsChart({
   symbol,
   timeframe,
@@ -26,20 +36,24 @@ export function LevelsChart({
   symbol: string;
   timeframe: Timeframe;
 }) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const chartRef    = useRef<IChartApi | null>(null);
-  const seriesRef   = useRef<ISeriesApi<"Candlestick"> | null>(null);
-  const linesRef    = useRef<IPriceLine[]>([]);
+  const containerRef    = useRef<HTMLDivElement>(null);
+  const chartRef        = useRef<IChartApi | null>(null);
+  const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+  const buyZoneRef      = useRef<ISeriesApi<"Baseline"> | null>(null);
+  const sellZoneRef     = useRef<ISeriesApi<"Baseline"> | null>(null);
+  const linesRef        = useRef<IPriceLine[]>([]);
+  // First / last candle timestamps — used to anchor zone band data
+  const firstTsRef      = useRef<UTCTimestamp | null>(null);
+  const lastTsRef       = useRef<UTCTimestamp | null>(null);
 
-  const { data: history } = useGetPriceHistory(
-    { symbol: symbol as GetPriceHistorySymbol, timeframe, bars: 200 },
-    {
-      query: {
-        queryKey: getGetPriceHistoryQueryKey({ symbol: symbol as GetPriceHistorySymbol, timeframe, bars: 200 }),
-        refetchInterval: 60_000,
-      },
+  const histParams = { symbol: symbol as GetPriceHistorySymbol, timeframe, bars: 200 };
+
+  const { data: history } = useGetPriceHistory(histParams, {
+    query: {
+      queryKey: getGetPriceHistoryQueryKey(histParams),
+      refetchInterval: 10_000,
     },
-  );
+  });
 
   const { data: levels } = useGetLevels(
     { symbol, timeframe },
@@ -67,9 +81,7 @@ export function LevelsChart({
         vertLines: { color: "#18181b" },
         horzLines: { color: "#18181b" },
       },
-      rightPriceScale: {
-        borderColor: "#27272a",
-      },
+      rightPriceScale: { borderColor: "#27272a" },
       timeScale: {
         borderColor: "#27272a",
         timeVisible: true,
@@ -79,23 +91,64 @@ export function LevelsChart({
       autoSize: true,
     });
 
-    const series = chart.addSeries(CandlestickSeries, {
-      upColor:        "#22c55e",
-      downColor:      "#ef4444",
-      borderUpColor:  "#22c55e",
-      borderDownColor:"#ef4444",
-      wickUpColor:    "#22c55e",
-      wickDownColor:  "#ef4444",
+    // ── Candlestick series ────────────────────────────────────────────────
+    const candles = chart.addSeries(CandlestickSeries, {
+      upColor:          "#22c55e",
+      downColor:        "#ef4444",
+      borderUpColor:    "#22c55e",
+      borderDownColor:  "#ef4444",
+      wickUpColor:      "#22c55e",
+      wickDownColor:    "#ef4444",
       priceLineVisible: false,
     });
 
-    chartRef.current  = chart;
-    seriesRef.current = series;
-    linesRef.current  = [];
+    // ── Buy zone band (BaselineSeries) ────────────────────────────────────
+    // The baseline is set to buyZone.low; the series data value is buyZone.high.
+    // lightweight-charts fills the area between the value line and the baseline
+    // with topFillColor (above baseline) making a clean horizontal band.
+    const buyZone = chart.addSeries(BaselineSeries, {
+      priceScaleId:        "right",
+      baseValue:           { type: "price", price: 0 },
+      topFillColor1:       "rgba(34,197,94,0.18)",
+      topFillColor2:       "rgba(34,197,94,0.06)",
+      bottomFillColor1:    "rgba(0,0,0,0)",
+      bottomFillColor2:    "rgba(0,0,0,0)",
+      topLineColor:        "rgba(34,197,94,0.5)",
+      bottomLineColor:     "rgba(0,0,0,0)",
+      lineWidth:           1 as LineWidth,
+      priceLineVisible:    false,
+      lastValueVisible:    false,
+    });
+
+    // ── Sell zone band (BaselineSeries) ───────────────────────────────────
+    const sellZone = chart.addSeries(BaselineSeries, {
+      priceScaleId:        "right",
+      baseValue:           { type: "price", price: 0 },
+      topFillColor1:       "rgba(239,68,68,0.18)",
+      topFillColor2:       "rgba(239,68,68,0.06)",
+      bottomFillColor1:    "rgba(0,0,0,0)",
+      bottomFillColor2:    "rgba(0,0,0,0)",
+      topLineColor:        "rgba(239,68,68,0.5)",
+      bottomLineColor:     "rgba(0,0,0,0)",
+      lineWidth:           1 as LineWidth,
+      priceLineVisible:    false,
+      lastValueVisible:    false,
+    });
+
+    candleSeriesRef.current = candles;
+    buyZoneRef.current      = buyZone;
+    sellZoneRef.current     = sellZone;
+    chartRef.current        = chart;
+    linesRef.current        = [];
+    firstTsRef.current      = null;
 
     return () => {
-      linesRef.current  = [];
-      seriesRef.current = null;
+      linesRef.current        = [];
+      candleSeriesRef.current = null;
+      buyZoneRef.current      = null;
+      sellZoneRef.current     = null;
+      firstTsRef.current      = null;
+      lastTsRef.current       = null;
       try { chart.remove(); } catch { /**/ }
       chartRef.current = null;
     };
@@ -103,45 +156,45 @@ export function LevelsChart({
 
   // ── Feed candle data ───────────────────────────────────────────────────
   useEffect(() => {
-    const series = seriesRef.current;
+    const series = candleSeriesRef.current;
     if (!series || !history?.candles?.length) return;
 
-    try {
-      series.setData(
-        history.candles.map((c) => ({
-          time:  c.date as Time,
-          open:  c.open,
-          high:  c.high,
-          low:   c.low,
-          close: c.close,
-        })),
-      );
-      chartRef.current?.timeScale().scrollToRealTime();
-    } catch { /**/ }
+    const data = history.candles.map((c) => ({
+      time:  toUTC(c.date) as Time,
+      open:  c.open,
+      high:  c.high,
+      low:   c.low,
+      close: c.close,
+    }));
+
+    series.setData(data);
+    firstTsRef.current = toUTC(history.candles[0].date);
+    lastTsRef.current  = toUTC(history.candles[history.candles.length - 1].date);
+    chartRef.current?.timeScale().scrollToRealTime();
   }, [history]);
 
-  // ── Draw / refresh price lines whenever levels change ──────────────────
+  // ── Refresh price lines + zone bands whenever levels change ───────────
   useEffect(() => {
-    const series = seriesRef.current;
-    if (!series || !levels) return;
+    const series    = candleSeriesRef.current;
+    const buyZone   = buyZoneRef.current;
+    const sellZone  = sellZoneRef.current;
+    if (!series || !buyZone || !sellZone || !levels) return;
 
+    // Remove stale price lines
     for (const pl of linesRef.current) {
       try { series.removePriceLine(pl); } catch { /**/ }
     }
     linesRef.current = [];
 
-    const add = (
+    const addLine = (
       price:  number,
       color:  string,
       title:  string,
-      style:  LineStyle  = LineStyle.Solid,
-      width:  LineWidth  = 1,
+      style:  LineStyle = LineStyle.Solid,
+      width:  LineWidth = 1,
     ) => {
-      try {
-        linesRef.current.push(
-          series.createPriceLine({ price, color, title, lineWidth: width, lineStyle: style, axisLabelVisible: true }),
-        );
-      } catch { /**/ }
+      const pl = series.createPriceLine({ price, color, title, lineWidth: width, lineStyle: style, axisLabelVisible: true });
+      linesRef.current.push(pl);
     };
 
     const isBuy  = levels.signal === "BUY";
@@ -149,34 +202,46 @@ export function LevelsChart({
 
     // ── Active trade lines ───────────────────────────────────────────────
     if (isBuy || isSell) {
-      add(levels.entryPrice, isBuy ? "#22c55e" : "#ef4444", "Entry", LineStyle.Solid, 2);
-      add(levels.stopLoss,   "#ef4444", "SL",  LineStyle.Dashed, 1);
-      add(levels.takeProfit1,"#10b981", "TP1", LineStyle.Dashed, 1);
-      add(levels.takeProfit2,"#10b981", "TP2", LineStyle.Dashed, 1);
+      addLine(levels.entryPrice, isBuy ? "#22c55e" : "#ef4444", "Entry", LineStyle.Solid, 2);
+      addLine(levels.stopLoss,    "#ef4444", "SL",  LineStyle.Dashed, 1);
+      addLine(levels.takeProfit1, "#10b981", "TP1", LineStyle.Dashed, 1);
+      addLine(levels.takeProfit2, "#10b981", "TP2", LineStyle.Dashed, 1);
     }
 
-    // ── Pivot structure levels (S1–S3, R1–R3, Pivot) ────────────────────
+    // ── Pivot structure (S1–S3, R1–R3, Pivot from levels array) ─────────
     for (const { label, price, type } of levels.levels) {
       if (label.startsWith("Fib") || label.startsWith("Swing")) continue;
-      add(
+      addLine(
         price,
         type === "resistance" ? "#f97316" : type === "support" ? "#3b82f6" : "#71717a",
         label,
-        LineStyle.Solid,
-        1,
       );
     }
 
-    // ── Buy / sell zone boundaries ───────────────────────────────────────
-    add(levels.buyZone.low,   "#22c55e", "Buy↓",  LineStyle.Dotted, 1);
-    add(levels.buyZone.high,  "#22c55e", "Buy↑",  LineStyle.Dotted, 1);
-    add(levels.sellZone.low,  "#ef4444", "Sell↓", LineStyle.Dotted, 1);
-    add(levels.sellZone.high, "#ef4444", "Sell↑", LineStyle.Dotted, 1);
-
     // ── Pattern neckline ─────────────────────────────────────────────────
     if (levels.patternNeckline != null) {
-      add(levels.patternNeckline, "#a855f7", "Neckline", LineStyle.SparseDotted, 1);
+      addLine(levels.patternNeckline, "#a855f7", "Neckline", LineStyle.SparseDotted);
     }
+
+    // ── Zone bands (BaselineSeries) ──────────────────────────────────────
+    // Anchor the band from the earliest loaded candle to the most recent one.
+    // Using real candle timestamps keeps the time axis from expanding into the
+    // far future and ensures scrollToRealTime() lands on the last candle.
+    const nowSec    = Math.floor(Date.now() / 1000) as UTCTimestamp;
+    const anchorTs  = firstTsRef.current ?? nowSec;
+    const latestTs  = lastTsRef.current  ?? nowSec;
+
+    buyZone.applyOptions({ baseValue: { type: "price", price: levels.buyZone.low } });
+    buyZone.setData([
+      { time: anchorTs as Time, value: levels.buyZone.high },
+      { time: latestTs as Time, value: levels.buyZone.high },
+    ]);
+
+    sellZone.applyOptions({ baseValue: { type: "price", price: levels.sellZone.low } });
+    sellZone.setData([
+      { time: anchorTs as Time, value: levels.sellZone.high },
+      { time: latestTs as Time, value: levels.sellZone.high },
+    ]);
   }, [levels]);
 
   // ── UI ────────────────────────────────────────────────────────────────
