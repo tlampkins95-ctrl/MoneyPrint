@@ -21,11 +21,17 @@ import {
 import type { Timeframe } from "@/components/timeframe-selector";
 import { getSymbolMeta, fmtPriceMeta } from "@/lib/symbols";
 
-// Convert any ISO date/datetime string to a UTCTimestamp (seconds) that
-// lightweight-charts requires for the time axis. Works for both daily
-// ("2026-05-11") and intraday ("2026-05-15T04:00:00.000Z") formats.
-function toUTC(dateStr: string): UTCTimestamp {
-  return Math.floor(new Date(dateStr).getTime() / 1000) as UTCTimestamp;
+// Convert a candle date string to the correct lightweight-charts Time type.
+//
+// Daily candles:   "2026-05-11"               → returned as-is (business day string).
+//   lightweight-charts spaces business days evenly — no weekend/holiday gaps.
+// Intraday candles: "2026-05-15T04:00:00.000Z" → UTCTimestamp (epoch seconds).
+//   Real calendar timestamps are needed so bars land on their correct time slot.
+function toTime(dateStr: string): Time {
+  if (dateStr.includes("T")) {
+    return Math.floor(new Date(dateStr).getTime() / 1000) as UTCTimestamp;
+  }
+  return dateStr as Time;
 }
 
 export function LevelsChart({
@@ -41,9 +47,11 @@ export function LevelsChart({
   const buyZoneRef        = useRef<ISeriesApi<"Baseline"> | null>(null);
   const sellZoneRef       = useRef<ISeriesApi<"Baseline"> | null>(null);
   const linesRef          = useRef<IPriceLine[]>([]);
-  // First / last candle timestamps — used to anchor zone band data
-  const firstTsRef        = useRef<UTCTimestamp | null>(null);
-  const lastTsRef         = useRef<UTCTimestamp | null>(null);
+  // Raw date strings from the first/last candle — used to anchor zone band data.
+  // Stored as strings so toTime() can apply the right conversion (business-day
+  // vs UTCTimestamp) consistently when building BaselineSeries data points.
+  const firstDateRef      = useRef<string | null>(null);
+  const lastDateRef       = useRef<string | null>(null);
   // Only scroll to real-time once per chart instance (not on every 10s refetch)
   const hasScrolledRef    = useRef(false);
 
@@ -139,8 +147,8 @@ export function LevelsChart({
     sellZoneRef.current     = sellZone;
     chartRef.current        = chart;
     linesRef.current        = [];
-    firstTsRef.current      = null;
-    lastTsRef.current       = null;
+    firstDateRef.current    = null;
+    lastDateRef.current     = null;
     hasScrolledRef.current  = false;
 
     return () => {
@@ -148,8 +156,8 @@ export function LevelsChart({
       candleSeriesRef.current = null;
       buyZoneRef.current      = null;
       sellZoneRef.current     = null;
-      firstTsRef.current      = null;
-      lastTsRef.current       = null;
+      firstDateRef.current    = null;
+      lastDateRef.current     = null;
       hasScrolledRef.current  = false;
       try { chart.remove(); } catch { /**/ }
       chartRef.current = null;
@@ -162,7 +170,7 @@ export function LevelsChart({
     if (!series || !history?.candles?.length) return;
 
     const data = history.candles.map((c) => ({
-      time:  toUTC(c.date) as Time,
+      time:  toTime(c.date),
       open:  c.open,
       high:  c.high,
       low:   c.low,
@@ -170,8 +178,8 @@ export function LevelsChart({
     }));
 
     series.setData(data);
-    firstTsRef.current = toUTC(history.candles[0].date);
-    lastTsRef.current  = toUTC(history.candles[history.candles.length - 1].date);
+    firstDateRef.current = history.candles[0].date;
+    lastDateRef.current  = history.candles[history.candles.length - 1].date;
 
     // Only scroll to the right edge on first load; don't yank the view back
     // every time price-history refreshes (every 10 s).
@@ -237,21 +245,26 @@ export function LevelsChart({
     }
 
     // ── Zone bands (BaselineSeries) ───────────────────────────────────────
-    // Skip until candle timestamps are available (effect re-runs with history dep).
-    const anchorTs = firstTsRef.current;
-    const latestTs = lastTsRef.current;
+    // Skip until candle date strings are available (effect re-runs once history
+    // arrives, since history is a dependency). ISO date string comparison is
+    // lexicographically correct for "YYYY-MM-DD" and "YYYY-MM-DDTHH:mm:ss.sssZ".
+    const firstDate = firstDateRef.current;
+    const lastDate  = lastDateRef.current;
 
-    if (anchorTs !== null && latestTs !== null && anchorTs < latestTs) {
+    if (firstDate !== null && lastDate !== null && firstDate < lastDate) {
+      const anchorTs = toTime(firstDate);
+      const latestTs = toTime(lastDate);
+
       buyZone.applyOptions({ baseValue: { type: "price", price: levels.buyZone.low } });
       buyZone.setData([
-        { time: anchorTs as Time, value: levels.buyZone.high },
-        { time: latestTs as Time, value: levels.buyZone.high },
+        { time: anchorTs, value: levels.buyZone.high },
+        { time: latestTs, value: levels.buyZone.high },
       ]);
 
       sellZone.applyOptions({ baseValue: { type: "price", price: levels.sellZone.low } });
       sellZone.setData([
-        { time: anchorTs as Time, value: levels.sellZone.high },
-        { time: latestTs as Time, value: levels.sellZone.high },
+        { time: anchorTs, value: levels.sellZone.high },
+        { time: latestTs, value: levels.sellZone.high },
       ]);
     }
   }, [levels, history]);
