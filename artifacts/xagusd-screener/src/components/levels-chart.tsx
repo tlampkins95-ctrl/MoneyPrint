@@ -225,23 +225,24 @@ export function LevelsChart({
 
     // ── Zone bands (BaselineSeries) ──────────────────────────────────────
     // Anchor the band from the earliest loaded candle to the most recent one.
-    // Using real candle timestamps keeps the time axis from expanding into the
-    // far future and ensures scrollToRealTime() lands on the last candle.
-    const nowSec    = Math.floor(Date.now() / 1000) as UTCTimestamp;
-    const anchorTs  = firstTsRef.current ?? nowSec;
-    const latestTs  = lastTsRef.current  ?? nowSec;
+    // Skip if candle timestamps aren't available yet — the effect will re-run
+    // once history arrives (it is listed as a dependency).
+    const anchorTs = firstTsRef.current;
+    const latestTs = lastTsRef.current;
 
-    buyZone.applyOptions({ baseValue: { type: "price", price: levels.buyZone.low } });
-    buyZone.setData([
-      { time: anchorTs as Time, value: levels.buyZone.high },
-      { time: latestTs as Time, value: levels.buyZone.high },
-    ]);
+    if (anchorTs !== null && latestTs !== null && anchorTs < latestTs) {
+      buyZone.applyOptions({ baseValue: { type: "price", price: levels.buyZone.low } });
+      buyZone.setData([
+        { time: anchorTs as Time, value: levels.buyZone.high },
+        { time: latestTs as Time, value: levels.buyZone.high },
+      ]);
 
-    sellZone.applyOptions({ baseValue: { type: "price", price: levels.sellZone.low } });
-    sellZone.setData([
-      { time: anchorTs as Time, value: levels.sellZone.high },
-      { time: latestTs as Time, value: levels.sellZone.high },
-    ]);
+      sellZone.applyOptions({ baseValue: { type: "price", price: levels.sellZone.low } });
+      sellZone.setData([
+        { time: anchorTs as Time, value: levels.sellZone.high },
+        { time: latestTs as Time, value: levels.sellZone.high },
+      ]);
+    }
   }, [levels, history]);
 
   // ── UI ────────────────────────────────────────────────────────────────
