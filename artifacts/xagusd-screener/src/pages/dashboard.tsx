@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { TradingViewChart } from "@/components/trading-view-chart";
+import { LevelsChart } from "@/components/levels-chart";
 import { SignalPanel } from "@/components/signal-panel";
 import { ActiveSignalsOverview } from "@/components/active-signals-overview";
 import { TradeHistoryPanel } from "@/components/trade-history-panel";
@@ -141,7 +141,7 @@ export default function Dashboard() {
             {/* Chart + signal panel */}
             <div className="flex flex-col lg:flex-row gap-2 md:gap-3 lg:h-[1080px]">
               <div className="w-full h-[420px] md:h-[480px] lg:w-[58%] lg:h-auto lg:flex-1 lg:min-h-0">
-                <TradingViewChart symbol={symbol} timeframe={timeframe} />
+                <LevelsChart symbol={symbol} timeframe={timeframe} />
               </div>
               <div className={cn(
                 "w-full lg:w-[42%] lg:h-auto lg:min-h-0",
