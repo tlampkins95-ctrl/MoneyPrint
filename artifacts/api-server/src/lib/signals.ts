@@ -1461,24 +1461,29 @@ export function computeLevels(
   const pivotBounceEnabled = trend === "RANGING" && choppinessOk;
 
   // ─── Chart-pattern recognition gate ─────────────────────────────────────────
-  // Detects multi-bar chart patterns (H&S, triangles, wedges, flags) and
-  // single/two-bar candlestick patterns. Chart patterns take priority.
+  // Two independent detections run in parallel:
+  //   chartPattern  — multi-bar patterns (H&S, triangles, wedges, flags, pennants).
+  //                   Used for the UI `detectedPattern` field and the reversal veto gate.
+  //   candlestickResult — final-bar candlestick patterns (engulfing, hammer, etc.).
+  //                   Always evaluated independently; never silently skipped.
+  //                   Appended to signalReason as a confirmation/mismatch note.
   //
-  // Only CONFIRMED REVERSAL patterns (H&S, Double Top/Bottom) veto signal entries.
-  // Continuation/candlestick patterns reinforce direction — they add conviction
-  // but never independently block an entry.
-  // Forming patterns are returned in the response for UI display only.
-  const patternResult: PatternResult | null =
-    detectChartPattern(candles) ?? detectCandlestickSignal(candles);
-  // Veto gate: only confirmed REVERSAL patterns suppress entries.
+  // Only CONFIRMED REVERSAL chart patterns (H&S, Double Top/Bottom) veto signal entries.
+  // Continuation and candlestick patterns reinforce direction — add conviction, never block.
+  const chartPattern: PatternResult | null = detectChartPattern(candles);
+  const candlestickResult: PatternResult | null = detectCandlestickSignal(candles);
+  // `patternResult` drives UI display (chart pattern takes priority; falls back to
+  // candlestick only when no chart pattern is detected).
+  const patternResult: PatternResult | null = chartPattern ?? candlestickResult;
+  // Veto gate: only confirmed REVERSAL chart patterns suppress entries.
   const patternBearish =
-    patternResult?.confirmed === true &&
-    patternResult.direction  === "bearish" &&
-    patternResult.category   === "reversal";
+    chartPattern?.confirmed === true &&
+    chartPattern.direction  === "bearish" &&
+    chartPattern.category   === "reversal";
   const patternBullish =
-    patternResult?.confirmed === true &&
-    patternResult.direction  === "bullish" &&
-    patternResult.category   === "reversal";
+    chartPattern?.confirmed === true &&
+    chartPattern.direction  === "bullish" &&
+    chartPattern.category   === "reversal";
   const PATTERN_LABELS: Record<string, string> = {
     HEAD_AND_SHOULDERS:          "Head & Shoulders",
     INVERSE_HEAD_AND_SHOULDERS:  "Inv. Head & Shoulders",
@@ -1809,27 +1814,41 @@ export function computeLevels(
   //   append which pattern caused the gate so it is visible in the UI.
   // Reinforce note: when the signal direction agrees with the pattern append a
   //   confirmation marker — useful for trade conviction.
-  if (patternResult && signalReason) {
-    const label        = PATTERN_LABELS[patternResult.pattern] ?? patternResult.pattern;
-    const confirmedStr = patternResult.confirmed ? "confirmed" : "forming";
+  // ── Chart-pattern annotation ──────────────────────────────────────────────
+  // Appends veto or reinforcement notes from the multi-bar chart pattern.
+  if (chartPattern && signalReason) {
+    const label        = PATTERN_LABELS[chartPattern.pattern] ?? chartPattern.pattern;
+    const confirmedStr = chartPattern.confirmed ? "confirmed" : "forming";
 
     if (patternVetoed) {
       // Only append veto text when the reversal pattern was the specific blocking factor.
       const blocked = patternBearish ? "BUY" : "SELL";
       signalReason += ` [${label} (${confirmedStr}) — ${blocked} entry suppressed by reversal pattern gate.]`;
-    } else if (patternResult.category === "candlestick") {
-      // Candlestick patterns always just add a directional note — they never veto.
-      const dir = patternResult.direction === "bullish" ? "bullish" : "bearish";
-      signalReason += ` [${label} — ${dir} candlestick signal on the last closed bar.]`;
     } else if (signal !== "WAIT") {
       const signalDir = signal === "BUY" ? "bullish" : "bearish";
-      if (signalDir === patternResult.direction) {
-        // Continuation or reversal pattern aligned with signal direction.
+      if (signalDir === chartPattern.direction) {
         signalReason += ` [Aligned with ${label} (${confirmedStr}).]`;
-      } else if (patternResult.confirmed && patternResult.category !== "reversal") {
-        // Confirmed continuation pattern pointing opposite direction — note it without vetoing.
+      } else if (chartPattern.confirmed && chartPattern.category !== "reversal") {
         signalReason += ` [Note: ${label} (confirmed) suggests opposite direction — monitor.]`;
       }
+    }
+  }
+
+  // ── Candlestick annotation — always applied independently ─────────────────
+  // Candlestick patterns are a final-bar confirmation layer. They are evaluated
+  // regardless of whether a multi-bar chart pattern was also found.
+  // They never veto — they only add alignment or mismatch notes.
+  if (candlestickResult && signalReason) {
+    const csLabel  = PATTERN_LABELS[candlestickResult.pattern] ?? candlestickResult.pattern;
+    const csDir    = candlestickResult.direction;
+    const signalDir = signal === "BUY" ? "bullish" : signal === "SELL" ? "bearish" : null;
+    if (signalDir && signalDir === csDir) {
+      signalReason += ` [${csLabel} — aligned ${csDir} candlestick signal on the last bar.]`;
+    } else if (signalDir && signalDir !== csDir) {
+      signalReason += ` [${csLabel} — ${csDir} candlestick signal on last bar (counter-signal, monitor).]`;
+    } else {
+      // signal === "WAIT"
+      signalReason += ` [${csLabel} — ${csDir} candlestick signal on the last closed bar.]`;
     }
   }
 
