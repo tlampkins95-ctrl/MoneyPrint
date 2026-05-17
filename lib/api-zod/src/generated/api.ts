@@ -188,10 +188,23 @@ export const GetLevelsResponse = zod.object({
       "INVERSE_HEAD_AND_SHOULDERS",
       "DOUBLE_TOP",
       "DOUBLE_BOTTOM",
+      "ASCENDING_TRIANGLE",
+      "DESCENDING_TRIANGLE",
+      "SYMMETRICAL_TRIANGLE",
+      "RISING_WEDGE",
+      "FALLING_WEDGE",
+      "BULL_FLAG",
+      "BEAR_FLAG",
+      "BULL_PENNANT",
+      "BEAR_PENNANT",
+      "BULLISH_ENGULFING",
+      "BEARISH_ENGULFING",
+      "HAMMER",
+      "SHOOTING_STAR",
     ])
     .optional()
     .describe(
-      "Classical reversal pattern detected on this symbol\/timeframe. Absent when none found. Confirmed patterns (neckline break on a closed bar) gate signal entries; forming patterns are informational only.",
+      "Chart or candlestick pattern detected on this symbol\/timeframe. Absent when none found. Confirmed reversal patterns (H&S, Double Top\/Bottom) gate signal entries; continuation and candlestick patterns are informational\/reinforcing only.",
     ),
   patternDirection: zod
     .enum(["bearish", "bullish"])
@@ -203,13 +216,19 @@ export const GetLevelsResponse = zod.object({
     .boolean()
     .optional()
     .describe(
-      "True when the neckline\/valley break has closed (not just wicked). Only confirmed patterns are used as veto gates.",
+      "True when the key level has broken on a closed bar (not just a wick). Only confirmed reversal patterns are used as veto gates.",
     ),
   patternNeckline: zod
     .number()
     .optional()
     .describe(
-      "Price level of the pattern neckline or valley (the break level). Absent when no pattern detected.",
+      "Price level of the lower rail or neckline at the current bar. Absent when no pattern detected.",
+    ),
+  patternUpperBound: zod
+    .number()
+    .optional()
+    .describe(
+      "Price level of the upper rail at the current bar for two-line patterns (triangles, wedges, flags). Absent for single-line patterns and when no pattern is detected.",
     ),
   lastUpdated: zod.string(),
   positionSizing: zod
@@ -657,10 +676,23 @@ export const GetActiveSignalsResponse = zod.object({
                 "INVERSE_HEAD_AND_SHOULDERS",
                 "DOUBLE_TOP",
                 "DOUBLE_BOTTOM",
+                "ASCENDING_TRIANGLE",
+                "DESCENDING_TRIANGLE",
+                "SYMMETRICAL_TRIANGLE",
+                "RISING_WEDGE",
+                "FALLING_WEDGE",
+                "BULL_FLAG",
+                "BEAR_FLAG",
+                "BULL_PENNANT",
+                "BEAR_PENNANT",
+                "BULLISH_ENGULFING",
+                "BEARISH_ENGULFING",
+                "HAMMER",
+                "SHOOTING_STAR",
               ])
               .optional()
               .describe(
-                "Classical reversal pattern detected on this symbol\/timeframe. Absent when none found. Confirmed patterns (neckline break on a closed bar) gate signal entries; forming patterns are informational only.",
+                "Chart or candlestick pattern detected on this symbol\/timeframe. Absent when none found. Confirmed reversal patterns (H&S, Double Top\/Bottom) gate signal entries; continuation and candlestick patterns are informational\/reinforcing only.",
               ),
             patternDirection: zod
               .enum(["bearish", "bullish"])
@@ -672,13 +704,19 @@ export const GetActiveSignalsResponse = zod.object({
               .boolean()
               .optional()
               .describe(
-                "True when the neckline\/valley break has closed (not just wicked). Only confirmed patterns are used as veto gates.",
+                "True when the key level has broken on a closed bar (not just a wick). Only confirmed reversal patterns are used as veto gates.",
               ),
             patternNeckline: zod
               .number()
               .optional()
               .describe(
-                "Price level of the pattern neckline or valley (the break level). Absent when no pattern detected.",
+                "Price level of the lower rail or neckline at the current bar. Absent when no pattern detected.",
+              ),
+            patternUpperBound: zod
+              .number()
+              .optional()
+              .describe(
+                "Price level of the upper rail at the current bar for two-line patterns (triangles, wedges, flags). Absent for single-line patterns and when no pattern is detected.",
               ),
             lastUpdated: zod.string(),
             positionSizing: zod

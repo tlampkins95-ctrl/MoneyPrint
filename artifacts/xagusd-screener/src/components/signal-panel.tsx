@@ -264,10 +264,23 @@ export function SignalPanel({
                 ? data.patternDirection === "bearish" ? "⚠ " : "✓ "
                 : "◌ "}
               {{
-                HEAD_AND_SHOULDERS:         "H&S",
-                INVERSE_HEAD_AND_SHOULDERS: "Inv H&S",
-                DOUBLE_TOP:                 "Double Top",
-                DOUBLE_BOTTOM:              "Double Bottom",
+                HEAD_AND_SHOULDERS:          "H&S",
+                INVERSE_HEAD_AND_SHOULDERS:  "Inv H&S",
+                DOUBLE_TOP:                  "Double Top",
+                DOUBLE_BOTTOM:               "Double Bottom",
+                ASCENDING_TRIANGLE:          "Asc Triangle",
+                DESCENDING_TRIANGLE:         "Desc Triangle",
+                SYMMETRICAL_TRIANGLE:        "Sym Triangle",
+                RISING_WEDGE:                "Rising Wedge",
+                FALLING_WEDGE:               "Falling Wedge",
+                BULL_FLAG:                   "Bull Flag",
+                BEAR_FLAG:                   "Bear Flag",
+                BULL_PENNANT:                "Bull Pennant",
+                BEAR_PENNANT:                "Bear Pennant",
+                BULLISH_ENGULFING:           "Bull Engulf",
+                BEARISH_ENGULFING:           "Bear Engulf",
+                HAMMER:                      "Hammer",
+                SHOOTING_STAR:               "Shooting Star",
               }[data.detectedPattern] ?? data.detectedPattern}
               {data.patternConfirmed ? " (confirmed)" : " (forming)"}
             </span>

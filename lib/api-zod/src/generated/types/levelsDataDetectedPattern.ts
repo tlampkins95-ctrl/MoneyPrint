@@ -7,7 +7,7 @@
  */
 
 /**
- * Classical reversal pattern detected on this symbol/timeframe. Absent when none found. Confirmed patterns (neckline break on a closed bar) gate signal entries; forming patterns are informational only.
+ * Chart or candlestick pattern detected on this symbol/timeframe. Absent when none found. Confirmed reversal patterns (H&S, Double Top/Bottom) gate signal entries; continuation and candlestick patterns are informational/reinforcing only.
  */
 export type LevelsDataDetectedPattern =
   (typeof LevelsDataDetectedPattern)[keyof typeof LevelsDataDetectedPattern];
@@ -17,4 +17,17 @@ export const LevelsDataDetectedPattern = {
   INVERSE_HEAD_AND_SHOULDERS: "INVERSE_HEAD_AND_SHOULDERS",
   DOUBLE_TOP: "DOUBLE_TOP",
   DOUBLE_BOTTOM: "DOUBLE_BOTTOM",
+  ASCENDING_TRIANGLE: "ASCENDING_TRIANGLE",
+  DESCENDING_TRIANGLE: "DESCENDING_TRIANGLE",
+  SYMMETRICAL_TRIANGLE: "SYMMETRICAL_TRIANGLE",
+  RISING_WEDGE: "RISING_WEDGE",
+  FALLING_WEDGE: "FALLING_WEDGE",
+  BULL_FLAG: "BULL_FLAG",
+  BEAR_FLAG: "BEAR_FLAG",
+  BULL_PENNANT: "BULL_PENNANT",
+  BEAR_PENNANT: "BEAR_PENNANT",
+  BULLISH_ENGULFING: "BULLISH_ENGULFING",
+  BEARISH_ENGULFING: "BEARISH_ENGULFING",
+  HAMMER: "HAMMER",
+  SHOOTING_STAR: "SHOOTING_STAR",
 } as const;

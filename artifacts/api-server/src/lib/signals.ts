@@ -5,7 +5,7 @@ import { SYMBOLS, makeRounder, type Symbol, type SymbolMeta } from "./symbols";
 import { type CandleRaw, type Timeframe } from "./yahoo-fetch";
 import { fetchOkxPerpPrice, fetchPhemexPerpPrice } from "./crypto-perp-fetch";
 import { fetchPythPrice } from "./pyth-fetch";
-import { detectReversalPattern, type PatternResult } from "./patterns";
+import { detectChartPattern, detectCandlestickSignal, type PatternResult } from "./patterns";
 
 // ─── Live spot price (per-symbol cache) ──────────────────────────────────────
 
@@ -1461,18 +1461,42 @@ export function computeLevels(
   const pivotBounceEnabled = trend === "RANGING" && choppinessOk;
 
   // ─── Chart-pattern recognition gate ─────────────────────────────────────────
-  // Detects H&S, Inv H&S, Double Top, Double Bottom on the current candle set.
-  // Only CONFIRMED patterns (neckline break on a closed bar) veto signal entries.
-  // Forming (unconfirmed) patterns are returned in the response for UI display
-  // but do not block entries — the pattern may still fail before completing.
-  const patternResult: PatternResult | null = detectReversalPattern(candles);
-  const patternBearish = patternResult?.confirmed === true && patternResult.direction === "bearish";
-  const patternBullish = patternResult?.confirmed === true && patternResult.direction === "bullish";
+  // Detects multi-bar chart patterns (H&S, triangles, wedges, flags) and
+  // single/two-bar candlestick patterns. Chart patterns take priority.
+  //
+  // Only CONFIRMED REVERSAL patterns (H&S, Double Top/Bottom) veto signal entries.
+  // Continuation/candlestick patterns reinforce direction — they add conviction
+  // but never independently block an entry.
+  // Forming patterns are returned in the response for UI display only.
+  const patternResult: PatternResult | null =
+    detectChartPattern(candles) ?? detectCandlestickSignal(candles);
+  // Veto gate: only confirmed REVERSAL patterns suppress entries.
+  const patternBearish =
+    patternResult?.confirmed === true &&
+    patternResult.direction  === "bearish" &&
+    patternResult.category   === "reversal";
+  const patternBullish =
+    patternResult?.confirmed === true &&
+    patternResult.direction  === "bullish" &&
+    patternResult.category   === "reversal";
   const PATTERN_LABELS: Record<string, string> = {
     HEAD_AND_SHOULDERS:          "Head & Shoulders",
     INVERSE_HEAD_AND_SHOULDERS:  "Inv. Head & Shoulders",
     DOUBLE_TOP:                  "Double Top",
     DOUBLE_BOTTOM:               "Double Bottom",
+    ASCENDING_TRIANGLE:          "Ascending Triangle",
+    DESCENDING_TRIANGLE:         "Descending Triangle",
+    SYMMETRICAL_TRIANGLE:        "Symmetrical Triangle",
+    RISING_WEDGE:                "Rising Wedge",
+    FALLING_WEDGE:               "Falling Wedge",
+    BULL_FLAG:                   "Bull Flag",
+    BEAR_FLAG:                   "Bear Flag",
+    BULL_PENNANT:                "Bull Pennant",
+    BEAR_PENNANT:                "Bear Pennant",
+    BULLISH_ENGULFING:           "Bullish Engulfing",
+    BEARISH_ENGULFING:           "Bearish Engulfing",
+    HAMMER:                      "Hammer",
+    SHOOTING_STAR:               "Shooting Star",
   };
   const breakoutEnabled    = false; // -74.79R production — no edge at any timeframe
   const fibBounceAllowed   = false; // -9.98R production  — no edge at any timeframe
@@ -1786,17 +1810,25 @@ export function computeLevels(
   // Reinforce note: when the signal direction agrees with the pattern append a
   //   confirmation marker — useful for trade conviction.
   if (patternResult && signalReason) {
-    const label = PATTERN_LABELS[patternResult.pattern] ?? patternResult.pattern;
+    const label        = PATTERN_LABELS[patternResult.pattern] ?? patternResult.pattern;
     const confirmedStr = patternResult.confirmed ? "confirmed" : "forming";
+
     if (patternVetoed) {
-      // Only append veto text when the pattern was specifically the blocking factor —
-      // not when signal is WAIT for unrelated reasons (price out of zone, etc.).
+      // Only append veto text when the reversal pattern was the specific blocking factor.
       const blocked = patternBearish ? "BUY" : "SELL";
-      signalReason += ` [${label} (${confirmedStr}) — ${blocked} entry suppressed by pattern gate.]`;
+      signalReason += ` [${label} (${confirmedStr}) — ${blocked} entry suppressed by reversal pattern gate.]`;
+    } else if (patternResult.category === "candlestick") {
+      // Candlestick patterns always just add a directional note — they never veto.
+      const dir = patternResult.direction === "bullish" ? "bullish" : "bearish";
+      signalReason += ` [${label} — ${dir} candlestick signal on the last closed bar.]`;
     } else if (signal !== "WAIT") {
       const signalDir = signal === "BUY" ? "bullish" : "bearish";
       if (signalDir === patternResult.direction) {
+        // Continuation or reversal pattern aligned with signal direction.
         signalReason += ` [Aligned with ${label} (${confirmedStr}).]`;
+      } else if (patternResult.confirmed && patternResult.category !== "reversal") {
+        // Confirmed continuation pattern pointing opposite direction — note it without vetoing.
+        signalReason += ` [Note: ${label} (confirmed) suggests opposite direction — monitor.]`;
       }
     }
   }
@@ -1875,6 +1907,7 @@ export function computeLevels(
     patternDirection: patternResult?.direction,
     patternConfirmed: patternResult?.confirmed,
     patternNeckline: patternResult?.necklinePrice,
+    patternUpperBound: patternResult?.upperBound,
     lastUpdated: new Date().toISOString(),
     positionSizing,
   };

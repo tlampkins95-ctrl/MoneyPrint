@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   createChart,
   CandlestickSeries,
@@ -57,6 +57,10 @@ export function LevelsChart({
   const lastDateRef       = useRef<string | null>(null);
   // Only scroll to real-time once per chart instance (not on every 10s refetch)
   const hasScrolledRef    = useRef(false);
+  // Pattern overlay toggle: ON by default so the user sees patterns immediately.
+  // The toggle button only appears when a pattern is detected, so when there is
+  // nothing to display the button is absent and clutter is zero.
+  const [showPatterns, setShowPatterns] = useState(true);
 
   const histParams = { symbol: symbol as GetPriceHistorySymbol, timeframe, bars: 200 };
 
@@ -237,14 +241,18 @@ export function LevelsChart({
       );
     }
 
-    // ── Pattern key level ─────────────────────────────────────────────────
-    // "Neckline" is a Head & Shoulders concept; double top/bottom use a
-    // breakdown/breakout support level instead.
-    if (levels.patternNeckline != null) {
+    // ── Pattern trendlines ────────────────────────────────────────────────
+    // Only drawn when the overlay is ON AND the pattern is confirmed.
+    // Forming patterns: badge only, no lines (avoid noise during the setup phase).
+    // Two-line patterns (triangles, wedges, flags): purple lower rail + orange upper rail.
+    if (showPatterns && levels.patternConfirmed === true && levels.patternNeckline != null) {
       const p = levels.detectedPattern;
       const isHS = p === "HEAD_AND_SHOULDERS" || p === "INVERSE_HEAD_AND_SHOULDERS";
-      const label = isHS ? "Neckline" : "Break Lvl";
-      addLine(levels.patternNeckline, "#a855f7", label, LineStyle.SparseDotted, 1);
+      const lowerLabel = isHS ? "Neckline" : "Pat Low";
+      addLine(levels.patternNeckline, "#a855f7", lowerLabel, LineStyle.SparseDotted, 1);
+      if (levels.patternUpperBound != null) {
+        addLine(levels.patternUpperBound, "#f97316", "Pat High", LineStyle.SparseDotted, 1);
+      }
     }
 
     // ── Zone bands (BaselineSeries) ───────────────────────────────────────
@@ -270,7 +278,7 @@ export function LevelsChart({
         { time: latestTs, value: levels.sellZone.high },
       ]);
     }
-  }, [levels, history]);
+  }, [levels, history, showPatterns]);
 
   // ── UI ────────────────────────────────────────────────────────────────
   const meta = getSymbolMeta(symbol);
@@ -280,18 +288,19 @@ export function LevelsChart({
     levels?.signal === "SELL" ? "bg-red-500/95 text-black border-red-400" :
                                 "bg-amber-500/95 text-black border-amber-400";
 
-  const isPatternConfirmed =
-    levels?.patternConfirmed === true &&
-    levels?.detectedPattern != null;
+  const hasAnyPattern = levels?.detectedPattern != null;
 
+  // Shown for both confirmed and forming patterns (when toggle is ON).
+  // Confirmed: bright fuchsia badge with "Confirmed" suffix.
+  // Forming: muted badge with "Forming" suffix — no lines drawn.
   const patternLabel = (() => {
-    if (!isPatternConfirmed || !levels?.detectedPattern) return null;
-    const raw = levels.detectedPattern as string;
-    const dir = levels.patternDirection as string | undefined;
-    // "DOUBLE_TOP" → "Double Top"
+    if (!hasAnyPattern || !showPatterns) return null;
+    const raw = levels!.detectedPattern as string;
+    const dir = levels!.patternDirection as string | undefined;
     const name = raw.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
     const arrow = dir === "bearish" ? "▼" : dir === "bullish" ? "▲" : "";
-    return `${arrow} ${name} Confirmed`;
+    const suffix = levels!.patternConfirmed ? "Confirmed" : "Forming";
+    return { text: `${arrow} ${name} ${suffix}`, confirmed: levels!.patternConfirmed === true };
   })();
 
   return (
@@ -306,21 +315,38 @@ export function LevelsChart({
 
       {/* Signal + live price badge — top-right */}
       {levels && (
-        <div className="absolute top-2 right-2 z-20 flex items-center gap-1 font-mono pointer-events-none select-none">
-          <span className={`px-2 py-0.5 rounded-sm font-bold tracking-widest border text-[11px] ${signalColor}`}>
+        <div className="absolute top-2 right-2 z-20 flex items-center gap-1 font-mono select-none">
+          {/* Patterns toggle — only shown when a pattern is detected */}
+          {hasAnyPattern && (
+            <button
+              onClick={() => setShowPatterns(p => !p)}
+              className={`px-2 py-0.5 rounded-sm font-mono text-[10px] border transition-colors cursor-pointer ${
+                showPatterns
+                  ? "bg-fuchsia-950/90 border-fuchsia-500/60 text-fuchsia-300 hover:bg-fuchsia-900/90"
+                  : "bg-zinc-900/80 border-zinc-700 text-zinc-500 hover:text-zinc-300 hover:border-zinc-500"
+              }`}
+            >
+              Pattern
+            </button>
+          )}
+          <span className={`px-2 py-0.5 rounded-sm font-bold tracking-widest border text-[11px] pointer-events-none ${signalColor}`}>
             {levels.signal}
           </span>
-          <span className="px-2 py-0.5 rounded-sm bg-black/80 border border-zinc-700 text-zinc-100 text-[11px]">
+          <span className="px-2 py-0.5 rounded-sm bg-black/80 border border-zinc-700 text-zinc-100 text-[11px] pointer-events-none">
             {fmtPriceMeta(meta, levels.currentPrice)}
           </span>
         </div>
       )}
 
-      {/* Pattern badge — bottom-left, only when confirmed */}
+      {/* Pattern badge — bottom-left, visible when toggle is ON and pattern detected */}
       {patternLabel && (
         <div className="absolute bottom-6 left-3 z-20 pointer-events-none select-none">
-          <span className="px-2 py-0.5 rounded-sm font-mono font-semibold text-[11px] bg-fuchsia-950/90 border border-fuchsia-500/60 text-fuchsia-300 tracking-wide">
-            {patternLabel}
+          <span className={`px-2 py-0.5 rounded-sm font-mono font-semibold text-[11px] tracking-wide border ${
+            patternLabel.confirmed
+              ? "bg-fuchsia-950/90 border-fuchsia-500/60 text-fuchsia-300"
+              : "bg-zinc-900/80 border-zinc-700/60 text-zinc-400"
+          }`}>
+            {patternLabel.text}
           </span>
         </div>
       )}

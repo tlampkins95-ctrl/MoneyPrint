@@ -517,18 +517,38 @@ components:
           description: RSI-14 value (0-100). BUY signals require ≤40; SELL signals require ≥60.
         detectedPattern:
           type: string
-          enum: [HEAD_AND_SHOULDERS, INVERSE_HEAD_AND_SHOULDERS, DOUBLE_TOP, DOUBLE_BOTTOM]
-          description: "Classical reversal pattern detected on this symbol/timeframe. Absent when none found. Confirmed patterns (neckline break on a closed bar) gate signal entries; forming patterns are informational only."
+          enum:
+            - HEAD_AND_SHOULDERS
+            - INVERSE_HEAD_AND_SHOULDERS
+            - DOUBLE_TOP
+            - DOUBLE_BOTTOM
+            - ASCENDING_TRIANGLE
+            - DESCENDING_TRIANGLE
+            - SYMMETRICAL_TRIANGLE
+            - RISING_WEDGE
+            - FALLING_WEDGE
+            - BULL_FLAG
+            - BEAR_FLAG
+            - BULL_PENNANT
+            - BEAR_PENNANT
+            - BULLISH_ENGULFING
+            - BEARISH_ENGULFING
+            - HAMMER
+            - SHOOTING_STAR
+          description: "Chart or candlestick pattern detected on this symbol/timeframe. Absent when none found. Confirmed reversal patterns (H&S, Double Top/Bottom) gate signal entries; continuation and candlestick patterns are informational/reinforcing only."
         patternDirection:
           type: string
           enum: [bearish, bullish]
           description: "Trade direction implied by the detected pattern. Absent when no pattern is detected."
         patternConfirmed:
           type: boolean
-          description: "True when the neckline/valley break has closed (not just wicked). Only confirmed patterns are used as veto gates."
+          description: "True when the key level has broken on a closed bar (not just a wick). Only confirmed reversal patterns are used as veto gates."
         patternNeckline:
           type: number
-          description: "Price level of the pattern neckline or valley (the break level). Absent when no pattern detected."
+          description: "Price level of the lower rail or neckline at the current bar. Absent when no pattern detected."
+        patternUpperBound:
+          type: number
+          description: "Price level of the upper rail at the current bar for two-line patterns (triangles, wedges, flags). Absent for single-line patterns and when no pattern is detected."
         lastUpdated:
           type: string
         positionSizing:

@@ -140,7 +140,7 @@ export type LevelsDataSwingRhythm = {
 };
 
 /**
- * Classical reversal pattern detected on this symbol/timeframe. Absent when none found. Confirmed patterns (neckline break on a closed bar) gate signal entries; forming patterns are informational only.
+ * Chart or candlestick pattern detected on this symbol/timeframe. Absent when none found. Confirmed reversal patterns (H&S, Double Top/Bottom) gate signal entries; continuation and candlestick patterns are informational/reinforcing only.
  */
 export type LevelsDataDetectedPattern =
   (typeof LevelsDataDetectedPattern)[keyof typeof LevelsDataDetectedPattern];
@@ -150,6 +150,19 @@ export const LevelsDataDetectedPattern = {
   INVERSE_HEAD_AND_SHOULDERS: "INVERSE_HEAD_AND_SHOULDERS",
   DOUBLE_TOP: "DOUBLE_TOP",
   DOUBLE_BOTTOM: "DOUBLE_BOTTOM",
+  ASCENDING_TRIANGLE: "ASCENDING_TRIANGLE",
+  DESCENDING_TRIANGLE: "DESCENDING_TRIANGLE",
+  SYMMETRICAL_TRIANGLE: "SYMMETRICAL_TRIANGLE",
+  RISING_WEDGE: "RISING_WEDGE",
+  FALLING_WEDGE: "FALLING_WEDGE",
+  BULL_FLAG: "BULL_FLAG",
+  BEAR_FLAG: "BEAR_FLAG",
+  BULL_PENNANT: "BULL_PENNANT",
+  BEAR_PENNANT: "BEAR_PENNANT",
+  BULLISH_ENGULFING: "BULLISH_ENGULFING",
+  BEARISH_ENGULFING: "BEARISH_ENGULFING",
+  HAMMER: "HAMMER",
+  SHOOTING_STAR: "SHOOTING_STAR",
 } as const;
 
 /**
@@ -332,14 +345,16 @@ export interface LevelsData {
   swingRhythm?: LevelsDataSwingRhythm;
   /** RSI-14 value (0-100). BUY signals require ≤40; SELL signals require ≥60. */
   rsi?: number;
-  /** Classical reversal pattern detected on this symbol/timeframe. Absent when none found. Confirmed patterns (neckline break on a closed bar) gate signal entries; forming patterns are informational only. */
+  /** Chart or candlestick pattern detected on this symbol/timeframe. Absent when none found. Confirmed reversal patterns (H&S, Double Top/Bottom) gate signal entries; continuation and candlestick patterns are informational/reinforcing only. */
   detectedPattern?: LevelsDataDetectedPattern;
   /** Trade direction implied by the detected pattern. Absent when no pattern is detected. */
   patternDirection?: LevelsDataPatternDirection;
-  /** True when the neckline/valley break has closed (not just wicked). Only confirmed patterns are used as veto gates. */
+  /** True when the key level has broken on a closed bar (not just a wick). Only confirmed reversal patterns are used as veto gates. */
   patternConfirmed?: boolean;
-  /** Price level of the pattern neckline or valley (the break level). Absent when no pattern detected. */
+  /** Price level of the lower rail or neckline at the current bar. Absent when no pattern detected. */
   patternNeckline?: number;
+  /** Price level of the upper rail at the current bar for two-line patterns (triangles, wedges, flags). Absent for single-line patterns and when no pattern is detected. */
+  patternUpperBound?: number;
   lastUpdated: string;
   positionSizing?: PositionSizing;
 }
