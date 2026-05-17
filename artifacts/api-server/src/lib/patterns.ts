@@ -275,15 +275,19 @@ function detectTriangles(candles: CandleRaw[]): PatternResult | null {
     };
   }
 
-  // Symmetrical: top falling + bottom rising, both meaningful slopes
+  // Symmetrical: top falling + bottom rising, both meaningful slopes.
+  // Direction is strictly neutral until a closed-bar breakout confirms direction.
+  // No result is emitted for the forming state — an unconfirmed symmetrical triangle
+  // carries zero directional bias and must not reinforce either BUY or SELL signals.
   if (topReg.slope < -TREND_T && botReg.slope > TREND_T) {
     const breakBull = lastClose > topNow;
     const breakBear = lastClose < bottomNow;
+    if (!breakBull && !breakBear) return null; // neutral until breakout — emit nothing
     return {
       pattern: "SYMMETRICAL_TRIANGLE",
       direction: breakBull ? "bullish" : "bearish",
       category: "continuation",
-      confirmed: breakBull || breakBear,
+      confirmed: true, // only reachable after a confirmed break
       necklinePrice: +bottomNow.toFixed(10),
       upperBound:    +topNow.toFixed(10),
     };
