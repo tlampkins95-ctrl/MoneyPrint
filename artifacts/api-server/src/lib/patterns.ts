@@ -239,22 +239,48 @@ function detectTriangles(candles: CandleRaw[]): PatternResult | null {
   const avgPrice = slice.reduce((s, c) => s + c.close, 0) / slice.length;
   const FLAT_T   = 0.00020 * avgPrice;
   const TREND_T  = 0.00035 * avgPrice;
+  const SYM_T    = 0.00010 * avgPrice; // lenient threshold for symmetrical pattern
 
   const highs = findSwingHighs(candles, 2, LOOKBACK);
   const lows  = findSwingLows(candles,  2, LOOKBACK);
   if (highs.length < 2 || lows.length < 2) return null;
 
-  const lastHigh = highs[highs.length - 1].idx;
-  const lastLow  = lows[lows.length - 1].idx;
-  if (Math.min(n - 1 - lastHigh, n - 1 - lastLow) > 15) return null;
+  if (Math.min(n - 1 - highs[highs.length - 1].idx, n - 1 - lows[lows.length - 1].idx) > 15) return null;
 
-  // 2-point trendlines: upper rail through first & last swing high,
-  // lower rail through first & last swing low. This is the standard TA method —
-  // the line connects exactly two peaks/valleys and will touch those candles precisely.
-  const topH1 = highs[0];
-  const topH2 = highs[highs.length - 1];
-  const botL1 = lows[0];
+  // ── Upper rail selection ────────────────────────────────────────────────────
+  // Use the LAST DECLINING consecutive pair of swing highs for the upper rail.
+  // This correctly ignores any final "breakout spike" highs (where the most recent
+  // high is above the prior high and therefore above the pattern's upper rail).
+  // Walk backwards through highs to find the most recent pair where h[i] > h[i+1].
+  let topH1 = highs[0];
+  let topH2 = highs[Math.min(1, highs.length - 1)];
+  {
+    let found = false;
+    for (let i = highs.length - 2; i >= 0; i--) {
+      if (highs[i].price > highs[i + 1].price) { // declining pair ✓
+        topH1 = highs[i];
+        topH2 = highs[i + 1];
+        found = true;
+        break;
+      }
+    }
+    // No declining pair → all highs are rising; use first & last for ascending check
+    if (!found) {
+      topH1 = highs[0];
+      topH2 = highs[highs.length - 1];
+    }
+  }
+
+  // ── Lower rail: lowest swing low → last swing low ───────────────────────────
+  // Using lows[0] (the first in the lookback window) can give a high-priced
+  // preliminary dip that sits ABOVE later lows (e.g. a March 9 bounce before the
+  // big March 23 crash), producing a negative botSlope and corrupting the
+  // triangle shape.  The MINIMUM-price swing low is always the real trough.
+  const botL1 = lows.reduce((mn, p) => p.price < mn.price ? p : mn, lows[0]);
   const botL2 = lows[lows.length - 1];
+  // If the minimum low is NOT before the last low, the formation is still falling
+  // — no converging lower rail can be established.
+  if (botL1.idx >= botL2.idx) return null;
   if (topH2.idx === topH1.idx || botL2.idx === botL1.idx) return null;
 
   const topSlope = (topH2.price - topH1.price) / (topH2.idx - topH1.idx);
@@ -262,69 +288,69 @@ function detectTriangles(candles: CandleRaw[]): PatternResult | null {
   const evalTop  = (idx: number) => topH1.price + topSlope * (idx - topH1.idx);
   const evalBot  = (idx: number) => botL1.price + botSlope * (idx - botL1.idx);
 
-  // Trendlines must converge (apex in the future, not already crossed).
+  // Rails must converge (bot slope > top slope → they'll meet in the future).
   if (botSlope <= topSlope) return null;
 
-  // Evaluate at the last COMPLETED bar (n-2) so the breakout check and the
-  // right anchor of the trendlines use the same bar.
-  const cur       = n - 2;
-  const topNow    = evalTop(cur);
-  const bottomNow = evalBot(cur);
-  if (topNow <= bottomNow) return null;
+  // ── Apex: compute where the two rails cross ─────────────────────────────────
+  // evalTop(apex) = evalBot(apex)  →  solve for apex bar index.
+  const apexBar = (botL1.price - topH1.price + topSlope * topH1.idx - botSlope * botL1.idx)
+                / (topSlope - botSlope);
+  // Apex must come after all anchor points (rails can't cross before the pattern ends).
+  const lastAnchorBar = Math.max(topH1.idx, topH2.idx, botL1.idx, botL2.idx);
+  if (apexBar < lastAnchorBar) return null;
+  // Pattern is stale if the apex was more than 20 bars ago.
+  if ((n - 1) - apexBar > 20) return null;
 
-  const lastClose = candles[n - 2].close;
-
-  // Left anchor at the earliest swing point; right anchor at last completed bar.
+  // ── Display endpoints ───────────────────────────────────────────────────────
+  // Right end: whichever comes first — the apex bar or n-2 (last completed bar).
+  // Drawing the lines up to the apex makes the triangle shape visually correct.
+  const displayEnd       = Math.min(Math.floor(apexBar), n - 2);
   const startIdx         = Math.min(topH1.idx, botL1.idx);
   const topStart         = evalTop(startIdx);
   const bottomStart      = evalBot(startIdx);
+  const topNow           = evalTop(displayEnd);
+  const bottomNow        = evalBot(displayEnd);
   const patternStartDate = candles[startIdx]?.date;
-  const patternEndDate   = candles[n - 2]?.date;
+  const patternEndDate   = candles[displayEnd]?.date;
+
+  // ── Breakout check: scan candles from last anchor to n-2 ──────────────────
+  const cur = n - 2;
+  let breakBull = false;
+  let breakBear = false;
+  for (let bi = lastAnchorBar; bi <= cur; bi++) {
+    if (candles[bi].close > evalTop(bi)) breakBull = true;
+    if (candles[bi].close < evalBot(bi)) breakBear = true;
+  }
+  const breakDir: "bullish" | "bearish" = breakBull ? "bullish" : "bearish";
+
+  const base = {
+    category:             "continuation" as PatternCategory,
+    necklinePrice:        +bottomNow.toFixed(10),
+    upperBound:           +topNow.toFixed(10),
+    necklineStartPrice:   +bottomStart.toFixed(10),
+    upperBoundStartPrice: +topStart.toFixed(10),
+    patternStartDate,
+    patternEndDate,
+  };
 
   // Ascending: flat top + rising bottom → bullish
   if (Math.abs(topSlope) < FLAT_T && botSlope > TREND_T) {
-    return {
-      pattern: "ASCENDING_TRIANGLE", direction: "bullish", category: "continuation",
-      confirmed: lastClose > topNow,
-      necklinePrice: +bottomNow.toFixed(10),
-      upperBound:    +topNow.toFixed(10),
-      necklineStartPrice:   +bottomStart.toFixed(10),
-      upperBoundStartPrice: +topStart.toFixed(10),
-      patternStartDate,
-      patternEndDate,
-    };
+    return { ...base, pattern: "ASCENDING_TRIANGLE",  direction: "bullish",  confirmed: breakBull };
   }
 
   // Descending: falling top + flat bottom → bearish
   if (topSlope < -FLAT_T && Math.abs(botSlope) < FLAT_T) {
-    return {
-      pattern: "DESCENDING_TRIANGLE", direction: "bearish", category: "continuation",
-      confirmed: lastClose < bottomNow,
-      necklinePrice: +bottomNow.toFixed(10),
-      upperBound:    +topNow.toFixed(10),
-      necklineStartPrice:   +bottomStart.toFixed(10),
-      upperBoundStartPrice: +topStart.toFixed(10),
-      patternStartDate,
-      patternEndDate,
-    };
+    return { ...base, pattern: "DESCENDING_TRIANGLE", direction: "bearish",  confirmed: breakBear };
   }
 
-  // Symmetrical: top falling + bottom rising.
-  if (topSlope < -TREND_T && botSlope > TREND_T) {
-    const breakBull = lastClose > topNow;
-    const breakBear = lastClose < bottomNow;
-    if (!breakBull && !breakBear) return null;
+  // Symmetrical: top falling + bottom rising (lenient SYM_T threshold).
+  // Confirmed when price has broken through either rail after the last anchor.
+  if (topSlope < -SYM_T && botSlope > SYM_T) {
     return {
-      pattern: "SYMMETRICAL_TRIANGLE",
-      direction: breakBull ? "bullish" : "bearish",
-      category: "continuation",
-      confirmed: true,
-      necklinePrice: +bottomNow.toFixed(10),
-      upperBound:    +topNow.toFixed(10),
-      necklineStartPrice:   +bottomStart.toFixed(10),
-      upperBoundStartPrice: +topStart.toFixed(10),
-      patternStartDate,
-      patternEndDate,
+      ...base,
+      pattern:   "SYMMETRICAL_TRIANGLE",
+      direction: (breakBull || breakBear) ? breakDir : "bullish",
+      confirmed: breakBull || breakBear,
     };
   }
 
@@ -640,23 +666,22 @@ export function detectCandlestickSignal(candles: CandleRaw[]): PatternResult | n
 export function detectChartPattern(candles: CandleRaw[]): PatternResult | null {
   if (candles.length < 20) return null;
 
-  const candidates: PatternResult[] = [];
-
-  const hs  = detectHS(candles);              if (hs)  candidates.push(hs);
-  const ihs = detectIHS(candles);             if (ihs) candidates.push(ihs);
-  const dt  = detectDoubleTop(candles);       if (dt)  candidates.push(dt);
-  const db  = detectDoubleBottom(candles);    if (db)  candidates.push(db);
-  const tri = detectTriangles(candles);       if (tri) candidates.push(tri);
-  const wdg = detectWedges(candles);          if (wdg) candidates.push(wdg);
-  const flg = detectFlagsPennants(candles);   if (flg) candidates.push(flg);
-
-  if (candidates.length === 0) return null;
-
-  const catOrder: Record<PatternCategory, number> = { reversal: 0, continuation: 1, candlestick: 2 };
-  candidates.sort((a, b) => {
-    if (a.confirmed !== b.confirmed) return a.confirmed ? -1 : 1;
-    return catOrder[a.category] - catOrder[b.category];
-  });
-
-  return candidates[0];
+  // Priority order (highest first):
+  //   1. Reversal patterns  — H&S, IHS, double top/bottom
+  //   2. Triangles          — 50-bar window (most current market context)
+  //   3. Wedges             — 100-bar window (longer-span formation)
+  //   4. Flags / pennants
+  // Within each tier, the first detector that returns a result wins.
+  // This ordering ensures a forming triangle (March anchor) is always
+  // preferred over an old confirmed wedge (January anchor).
+  return (
+    detectHS(candles)           ??
+    detectIHS(candles)          ??
+    detectDoubleTop(candles)    ??
+    detectDoubleBottom(candles) ??
+    detectTriangles(candles)    ??
+    detectWedges(candles)       ??
+    detectFlagsPennants(candles) ??
+    null
+  );
 }
