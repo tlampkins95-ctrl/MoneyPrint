@@ -255,8 +255,13 @@ export function LevelsChart({
     // ── Pattern trendlines ────────────────────────────────────────────────
     // Only drawn when the overlay is ON AND the pattern is confirmed.
     // Forming patterns: badge only, no lines (avoid noise during the setup phase).
-    // Two-line patterns (triangles, wedges, flags): purple lower rail + orange upper rail.
-    if (showPatterns && levels.patternConfirmed === true && levels.patternNeckline != null) {
+    // Candlestick patterns (single/two-bar): badge only, no structural chart lines.
+    // Two-line patterns (triangles, wedges, flags): purple lower rail + amber upper rail.
+    const CANDLESTICK_TYPES = new Set([
+      "BULLISH_ENGULFING", "BEARISH_ENGULFING", "HAMMER", "SHOOTING_STAR",
+    ]);
+    const isCandlestickOnly = CANDLESTICK_TYPES.has(levels.detectedPattern ?? "");
+    if (showPatterns && levels.patternConfirmed === true && levels.patternNeckline != null && !isCandlestickOnly) {
       const p = levels.detectedPattern;
       const isHS = p === "HEAD_AND_SHOULDERS" || p === "INVERSE_HEAD_AND_SHOULDERS";
       const lowerLabel = isHS ? "Neckline" : "Pat Low";
@@ -341,7 +346,7 @@ export function LevelsChart({
                 : "bg-zinc-900/80 border-zinc-700 text-zinc-500 hover:text-zinc-300 hover:border-zinc-500"
             }`}
           >
-            Pattern
+            Patterns
           </button>
           <span className={`px-2 py-0.5 rounded-sm font-bold tracking-widest border text-[11px] pointer-events-none ${signalColor}`}>
             {levels.signal}
