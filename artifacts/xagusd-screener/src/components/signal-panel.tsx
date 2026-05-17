@@ -245,6 +245,10 @@ export function SignalPanel({
               <span className="mt-1 px-3 py-0.5 text-[10px] font-bold tracking-widest rounded-full bg-violet-500/20 text-violet-300 border border-violet-500/40">
                 🗡 DAGGER
               </span>
+            ) : data.signalType === "PATTERN_BREAKOUT" ? (
+              <span className="mt-1 px-3 py-0.5 text-[10px] font-bold tracking-widest rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                ◆ PAT BREAK
+              </span>
             ) : (
               <span className="mt-1 px-3 py-0.5 text-[10px] font-bold tracking-widest rounded-full bg-zinc-700/40 text-zinc-400 border border-zinc-600/40">
                 ↕ PIVOT BOUNCE

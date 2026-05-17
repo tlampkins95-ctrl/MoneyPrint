@@ -92,9 +92,15 @@ export const GetLevelsResponse = zod.object({
     .enum(["BUY", "SELL", "WAIT"])
     .describe("Single clear trade signal"),
   signalType: zod
-    .enum(["PIVOT_BOUNCE", "BREAKOUT", "FIB_BOUNCE", "DAGGER"])
+    .enum([
+      "PIVOT_BOUNCE",
+      "BREAKOUT",
+      "FIB_BOUNCE",
+      "DAGGER",
+      "PATTERN_BREAKOUT",
+    ])
     .describe(
-      "Which signal mode generated this signal. PIVOT_BOUNCE = price at S1\/R1 zone bounce. BREAKOUT = momentum break above R2\/below S2. FIB_BOUNCE = golden pocket 61.8% retracement. DAGGER = 50% pullback on wave 1 (A→B impulse, 40–65% retracement to C, entry on first tick back in trend direction).",
+      "Which signal mode generated this signal. PIVOT_BOUNCE = price at S1\/R1 zone bounce. BREAKOUT = momentum break above R2\/below S2. FIB_BOUNCE = golden pocket 61.8% retracement. DAGGER = 50% pullback on wave 1 (A→B impulse, 40–65% retracement to C, entry on first tick back in trend direction). PATTERN_BREAKOUT = confirmed continuation chart pattern (triangle, wedge, flag, pennant) with price closing through the pattern boundary in the expected direction.",
     ),
   signalReason: zod
     .string()
@@ -572,9 +578,15 @@ export const GetActiveSignalsResponse = zod.object({
               .enum(["BUY", "SELL", "WAIT"])
               .describe("Single clear trade signal"),
             signalType: zod
-              .enum(["PIVOT_BOUNCE", "BREAKOUT", "FIB_BOUNCE", "DAGGER"])
+              .enum([
+                "PIVOT_BOUNCE",
+                "BREAKOUT",
+                "FIB_BOUNCE",
+                "DAGGER",
+                "PATTERN_BREAKOUT",
+              ])
               .describe(
-                "Which signal mode generated this signal. PIVOT_BOUNCE = price at S1\/R1 zone bounce. BREAKOUT = momentum break above R2\/below S2. FIB_BOUNCE = golden pocket 61.8% retracement. DAGGER = 50% pullback on wave 1 (A→B impulse, 40–65% retracement to C, entry on first tick back in trend direction).",
+                "Which signal mode generated this signal. PIVOT_BOUNCE = price at S1\/R1 zone bounce. BREAKOUT = momentum break above R2\/below S2. FIB_BOUNCE = golden pocket 61.8% retracement. DAGGER = 50% pullback on wave 1 (A→B impulse, 40–65% retracement to C, entry on first tick back in trend direction). PATTERN_BREAKOUT = confirmed continuation chart pattern (triangle, wedge, flag, pennant) with price closing through the pattern boundary in the expected direction.",
               ),
             signalReason: zod
               .string()
@@ -1065,6 +1077,7 @@ export const GetTradeHistoryResponse = zod.object({
         "BREAKOUT",
         "FIB_BOUNCE",
         "DAGGER",
+        "PATTERN_BREAKOUT",
       ]),
       entryPrice: zod.number(),
       stopLoss: zod.number(),

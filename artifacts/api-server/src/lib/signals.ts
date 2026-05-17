@@ -1507,7 +1507,7 @@ export function computeLevels(
   const fibBounceAllowed   = false; // -9.98R production  — no edge at any timeframe
 
   let signal: "BUY" | "SELL" | "WAIT" = "WAIT";
-  let signalType: "PIVOT_BOUNCE" | "BREAKOUT" | "FIB_BOUNCE" | "DAGGER" = "PIVOT_BOUNCE";
+  let signalType: "PIVOT_BOUNCE" | "BREAKOUT" | "FIB_BOUNCE" | "DAGGER" | "PATTERN_BREAKOUT" = "PIVOT_BOUNCE";
   let signalReason = "";
   let entryPrice = currentPrice;
   let stopLoss = currentPrice;
@@ -1620,9 +1620,54 @@ export function computeLevels(
     }
   }
 
+  // ─── PATTERN_BREAKOUT ────────────────────────────────────────────────────────
+  // Fires when a confirmed continuation chart pattern (triangle, wedge, flag, pennant)
+  // exists and price has closed through the pattern boundary in the expected direction.
+  // This is the "pattern-confirmed breakout" mode — distinct from the old pivot-based
+  // BREAKOUT (which stays off permanently due to -74.79R production result).
+  //
+  // Priority: fires after DAGGER, before PIVOT_BOUNCE.
+  // Gate conditions:
+  //   • confirmed continuation chartPattern (category === "continuation")
+  //   • direction matches a basic momentum gate (MACD + EMA21 alignment)
+  //   • reversal patterns do NOT fire here — they remain in the veto gate only
+  //
+  // SL = pattern lower rail (necklinePrice for BUY) / upper rail (upperBound for SELL)
+  // TP = pattern width (upperBound - necklinePrice) projected from breakout close
+  if (signal === "WAIT" && chartPattern?.confirmed && chartPattern.category === "continuation") {
+    const cp = chartPattern;
+    const patWidth = cp.upperBound != null ? cp.upperBound - cp.necklinePrice : atr * 2;
+    const patLabel = PATTERN_LABELS[cp.pattern] ?? cp.pattern;
+
+    if (cp.direction === "bullish" && macdBreakoutBuyOk && last.close > last21) {
+      const slPrice   = round(cp.necklinePrice - atr * 0.25); // just below pattern support
+      const tp1Price  = round(floorTarget(currentPrice, slPrice, currentPrice + patWidth * 0.6,  MIN_RR_TP1, "BUY"));
+      const tp2Price  = round(floorTarget(currentPrice, slPrice, currentPrice + patWidth,         MIN_RR_TP2, "BUY"));
+      signal     = "BUY";
+      signalType = "PATTERN_BREAKOUT";
+      entryPrice  = round(currentPrice);
+      stopLoss    = slPrice;
+      takeProfit1 = tp1Price;
+      takeProfit2 = tp2Price;
+      signalReason = `[${tfLabel}] PATTERN BREAKOUT BUY: ${patLabel} confirmed — price closed through the upper boundary. SL ${fmt(stopLoss)} (below pattern support at ${fmt(cp.necklinePrice)}), TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)} (${(patWidth / (currentPrice - slPrice)).toFixed(1)}R pattern projection).`;
+    } else if (cp.direction === "bearish" && macdBreakoutSellOk && last.close < last21 && !isLongOnly) {
+      const upperRail = cp.upperBound ?? (cp.necklinePrice + patWidth);
+      const slPrice   = round(upperRail + atr * 0.25); // just above pattern resistance
+      const tp1Price  = round(floorTarget(currentPrice, slPrice, currentPrice - patWidth * 0.6,  MIN_RR_TP1, "SELL"));
+      const tp2Price  = round(floorTarget(currentPrice, slPrice, currentPrice - patWidth,         MIN_RR_TP2, "SELL"));
+      signal     = "SELL";
+      signalType = "PATTERN_BREAKOUT";
+      entryPrice  = round(currentPrice);
+      stopLoss    = slPrice;
+      takeProfit1 = tp1Price;
+      takeProfit2 = tp2Price;
+      signalReason = `[${tfLabel}] PATTERN BREAKOUT SELL: ${patLabel} confirmed — price closed through the lower boundary. SL ${fmt(stopLoss)} (above pattern resistance at ${fmt(upperRail)}), TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)} (${(patWidth / (slPrice - currentPrice)).toFixed(1)}R pattern projection).`;
+    }
+  }
+
   // ─── PIVOT_BOUNCE + BREAKOUT ─────────────────────────────────────────────────
-  // Only runs when DAGGER didn't fire. PIVOT_BOUNCE checks S1/R1 zone touches;
-  // BREAKOUT checks R2/S2 momentum breaks. FIB_BOUNCE follows below.
+  // Only runs when DAGGER and PATTERN_BREAKOUT didn't fire. PIVOT_BOUNCE checks
+  // S1/R1 zone touches; BREAKOUT checks R2/S2 momentum breaks. FIB_BOUNCE follows.
   if (signal === "WAIT") {
   if (pivotBounceEnabled && inBuyZone && buyAllowed && !patternBearish) {
     // Only fire when price is ACTUALLY IN the buy zone — not approaching from above.
@@ -1950,7 +1995,7 @@ type Levels = ReturnType<typeof computeLevels>;
 
 interface ActiveTrade {
   signal: "BUY" | "SELL";
-  signalType?: "PIVOT_BOUNCE" | "BREAKOUT" | "FIB_BOUNCE" | "DAGGER";
+  signalType?: "PIVOT_BOUNCE" | "BREAKOUT" | "FIB_BOUNCE" | "DAGGER" | "PATTERN_BREAKOUT";
   signalReason: string;
   entryPrice: number;
   stopLoss: number;
@@ -2161,7 +2206,7 @@ async function syncFromDb(): Promise<void> {
       activeTrades.set(row.key, {
         ...(v as ActiveTrade),
         signalType:
-          v.signalType === "PIVOT_BOUNCE" || v.signalType === "BREAKOUT" || v.signalType === "DAGGER"
+          v.signalType === "PIVOT_BOUNCE" || v.signalType === "BREAKOUT" || v.signalType === "DAGGER" || v.signalType === "PATTERN_BREAKOUT"
             ? v.signalType
             : "PIVOT_BOUNCE",
         triggered: typeof v.triggered === "boolean" ? v.triggered : false,
@@ -2218,7 +2263,7 @@ function loadActiveTradesFromDisk(): void {
       const migrated: ActiveTrade = {
         ...(v as ActiveTrade),
         signalType:
-          v.signalType === "PIVOT_BOUNCE" || v.signalType === "BREAKOUT" || v.signalType === "DAGGER"
+          v.signalType === "PIVOT_BOUNCE" || v.signalType === "BREAKOUT" || v.signalType === "DAGGER" || v.signalType === "PATTERN_BREAKOUT"
             ? v.signalType
             : "PIVOT_BOUNCE",
         triggered: typeof v.triggered === "boolean" ? v.triggered : false,
@@ -2836,7 +2881,7 @@ export function seedActiveTrades(raw: Record<string, unknown>): number {
     activeTrades.set(k, {
       ...(p as ActiveTrade),
       signalType:
-        p.signalType === "PIVOT_BOUNCE" || p.signalType === "BREAKOUT" || p.signalType === "DAGGER"
+        p.signalType === "PIVOT_BOUNCE" || p.signalType === "BREAKOUT" || p.signalType === "DAGGER" || p.signalType === "PATTERN_BREAKOUT"
           ? p.signalType
           : "PIVOT_BOUNCE",
       triggered: typeof p.triggered === "boolean" ? p.triggered : false,

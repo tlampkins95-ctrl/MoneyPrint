@@ -14,4 +14,5 @@ export const ClosedTradeSignalType = {
   BREAKOUT: "BREAKOUT",
   FIB_BOUNCE: "FIB_BOUNCE",
   DAGGER: "DAGGER",
+  PATTERN_BREAKOUT: "PATTERN_BREAKOUT",
 } as const;

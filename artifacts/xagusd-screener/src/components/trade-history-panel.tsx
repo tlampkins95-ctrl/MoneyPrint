@@ -256,7 +256,7 @@ export function TradeHistoryPanel({ selectedSymbol, onSelect }: Props) {
                           )}
                         </td>
                         <td className="py-1.5 px-2 text-zinc-500">
-                          {trade.signalType === "PIVOT_BOUNCE" ? "PVT" : "BKO"}
+                          {trade.signalType === "PIVOT_BOUNCE" ? "PVT" : trade.signalType === "DAGGER" ? "DAG" : trade.signalType === "PATTERN_BREAKOUT" ? "PAT" : "BKO"}
                         </td>
                         <td className="py-1.5 px-2 text-right text-zinc-300">
                           {trade.entryPrice.toFixed(trade.entryPrice > 100 ? 2 : trade.entryPrice > 1 ? 4 : 5)}

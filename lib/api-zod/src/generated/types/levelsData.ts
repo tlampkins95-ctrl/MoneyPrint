@@ -23,7 +23,7 @@ export interface LevelsData {
   priceChangePct: number;
   /** Single clear trade signal */
   signal: LevelsDataSignal;
-  /** Which signal mode generated this signal. PIVOT_BOUNCE = price at S1/R1 zone bounce. BREAKOUT = momentum break above R2/below S2. FIB_BOUNCE = golden pocket 61.8% retracement. DAGGER = 50% pullback on wave 1 (A→B impulse, 40–65% retracement to C, entry on first tick back in trend direction). */
+  /** Which signal mode generated this signal. PIVOT_BOUNCE = price at S1/R1 zone bounce. BREAKOUT = momentum break above R2/below S2. FIB_BOUNCE = golden pocket 61.8% retracement. DAGGER = 50% pullback on wave 1 (A→B impulse, 40–65% retracement to C, entry on first tick back in trend direction). PATTERN_BREAKOUT = confirmed continuation chart pattern (triangle, wedge, flag, pennant) with price closing through the pattern boundary in the expected direction. */
   signalType: LevelsDataSignalType;
   /** Plain-language explanation of why this signal was generated */
   signalReason: string;

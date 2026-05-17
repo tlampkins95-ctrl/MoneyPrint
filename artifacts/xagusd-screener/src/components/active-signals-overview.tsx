@@ -56,7 +56,7 @@ interface RowProps {
   symbol: string;
   timeframe: Timeframe;
   signal: "BUY" | "SELL";
-  signalType?: "PIVOT_BOUNCE" | "BREAKOUT";
+  signalType?: "PIVOT_BOUNCE" | "BREAKOUT" | "PATTERN_BREAKOUT" | "DAGGER";
   signalReason: string;
   currentPrice: number;
   entryPrice: number;
@@ -145,7 +145,7 @@ function SignalRow(p: RowProps) {
 
   const { data: btData } = useGetBacktest(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    { symbol: p.symbol as any, timeframe: p.timeframe, signalType: p.signalType ?? "PIVOT_BOUNCE" },
+    { symbol: p.symbol as any, timeframe: p.timeframe, signalType: (p.signalType === "BREAKOUT" ? "BREAKOUT" : "PIVOT_BOUNCE") },
     { query: { staleTime: 5 * 60 * 1000, refetchOnWindowFocus: false } as never },
   );
   const poorWinRate = !!btData && btData.totalTrades >= 15 && btData.winRate < 45;
@@ -419,7 +419,7 @@ export function ActiveSignalsOverview({
                       symbol={s.symbol}
                       timeframe={s.timeframe as Timeframe}
                       signal={s.levels.signal as "BUY" | "SELL"}
-                      signalType={s.levels.signalType as "PIVOT_BOUNCE" | "BREAKOUT" | undefined}
+                      signalType={s.levels.signalType as "PIVOT_BOUNCE" | "BREAKOUT" | "PATTERN_BREAKOUT" | "DAGGER" | undefined}
                       signalReason={s.levels.signalReason}
                       currentPrice={s.levels.currentPrice}
                       entryPrice={s.levels.entryPrice}
@@ -448,7 +448,7 @@ export function ActiveSignalsOverview({
                       symbol={s.symbol}
                       timeframe={s.timeframe as Timeframe}
                       signal={s.levels.signal as "BUY" | "SELL"}
-                      signalType={s.levels.signalType as "PIVOT_BOUNCE" | "BREAKOUT" | undefined}
+                      signalType={s.levels.signalType as "PIVOT_BOUNCE" | "BREAKOUT" | "PATTERN_BREAKOUT" | "DAGGER" | undefined}
                       signalReason={s.levels.signalReason}
                       currentPrice={s.levels.currentPrice}
                       entryPrice={s.levels.entryPrice}
@@ -477,7 +477,7 @@ export function ActiveSignalsOverview({
                       symbol={s.symbol}
                       timeframe={s.timeframe as Timeframe}
                       signal={s.levels.signal as "BUY" | "SELL"}
-                      signalType={s.levels.signalType as "PIVOT_BOUNCE" | "BREAKOUT" | undefined}
+                      signalType={s.levels.signalType as "PIVOT_BOUNCE" | "BREAKOUT" | "PATTERN_BREAKOUT" | "DAGGER" | undefined}
                       signalReason={s.levels.signalReason}
                       currentPrice={s.levels.currentPrice}
                       entryPrice={s.levels.entryPrice}
