@@ -388,13 +388,17 @@ function detectFlagsPennants(candles: CandleRaw[]): PatternResult | null {
       const isBearPole = poleMagnitude < -MIN_POLE_PCT;
       if (!isBullPole && !isBearPole) continue;
 
-      // Consolidation: bars immediately after the pole
+      // Consolidation: bars immediately after the pole, up to (but NOT including) the
+      // breakout bar (n-2). This is critical for confirmation geometry: maxH/minL must
+      // be computed from pre-breakout bars only, so that `lastClose > maxH` (bull) or
+      // `lastClose < minL` (bear) is geometrically achievable (close ≤ high on the same
+      // bar, so including the breakout bar in the bounds makes confirmation impossible).
       const consolStart = poleEnd + 1;
-      const consolEnd   = n - 2; // last completed bar
+      const consolEnd   = n - 3; // stop BEFORE the breakout bar (n-2)
       const consolLen   = consolEnd - consolStart + 1;
       if (consolLen < MIN_CONSOL || consolLen > MAX_CONSOL) continue;
 
-      const consolSlice = candles.slice(consolStart, consolEnd + 1);
+      const consolSlice = candles.slice(consolStart, consolEnd + 1); // excludes bar n-2
       const maxH = consolSlice.reduce((m, c) => Math.max(m, c.high),  -Infinity);
       const minL = consolSlice.reduce((m, c) => Math.min(m, c.low),    Infinity);
       const poleMax = candles.slice(poleStart, poleEnd + 1)
@@ -411,6 +415,7 @@ function detectFlagsPennants(candles: CandleRaw[]): PatternResult | null {
       if (isBullPole && consolSlice[consolSlice.length - 1].close >= poleMax) continue;
       if (isBearPole && consolSlice[consolSlice.length - 1].close <= poleMin) continue;
 
+      // Bar n-2 is the candidate breakout bar — its close is compared against pre-breakout channel
       const lastClose = candles[n - 2].close;
 
       // Determine flag vs pennant via regression on the consolidation highs/lows
