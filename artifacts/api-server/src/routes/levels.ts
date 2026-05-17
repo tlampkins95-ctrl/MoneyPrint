@@ -186,22 +186,52 @@ router.get("/levels", async (req: Request, res: Response) => {
 
 router.get("/price-history", async (req: Request, res: Response) => {
   try {
-    const query = GetPriceHistoryQueryParams.parse(req.query);
-    const symbol = (query.symbol ?? "XAGUSD") as Symbol;
-    const timeframe = (query.timeframe ?? "1d") as Timeframe;
-    const requestedBars = query.bars ?? 200;
+    // Parse symbol manually so trending coins (not in the static Zod enum) are
+    // accepted. Timeframe and bars still go through the generated schema.
+    const rawSymbol = typeof req.query.symbol === "string" ? req.query.symbol : "XAGUSD";
+    const rawTf     = typeof req.query.timeframe === "string" ? req.query.timeframe : "1d";
+    const VALID_TIMEFRAMES: Timeframe[] = ["15m", "30m", "1h", "1d"];
+    if (!VALID_TIMEFRAMES.includes(rawTf as Timeframe)) {
+      res.status(400).json({ error: `Invalid timeframe: ${rawTf}` });
+      return;
+    }
+    const timeframe = rawTf as Timeframe;
+    const requestedBars = Number(req.query.bars) || 200;
     const bars = Math.max(1, Math.min(2000, Math.floor(requestedBars)));
 
-    const [allCandles, spotPrice] = await Promise.all([
-      fetchCandlesForTimeframe(symbol, timeframe),
-      fetchSpotPrice(symbol),
-    ]);
+    // Resolve symbol — static or trending.
+    const isStaticSymbol = rawSymbol in SYMBOLS;
+    const trendingMeta = isStaticSymbol
+      ? null
+      : getTrendingSymbols().find((t) => t.symbolKey === rawSymbol) ?? null;
+    if (!isStaticSymbol && !trendingMeta) {
+      res.status(400).json({ error: `Unknown symbol: ${rawSymbol}` });
+      return;
+    }
+
+    let allCandles: Awaited<ReturnType<typeof fetchCandlesForTimeframe>>;
+    let spotPrice: number | null;
+
+    if (isStaticSymbol) {
+      const sym = rawSymbol as Symbol;
+      [allCandles, spotPrice] = await Promise.all([
+        fetchCandlesForTimeframe(sym, timeframe),
+        fetchSpotPrice(sym),
+      ]);
+    } else {
+      [allCandles, spotPrice] = await Promise.all([
+        fetchCandlesForDynamic(trendingMeta!.okxPerp!, timeframe),
+        fetchSpotForDynamic(trendingMeta!.okxPerp!),
+      ]);
+    }
+
     if (allCandles.length === 0) {
       res.status(503).json({ error: "No candle data available" });
       return;
     }
 
-    const round = makeRounder(SYMBOLS[symbol].decimals);
+    const decimals = isStaticSymbol ? SYMBOLS[rawSymbol as Symbol].decimals : trendingMeta!.decimals;
+    const round = makeRounder(decimals);
 
     const rawSliced = allCandles.slice(-bars);
     const last = rawSliced[rawSliced.length - 1];
@@ -210,10 +240,7 @@ router.get("/price-history", async (req: Request, res: Response) => {
       return match ? parseInt(match[1], 10) !== 0 : false;
     };
     const isLiveTickStub =
-      last &&
-      last.high === last.low &&
-      last.high === last.close &&
-      isOffGrid(last.date);
+      last && last.high === last.low && last.high === last.close && isOffGrid(last.date);
     const sliced = isLiveTickStub ? rawSliced.slice(0, -1) : rawSliced;
 
     if (sliced.length === 0) {
@@ -223,10 +250,14 @@ router.get("/price-history", async (req: Request, res: Response) => {
     const lastGood = sliced[sliced.length - 1];
     const effectiveSpot = spotPrice ?? lastGood.close;
 
-    const aligned = applyFuturesBasis(sliced, effectiveSpot, round);
+    // Only apply futures basis adjustment for static symbols that need it.
+    const aligned =
+      isStaticSymbol && spotPrice != null && SYMBOLS[rawSymbol as Symbol].hasFuturesBasis
+        ? applyFuturesBasis(sliced, effectiveSpot, round)
+        : sliced;
 
     const data = GetPriceHistoryResponse.parse({
-      symbol,
+      symbol: rawSymbol,
       candles: aligned,
       currentPrice: round(effectiveSpot),
       lastUpdated: new Date().toISOString(),
