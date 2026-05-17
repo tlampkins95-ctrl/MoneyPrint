@@ -57,11 +57,6 @@ export function LevelsChart({
   const lastDateRef       = useRef<string | null>(null);
   // Only scroll to real-time once per chart instance (not on every 10s refetch)
   const hasScrolledRef    = useRef(false);
-  // Pattern overlay toggle: ON by default so the user sees patterns immediately.
-  // The toggle button only appears when a pattern is detected, so when there is
-  // nothing to display the button is absent and clutter is zero.
-  const [showPatterns, setShowPatterns] = useState(true);
-
   const histParams = { symbol: symbol as GetPriceHistorySymbol, timeframe, bars: 200 };
 
   const { data: history } = useGetPriceHistory(histParams, {
@@ -80,6 +75,22 @@ export function LevelsChart({
       },
     },
   );
+
+  // Pattern overlay toggle.
+  // `patternUserOverride` stores an explicit user preference (null = use derived default).
+  // Default: ON when a confirmed pattern is active, OFF otherwise (no clutter when empty).
+  // Override is reset to null whenever symbol or timeframe changes so the default
+  // re-evaluates against the newly loaded pattern state.
+  const [patternUserOverride, setPatternUserOverride] = useState<boolean | null>(null);
+  const showPatterns = patternUserOverride !== null
+    ? patternUserOverride
+    : levels?.patternConfirmed === true;
+
+  // Reset user override when symbol/timeframe changes so the default (confirmed=ON,
+  // otherwise OFF) re-evaluates against the newly loaded symbol's pattern state.
+  useEffect(() => {
+    setPatternUserOverride(null);
+  }, [symbol, timeframe]);
 
   // ── Create / recreate chart when symbol or timeframe changes ───────────
   useEffect(() => {
@@ -251,7 +262,10 @@ export function LevelsChart({
       const lowerLabel = isHS ? "Neckline" : "Pat Low";
       addLine(levels.patternNeckline, "#a855f7", lowerLabel, LineStyle.SparseDotted, 1);
       if (levels.patternUpperBound != null) {
-        addLine(levels.patternUpperBound, "#f97316", "Pat High", LineStyle.SparseDotted, 1);
+        // Amber (#fbbf24) is visually distinct from the resistance orange (#f97316)
+        // used by S/R level lines, so both rails read as a coordinated pair (purple + amber)
+        // without clashing with the S/R stack.
+        addLine(levels.patternUpperBound, "#fbbf24", "Pat High", LineStyle.SparseDotted, 1);
       }
     }
 
@@ -316,19 +330,19 @@ export function LevelsChart({
       {/* Signal + live price badge — top-right */}
       {levels && (
         <div className="absolute top-2 right-2 z-20 flex items-center gap-1 font-mono select-none">
-          {/* Patterns toggle — only shown when a pattern is detected */}
-          {hasAnyPattern && (
-            <button
-              onClick={() => setShowPatterns(p => !p)}
-              className={`px-2 py-0.5 rounded-sm font-mono text-[10px] border transition-colors cursor-pointer ${
-                showPatterns
-                  ? "bg-fuchsia-950/90 border-fuchsia-500/60 text-fuchsia-300 hover:bg-fuchsia-900/90"
-                  : "bg-zinc-900/80 border-zinc-700 text-zinc-500 hover:text-zinc-300 hover:border-zinc-500"
-              }`}
-            >
-              Pattern
-            </button>
-          )}
+          {/* Patterns toggle — always visible when levels are loaded so the user
+              can see and control the ON/OFF state. Default is derived from
+              patternConfirmed (ON = confirmed pattern present, OFF otherwise). */}
+          <button
+            onClick={() => setPatternUserOverride(p => !(p ?? levels?.patternConfirmed === true))}
+            className={`px-2 py-0.5 rounded-sm font-mono text-[10px] border transition-colors cursor-pointer ${
+              showPatterns
+                ? "bg-fuchsia-950/90 border-fuchsia-500/60 text-fuchsia-300 hover:bg-fuchsia-900/90"
+                : "bg-zinc-900/80 border-zinc-700 text-zinc-500 hover:text-zinc-300 hover:border-zinc-500"
+            }`}
+          >
+            Pattern
+          </button>
           <span className={`px-2 py-0.5 rounded-sm font-bold tracking-widest border text-[11px] pointer-events-none ${signalColor}`}>
             {levels.signal}
           </span>
