@@ -43,14 +43,15 @@ export interface PatternResult {
   pattern:       PatternType;
   direction:     "bearish" | "bullish";
   confirmed:     boolean;
-  necklinePrice: number;   // key break level / lower rail at the current bar
-  upperBound?:   number;   // upper rail at the current bar (triangles, wedges, flags)
+  necklinePrice: number;   // key break level / lower rail at the last completed bar (n-2)
+  upperBound?:   number;   // upper rail at the last completed bar (n-2) for two-rail patterns
   category:      PatternCategory;
-  // Start-of-pattern coordinates for drawing diagonal trendlines (triangles/wedges only).
+  // Diagonal trendline coordinates (triangles/wedges only).
   // Absent for single-rail patterns (H&S, double top/bottom) and candlestick patterns.
-  necklineStartPrice?:   number; // lower rail price at patternStartDate
-  upperBoundStartPrice?: number; // upper rail price at patternStartDate
-  patternStartDate?:     string; // ISO date string of the earliest swing point
+  necklineStartPrice?:   number; // lower rail price at patternStartDate (left anchor)
+  upperBoundStartPrice?: number; // upper rail price at patternStartDate (left anchor)
+  patternStartDate?:     string; // ISO date of the earliest swing point (left anchor)
+  patternEndDate?:       string; // ISO date of the last completed bar (n-2) (right anchor)
 }
 
 interface SwingPoint { idx: number; price: number; }
@@ -250,7 +251,14 @@ function detectTriangles(candles: CandleRaw[]): PatternResult | null {
   const topReg = linReg(highs.map(p => ({ x: p.idx, y: p.price })));
   const botReg = linReg(lows.map( p => ({ x: p.idx, y: p.price })));
 
-  const cur       = n - 1;
+  // Evaluate rails at the last COMPLETED bar (n-2), not the in-progress bar (n-1).
+  // This ensures:
+  //   a) The breakout check (lastClose > topNow) compares the close against the rail
+  //      at the same bar — the most accurate confirmation geometry.
+  //   b) The right anchor of the diagonal trendlines sits at n-2, so a confirmed
+  //      breakout bar is the last point on the lines rather than extending into the
+  //      forming bar where price is already outside the wedge/triangle.
+  const cur       = n - 2;
   const topNow    = evalAt(topReg, cur);
   const bottomNow = evalAt(botReg, cur);
   if (topNow <= bottomNow) return null;
@@ -260,12 +268,12 @@ function detectTriangles(candles: CandleRaw[]): PatternResult | null {
 
   const lastClose = candles[n - 2].close;
 
-  // Start coordinates for diagonal trendline rendering on the frontend.
-  // Use the earliest swing point as the left anchor of both rails.
-  const startIdx        = Math.min(highs[0].idx, lows[0].idx);
-  const topStart        = evalAt(topReg, startIdx);
-  const bottomStart     = evalAt(botReg, startIdx);
+  // Diagonal trendline anchors: earliest swing (left) → last completed bar (right).
+  const startIdx         = Math.min(highs[0].idx, lows[0].idx);
+  const topStart         = evalAt(topReg, startIdx);
+  const bottomStart      = evalAt(botReg, startIdx);
   const patternStartDate = candles[startIdx]?.date;
+  const patternEndDate   = candles[n - 2]?.date;
 
   // Ascending: flat top + rising bottom → bullish
   if (Math.abs(topReg.slope) < FLAT_T && botReg.slope > TREND_T) {
@@ -277,6 +285,7 @@ function detectTriangles(candles: CandleRaw[]): PatternResult | null {
       necklineStartPrice:   +bottomStart.toFixed(10),
       upperBoundStartPrice: +topStart.toFixed(10),
       patternStartDate,
+      patternEndDate,
     };
   }
 
@@ -290,13 +299,12 @@ function detectTriangles(candles: CandleRaw[]): PatternResult | null {
       necklineStartPrice:   +bottomStart.toFixed(10),
       upperBoundStartPrice: +topStart.toFixed(10),
       patternStartDate,
+      patternEndDate,
     };
   }
 
   // Symmetrical: top falling + bottom rising, both meaningful slopes.
   // Direction is strictly neutral until a closed-bar breakout confirms direction.
-  // No result is emitted for the forming state — an unconfirmed symmetrical triangle
-  // carries zero directional bias and must not reinforce either BUY or SELL signals.
   if (topReg.slope < -TREND_T && botReg.slope > TREND_T) {
     const breakBull = lastClose > topNow;
     const breakBear = lastClose < bottomNow;
@@ -305,12 +313,13 @@ function detectTriangles(candles: CandleRaw[]): PatternResult | null {
       pattern: "SYMMETRICAL_TRIANGLE",
       direction: breakBull ? "bullish" : "bearish",
       category: "continuation",
-      confirmed: true, // only reachable after a confirmed break
+      confirmed: true,
       necklinePrice: +bottomNow.toFixed(10),
       upperBound:    +topNow.toFixed(10),
       necklineStartPrice:   +bottomStart.toFixed(10),
       upperBoundStartPrice: +topStart.toFixed(10),
       patternStartDate,
+      patternEndDate,
     };
   }
 
@@ -342,18 +351,21 @@ function detectWedges(candles: CandleRaw[]): PatternResult | null {
   const topReg = linReg(highs.map(p => ({ x: p.idx, y: p.price })));
   const botReg = linReg(lows.map( p => ({ x: p.idx, y: p.price })));
 
-  const cur       = n - 1;
+  // Same rationale as detectTriangles: evaluate at n-2 (last completed bar) so
+  // the breakout check and the right anchor of the trendlines are consistent.
+  const cur       = n - 2;
   const topNow    = evalAt(topReg, cur);
   const bottomNow = evalAt(botReg, cur);
   if (topNow <= bottomNow) return null;
 
   const lastClose = candles[n - 2].close;
 
-  // Start coordinates for diagonal trendline rendering on the frontend.
-  const startIdx        = Math.min(highs[0].idx, lows[0].idx);
-  const topStart        = evalAt(topReg, startIdx);
-  const bottomStart     = evalAt(botReg, startIdx);
+  // Diagonal trendline anchors.
+  const startIdx         = Math.min(highs[0].idx, lows[0].idx);
+  const topStart         = evalAt(topReg, startIdx);
+  const bottomStart      = evalAt(botReg, startIdx);
   const patternStartDate = candles[startIdx]?.date;
+  const patternEndDate   = candles[n - 2]?.date;
 
   // Rising wedge: both slopes positive, bottom slope exceeds top slope
   if (topReg.slope > MIN_S && botReg.slope > MIN_S && botReg.slope > topReg.slope * 1.15) {
@@ -365,6 +377,7 @@ function detectWedges(candles: CandleRaw[]): PatternResult | null {
       necklineStartPrice:   +bottomStart.toFixed(10),
       upperBoundStartPrice: +topStart.toFixed(10),
       patternStartDate,
+      patternEndDate,
     };
   }
 
@@ -378,6 +391,7 @@ function detectWedges(candles: CandleRaw[]): PatternResult | null {
       necklineStartPrice:   +bottomStart.toFixed(10),
       upperBoundStartPrice: +topStart.toFixed(10),
       patternStartDate,
+      patternEndDate,
     };
   }
 

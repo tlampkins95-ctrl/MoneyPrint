@@ -303,19 +303,24 @@ export function LevelsChart({
     const patUpper = patUpperRailRef.current;
     const patLower = patLowerRailRef.current;
 
+    // Draw diagonal rails only while the pattern is still FORMING (not yet confirmed).
+    // Once confirmed, price has broken out of the wedge/triangle by definition, so the
+    // rails would show current price outside the lines — confusing and misleading.
+    // The "Confirmed" badge is sufficient to communicate the completed pattern.
     const canDrawDiagonal =
       showPatterns &&
-      levels.patternConfirmed === true &&
+      levels.patternConfirmed !== true &&
       hasDiagonalPattern &&
       levels.patternStartDate != null &&
       levels.patternNecklineStart != null &&
-      lastDateRef.current != null;
+      levels.patternEndDate != null;
 
     if (canDrawDiagonal && patUpper && patLower) {
-      // Draw diagonal rails. The two data points anchor the regression line at
-      // the earliest swing point (start) and the most recent candle (end).
+      // Draw diagonal rails anchored left at the earliest swing point and right
+      // at the last completed bar (n-2). Price is inside the rails at this bar
+      // because the pattern hasn't confirmed (broken out) yet.
       const startTime = toTime(levels.patternStartDate!);
-      const endTime   = toTime(lastDateRef.current!);
+      const endTime   = toTime(levels.patternEndDate!);
       patUpper.setData([
         { time: startTime, value: levels.patternUpperBoundStart ?? levels.patternUpperBound ?? 0 },
         { time: endTime,   value: levels.patternUpperBound! },
