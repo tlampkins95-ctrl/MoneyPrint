@@ -251,16 +251,21 @@ function detectTriangles(candles: CandleRaw[]): PatternResult | null {
   const topReg = linReg(highs.map(p => ({ x: p.idx, y: p.price })));
   const botReg = linReg(lows.map( p => ({ x: p.idx, y: p.price })));
 
-  // Evaluate rails at the last COMPLETED bar (n-2), not the in-progress bar (n-1).
-  // This ensures:
-  //   a) The breakout check (lastClose > topNow) compares the close against the rail
-  //      at the same bar — the most accurate confirmation geometry.
-  //   b) The right anchor of the diagonal trendlines sits at n-2, so a confirmed
-  //      breakout bar is the last point on the lines rather than extending into the
-  //      forming bar where price is already outside the wedge/triangle.
+  // Shift rails to touch the actual swing extremes — standard TA practice.
+  // Linear regression fits through the CENTER of swing points, which causes
+  // individual candles to leak above/below the lines during normal formation.
+  // Shifting up/down so the line passes through the most extreme swing point
+  // keeps ALL historical price action inside the rails.
+  const topShift = Math.max(...highs.map(p => p.price - evalAt(topReg, p.idx)));
+  const botShift = Math.min(...lows.map( p => p.price - evalAt(botReg, p.idx)));
+  const evalTop  = (idx: number) => evalAt(topReg, idx) + topShift;
+  const evalBot  = (idx: number) => evalAt(botReg, idx) + botShift;
+
+  // Evaluate at the last COMPLETED bar (n-2) so the breakout check and the
+  // right anchor of the trendlines are consistent with the same bar.
   const cur       = n - 2;
-  const topNow    = evalAt(topReg, cur);
-  const bottomNow = evalAt(botReg, cur);
+  const topNow    = evalTop(cur);
+  const bottomNow = evalBot(cur);
   if (topNow <= bottomNow) return null;
 
   // Trendlines must converge (apex in the future, not already crossed)
@@ -270,8 +275,8 @@ function detectTriangles(candles: CandleRaw[]): PatternResult | null {
 
   // Diagonal trendline anchors: earliest swing (left) → last completed bar (right).
   const startIdx         = Math.min(highs[0].idx, lows[0].idx);
-  const topStart         = evalAt(topReg, startIdx);
-  const bottomStart      = evalAt(botReg, startIdx);
+  const topStart         = evalTop(startIdx);
+  const bottomStart      = evalBot(startIdx);
   const patternStartDate = candles[startIdx]?.date;
   const patternEndDate   = candles[n - 2]?.date;
 
@@ -351,19 +356,24 @@ function detectWedges(candles: CandleRaw[]): PatternResult | null {
   const topReg = linReg(highs.map(p => ({ x: p.idx, y: p.price })));
   const botReg = linReg(lows.map( p => ({ x: p.idx, y: p.price })));
 
-  // Same rationale as detectTriangles: evaluate at n-2 (last completed bar) so
-  // the breakout check and the right anchor of the trendlines are consistent.
+  // Shift rails to touch the actual swing extremes (same approach as detectTriangles).
+  const topShift = Math.max(...highs.map(p => p.price - evalAt(topReg, p.idx)));
+  const botShift = Math.min(...lows.map( p => p.price - evalAt(botReg, p.idx)));
+  const evalTop  = (idx: number) => evalAt(topReg, idx) + topShift;
+  const evalBot  = (idx: number) => evalAt(botReg, idx) + botShift;
+
+  // Evaluate at the last COMPLETED bar (n-2).
   const cur       = n - 2;
-  const topNow    = evalAt(topReg, cur);
-  const bottomNow = evalAt(botReg, cur);
+  const topNow    = evalTop(cur);
+  const bottomNow = evalBot(cur);
   if (topNow <= bottomNow) return null;
 
   const lastClose = candles[n - 2].close;
 
   // Diagonal trendline anchors.
   const startIdx         = Math.min(highs[0].idx, lows[0].idx);
-  const topStart         = evalAt(topReg, startIdx);
-  const bottomStart      = evalAt(botReg, startIdx);
+  const topStart         = evalTop(startIdx);
+  const bottomStart      = evalBot(startIdx);
   const patternStartDate = candles[startIdx]?.date;
   const patternEndDate   = candles[n - 2]?.date;
 
