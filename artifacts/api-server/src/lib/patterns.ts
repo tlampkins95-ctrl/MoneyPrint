@@ -248,40 +248,41 @@ function detectTriangles(candles: CandleRaw[]): PatternResult | null {
   const lastLow  = lows[lows.length - 1].idx;
   if (Math.min(n - 1 - lastHigh, n - 1 - lastLow) > 15) return null;
 
-  const topReg = linReg(highs.map(p => ({ x: p.idx, y: p.price })));
-  const botReg = linReg(lows.map( p => ({ x: p.idx, y: p.price })));
+  // 2-point trendlines: upper rail through first & last swing high,
+  // lower rail through first & last swing low. This is the standard TA method —
+  // the line connects exactly two peaks/valleys and will touch those candles precisely.
+  const topH1 = highs[0];
+  const topH2 = highs[highs.length - 1];
+  const botL1 = lows[0];
+  const botL2 = lows[lows.length - 1];
+  if (topH2.idx === topH1.idx || botL2.idx === botL1.idx) return null;
 
-  // Shift rails to touch the actual swing extremes — standard TA practice.
-  // Linear regression fits through the CENTER of swing points, which causes
-  // individual candles to leak above/below the lines during normal formation.
-  // Shifting up/down so the line passes through the most extreme swing point
-  // keeps ALL historical price action inside the rails.
-  const topShift = Math.max(...highs.map(p => p.price - evalAt(topReg, p.idx)));
-  const botShift = Math.min(...lows.map( p => p.price - evalAt(botReg, p.idx)));
-  const evalTop  = (idx: number) => evalAt(topReg, idx) + topShift;
-  const evalBot  = (idx: number) => evalAt(botReg, idx) + botShift;
+  const topSlope = (topH2.price - topH1.price) / (topH2.idx - topH1.idx);
+  const botSlope = (botL2.price - botL1.price) / (botL2.idx - botL1.idx);
+  const evalTop  = (idx: number) => topH1.price + topSlope * (idx - topH1.idx);
+  const evalBot  = (idx: number) => botL1.price + botSlope * (idx - botL1.idx);
+
+  // Trendlines must converge (apex in the future, not already crossed).
+  if (botSlope <= topSlope) return null;
 
   // Evaluate at the last COMPLETED bar (n-2) so the breakout check and the
-  // right anchor of the trendlines are consistent with the same bar.
+  // right anchor of the trendlines use the same bar.
   const cur       = n - 2;
   const topNow    = evalTop(cur);
   const bottomNow = evalBot(cur);
   if (topNow <= bottomNow) return null;
 
-  // Trendlines must converge (apex in the future, not already crossed)
-  if (botReg.slope <= topReg.slope) return null;
-
   const lastClose = candles[n - 2].close;
 
-  // Diagonal trendline anchors: earliest swing (left) → last completed bar (right).
-  const startIdx         = Math.min(highs[0].idx, lows[0].idx);
+  // Left anchor at the earliest swing point; right anchor at last completed bar.
+  const startIdx         = Math.min(topH1.idx, botL1.idx);
   const topStart         = evalTop(startIdx);
   const bottomStart      = evalBot(startIdx);
   const patternStartDate = candles[startIdx]?.date;
   const patternEndDate   = candles[n - 2]?.date;
 
   // Ascending: flat top + rising bottom → bullish
-  if (Math.abs(topReg.slope) < FLAT_T && botReg.slope > TREND_T) {
+  if (Math.abs(topSlope) < FLAT_T && botSlope > TREND_T) {
     return {
       pattern: "ASCENDING_TRIANGLE", direction: "bullish", category: "continuation",
       confirmed: lastClose > topNow,
@@ -295,7 +296,7 @@ function detectTriangles(candles: CandleRaw[]): PatternResult | null {
   }
 
   // Descending: falling top + flat bottom → bearish
-  if (topReg.slope < -FLAT_T && Math.abs(botReg.slope) < FLAT_T) {
+  if (topSlope < -FLAT_T && Math.abs(botSlope) < FLAT_T) {
     return {
       pattern: "DESCENDING_TRIANGLE", direction: "bearish", category: "continuation",
       confirmed: lastClose < bottomNow,
@@ -308,12 +309,11 @@ function detectTriangles(candles: CandleRaw[]): PatternResult | null {
     };
   }
 
-  // Symmetrical: top falling + bottom rising, both meaningful slopes.
-  // Direction is strictly neutral until a closed-bar breakout confirms direction.
-  if (topReg.slope < -TREND_T && botReg.slope > TREND_T) {
+  // Symmetrical: top falling + bottom rising.
+  if (topSlope < -TREND_T && botSlope > TREND_T) {
     const breakBull = lastClose > topNow;
     const breakBear = lastClose < bottomNow;
-    if (!breakBull && !breakBear) return null; // neutral until breakout — emit nothing
+    if (!breakBull && !breakBear) return null;
     return {
       pattern: "SYMMETRICAL_TRIANGLE",
       direction: breakBull ? "bullish" : "bearish",
@@ -337,72 +337,127 @@ function detectTriangles(candles: CandleRaw[]): PatternResult | null {
 // Requires strength=3 swings (stricter than triangles) to avoid noise.
 
 function detectWedges(candles: CandleRaw[]): PatternResult | null {
-  const LOOKBACK = 50;
+  // Longer lookback for wedges — they often span 2–4 months on a daily chart.
+  const LOOKBACK = 100;
   const n = candles.length;
   if (n < 20) return null;
 
   const slice    = candles.slice(-LOOKBACK);
   const avgPrice = slice.reduce((s, c) => s + c.close, 0) / slice.length;
-  const MIN_S    = 0.00025 * avgPrice; // minimum meaningful slope
+  const MIN_S    = 0.00025 * avgPrice;
 
   const highs = findSwingHighs(candles, 3, LOOKBACK);
   const lows  = findSwingLows(candles,  3, LOOKBACK);
-  if (highs.length < 3 || lows.length < 3) return null;
+  if (highs.length < 2 || lows.length < 2) return null;
 
-  const lastHigh = highs[highs.length - 1].idx;
-  const lastLow  = lows[lows.length - 1].idx;
-  if (Math.min(n - 1 - lastHigh, n - 1 - lastLow) > 15) return null;
+  const lastHighIdx = highs[highs.length - 1].idx;
+  const lastLowIdx  = lows[lows.length - 1].idx;
+  if (Math.min(n - 1 - lastHighIdx, n - 1 - lastLowIdx) > 15) return null;
 
-  const topReg = linReg(highs.map(p => ({ x: p.idx, y: p.price })));
-  const botReg = linReg(lows.map( p => ({ x: p.idx, y: p.price })));
-
-  // Shift rails to touch the actual swing extremes (same approach as detectTriangles).
-  const topShift = Math.max(...highs.map(p => p.price - evalAt(topReg, p.idx)));
-  const botShift = Math.min(...lows.map( p => p.price - evalAt(botReg, p.idx)));
-  const evalTop  = (idx: number) => evalAt(topReg, idx) + topShift;
-  const evalBot  = (idx: number) => evalAt(botReg, idx) + botShift;
-
-  // Evaluate at the last COMPLETED bar (n-2).
   const cur       = n - 2;
-  const topNow    = evalTop(cur);
-  const bottomNow = evalBot(cur);
-  if (topNow <= bottomNow) return null;
-
   const lastClose = candles[n - 2].close;
 
-  // Diagonal trendline anchors.
-  const startIdx         = Math.min(highs[0].idx, lows[0].idx);
-  const topStart         = evalTop(startIdx);
-  const bottomStart      = evalBot(startIdx);
-  const patternStartDate = candles[startIdx]?.date;
-  const patternEndDate   = candles[n - 2]?.date;
+  // ── Falling wedge ──────────────────────────────────────────────────────────
+  // Upper rail: from the HIGHEST swing high (apex of the pattern) to the last
+  // swing high.  Both rails must slope down; upper must be steeper → convergence.
+  // This "apex-anchored" method guarantees the line touches 2 actual peaks and
+  // 2 actual valleys rather than running through regression centers.
+  {
+    const apexHighI = highs.reduce((mi, h, i) => h.price > highs[mi].price ? i : mi, 0);
+    const apexHigh  = highs[apexHighI];
+    const lastHigh  = highs[highs.length - 1];
 
-  // Rising wedge: both slopes positive, bottom slope exceeds top slope
-  if (topReg.slope > MIN_S && botReg.slope > MIN_S && botReg.slope > topReg.slope * 1.15) {
-    return {
-      pattern: "RISING_WEDGE", direction: "bearish", category: "continuation",
-      confirmed: lastClose < bottomNow,
-      necklinePrice: +bottomNow.toFixed(10),
-      upperBound:    +topNow.toFixed(10),
-      necklineStartPrice:   +bottomStart.toFixed(10),
-      upperBoundStartPrice: +topStart.toFixed(10),
-      patternStartDate,
-      patternEndDate,
-    };
+    if (lastHigh.idx > apexHigh.idx && lastHigh.price < apexHigh.price) {
+      const topSlope = (lastHigh.price - apexHigh.price) / (lastHigh.idx - apexHigh.idx);
+      const evalTop  = (idx: number) => apexHigh.price + topSlope * (idx - apexHigh.idx);
+
+      // Lower rail: from the HIGHEST swing low after the apex to the last swing low.
+      const postApexLows = lows.filter(l => l.idx >= apexHigh.idx);
+      if (postApexLows.length >= 2) {
+        const apexLowI     = postApexLows.reduce((mi, l, i) => l.price > postApexLows[mi].price ? i : mi, 0);
+        const apexLow      = postApexLows[apexLowI];
+        const lastLow      = postApexLows[postApexLows.length - 1];
+
+        if (lastLow.idx > apexLow.idx) {
+          const botSlope = (lastLow.price - apexLow.price) / (lastLow.idx - apexLow.idx);
+          const evalBot  = (idx: number) => apexLow.price + botSlope * (idx - apexLow.idx);
+
+          const topNow    = evalTop(cur);
+          const bottomNow = evalBot(cur);
+
+          if (
+            topNow > bottomNow &&
+            topSlope < -MIN_S &&
+            botSlope < -MIN_S &&
+            topSlope < botSlope * 1.15
+          ) {
+            // Left anchor: apex high date; extrapolate lower rail back to same date.
+            const patternStartDate = candles[apexHigh.idx]?.date;
+            const patternEndDate   = candles[cur]?.date;
+            return {
+              pattern: "FALLING_WEDGE", direction: "bullish", category: "continuation",
+              confirmed: lastClose > topNow,
+              necklinePrice: +bottomNow.toFixed(10),
+              upperBound:    +topNow.toFixed(10),
+              necklineStartPrice:   +evalBot(apexHigh.idx).toFixed(10),
+              upperBoundStartPrice: +apexHigh.price.toFixed(10),
+              patternStartDate,
+              patternEndDate,
+            };
+          }
+        }
+      }
+    }
   }
 
-  // Falling wedge: both slopes negative, top slope more negative than bottom
-  if (topReg.slope < -MIN_S && botReg.slope < -MIN_S && topReg.slope < botReg.slope * 1.15) {
-    return {
-      pattern: "FALLING_WEDGE", direction: "bullish", category: "continuation",
-      confirmed: lastClose > topNow,
-      necklinePrice: +bottomNow.toFixed(10),
-      upperBound:    +topNow.toFixed(10),
-      necklineStartPrice:   +bottomStart.toFixed(10),
-      upperBoundStartPrice: +topStart.toFixed(10),
-      patternStartDate,
-      patternEndDate,
-    };
+  // ── Rising wedge ───────────────────────────────────────────────────────────
+  // Lower rail: from the LOWEST swing low (apex) to the last swing low.
+  // Upper rail: from the lowest swing high after the apex to the last swing high.
+  // Both rails must slope up; lower must be steeper → convergence.
+  {
+    const apexLowI = lows.reduce((mi, l, i) => l.price < lows[mi].price ? i : mi, 0);
+    const apexLow  = lows[apexLowI];
+    const lastLow  = lows[lows.length - 1];
+
+    if (lastLow.idx > apexLow.idx && lastLow.price > apexLow.price) {
+      const botSlope = (lastLow.price - apexLow.price) / (lastLow.idx - apexLow.idx);
+      const evalBot  = (idx: number) => apexLow.price + botSlope * (idx - apexLow.idx);
+
+      const postApexHighs = highs.filter(h => h.idx >= apexLow.idx);
+      if (postApexHighs.length >= 2) {
+        const apexHighI    = postApexHighs.reduce((mi, h, i) => h.price < postApexHighs[mi].price ? i : mi, 0);
+        const apexHighPt   = postApexHighs[apexHighI];
+        const lastHigh     = postApexHighs[postApexHighs.length - 1];
+
+        if (lastHigh.idx > apexHighPt.idx) {
+          const topSlope = (lastHigh.price - apexHighPt.price) / (lastHigh.idx - apexHighPt.idx);
+          const evalTop  = (idx: number) => apexHighPt.price + topSlope * (idx - apexHighPt.idx);
+
+          const topNow    = evalTop(cur);
+          const bottomNow = evalBot(cur);
+
+          if (
+            topNow > bottomNow &&
+            botSlope > MIN_S &&
+            topSlope > MIN_S &&
+            botSlope > topSlope * 1.15
+          ) {
+            const patternStartDate = candles[apexLow.idx]?.date;
+            const patternEndDate   = candles[cur]?.date;
+            return {
+              pattern: "RISING_WEDGE", direction: "bearish", category: "continuation",
+              confirmed: lastClose < bottomNow,
+              necklinePrice: +bottomNow.toFixed(10),
+              upperBound:    +topNow.toFixed(10),
+              necklineStartPrice:   +apexLow.price.toFixed(10),
+              upperBoundStartPrice: +evalTop(apexLow.idx).toFixed(10),
+              patternStartDate,
+              patternEndDate,
+            };
+          }
+        }
+      }
+    }
   }
 
   return null;
