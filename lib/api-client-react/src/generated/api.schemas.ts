@@ -356,6 +356,12 @@ export interface LevelsData {
   patternNeckline?: number;
   /** Price level of the upper rail at the current bar for two-line patterns (triangles, wedges, flags). Absent for single-line patterns and when no pattern is detected. */
   patternUpperBound?: number;
+  /** Lower rail price at the start of the pattern (patternStartDate). Present for triangles and wedges only — use with patternNeckline to draw a diagonal lower trendline. */
+  patternNecklineStart?: number;
+  /** Upper rail price at the start of the pattern (patternStartDate). Present alongside patternNecklineStart. */
+  patternUpperBoundStart?: number;
+  /** ISO date string of the earliest swing point used to build the diagonal trendlines (triangles and wedges). Use toTime() on this value to anchor the left end of the rails. */
+  patternStartDate?: string;
   lastUpdated: string;
   positionSizing?: PositionSizing;
 }

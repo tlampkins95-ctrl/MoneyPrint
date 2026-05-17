@@ -1972,6 +1972,9 @@ export function computeLevels(
     patternConfirmed: patternResult?.confirmed,
     patternNeckline: patternResult?.necklinePrice,
     patternUpperBound: patternResult?.upperBound,
+    patternNecklineStart: patternResult?.necklineStartPrice,
+    patternUpperBoundStart: patternResult?.upperBoundStartPrice,
+    patternStartDate: patternResult?.patternStartDate,
     lastUpdated: new Date().toISOString(),
     positionSizing,
   };

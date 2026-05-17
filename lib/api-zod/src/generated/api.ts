@@ -236,6 +236,24 @@ export const GetLevelsResponse = zod.object({
     .describe(
       "Price level of the upper rail at the current bar for two-line patterns (triangles, wedges, flags). Absent for single-line patterns and when no pattern is detected.",
     ),
+  patternNecklineStart: zod
+    .number()
+    .optional()
+    .describe(
+      "Lower rail price at the start of the pattern (patternStartDate). Present for triangles and wedges only — use with patternNeckline to draw a diagonal lower trendline.",
+    ),
+  patternUpperBoundStart: zod
+    .number()
+    .optional()
+    .describe(
+      "Upper rail price at the start of the pattern (patternStartDate). Present alongside patternNecklineStart.",
+    ),
+  patternStartDate: zod
+    .string()
+    .optional()
+    .describe(
+      "ISO date string of the earliest swing point used to build the diagonal trendlines (triangles and wedges). Use toTime() on this value to anchor the left end of the rails.",
+    ),
   lastUpdated: zod.string(),
   positionSizing: zod
     .object({
@@ -729,6 +747,24 @@ export const GetActiveSignalsResponse = zod.object({
               .optional()
               .describe(
                 "Price level of the upper rail at the current bar for two-line patterns (triangles, wedges, flags). Absent for single-line patterns and when no pattern is detected.",
+              ),
+            patternNecklineStart: zod
+              .number()
+              .optional()
+              .describe(
+                "Lower rail price at the start of the pattern (patternStartDate). Present for triangles and wedges only — use with patternNeckline to draw a diagonal lower trendline.",
+              ),
+            patternUpperBoundStart: zod
+              .number()
+              .optional()
+              .describe(
+                "Upper rail price at the start of the pattern (patternStartDate). Present alongside patternNecklineStart.",
+              ),
+            patternStartDate: zod
+              .string()
+              .optional()
+              .describe(
+                "ISO date string of the earliest swing point used to build the diagonal trendlines (triangles and wedges). Use toTime() on this value to anchor the left end of the rails.",
               ),
             lastUpdated: zod.string(),
             positionSizing: zod

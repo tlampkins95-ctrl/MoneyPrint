@@ -46,6 +46,11 @@ export interface PatternResult {
   necklinePrice: number;   // key break level / lower rail at the current bar
   upperBound?:   number;   // upper rail at the current bar (triangles, wedges, flags)
   category:      PatternCategory;
+  // Start-of-pattern coordinates for drawing diagonal trendlines (triangles/wedges only).
+  // Absent for single-rail patterns (H&S, double top/bottom) and candlestick patterns.
+  necklineStartPrice?:   number; // lower rail price at patternStartDate
+  upperBoundStartPrice?: number; // upper rail price at patternStartDate
+  patternStartDate?:     string; // ISO date string of the earliest swing point
 }
 
 interface SwingPoint { idx: number; price: number; }
@@ -255,6 +260,13 @@ function detectTriangles(candles: CandleRaw[]): PatternResult | null {
 
   const lastClose = candles[n - 2].close;
 
+  // Start coordinates for diagonal trendline rendering on the frontend.
+  // Use the earliest swing point as the left anchor of both rails.
+  const startIdx        = Math.min(highs[0].idx, lows[0].idx);
+  const topStart        = evalAt(topReg, startIdx);
+  const bottomStart     = evalAt(botReg, startIdx);
+  const patternStartDate = candles[startIdx]?.date;
+
   // Ascending: flat top + rising bottom → bullish
   if (Math.abs(topReg.slope) < FLAT_T && botReg.slope > TREND_T) {
     return {
@@ -262,6 +274,9 @@ function detectTriangles(candles: CandleRaw[]): PatternResult | null {
       confirmed: lastClose > topNow,
       necklinePrice: +bottomNow.toFixed(10),
       upperBound:    +topNow.toFixed(10),
+      necklineStartPrice:   +bottomStart.toFixed(10),
+      upperBoundStartPrice: +topStart.toFixed(10),
+      patternStartDate,
     };
   }
 
@@ -272,6 +287,9 @@ function detectTriangles(candles: CandleRaw[]): PatternResult | null {
       confirmed: lastClose < bottomNow,
       necklinePrice: +bottomNow.toFixed(10),
       upperBound:    +topNow.toFixed(10),
+      necklineStartPrice:   +bottomStart.toFixed(10),
+      upperBoundStartPrice: +topStart.toFixed(10),
+      patternStartDate,
     };
   }
 
@@ -290,6 +308,9 @@ function detectTriangles(candles: CandleRaw[]): PatternResult | null {
       confirmed: true, // only reachable after a confirmed break
       necklinePrice: +bottomNow.toFixed(10),
       upperBound:    +topNow.toFixed(10),
+      necklineStartPrice:   +bottomStart.toFixed(10),
+      upperBoundStartPrice: +topStart.toFixed(10),
+      patternStartDate,
     };
   }
 
@@ -328,6 +349,12 @@ function detectWedges(candles: CandleRaw[]): PatternResult | null {
 
   const lastClose = candles[n - 2].close;
 
+  // Start coordinates for diagonal trendline rendering on the frontend.
+  const startIdx        = Math.min(highs[0].idx, lows[0].idx);
+  const topStart        = evalAt(topReg, startIdx);
+  const bottomStart     = evalAt(botReg, startIdx);
+  const patternStartDate = candles[startIdx]?.date;
+
   // Rising wedge: both slopes positive, bottom slope exceeds top slope
   if (topReg.slope > MIN_S && botReg.slope > MIN_S && botReg.slope > topReg.slope * 1.15) {
     return {
@@ -335,6 +362,9 @@ function detectWedges(candles: CandleRaw[]): PatternResult | null {
       confirmed: lastClose < bottomNow,
       necklinePrice: +bottomNow.toFixed(10),
       upperBound:    +topNow.toFixed(10),
+      necklineStartPrice:   +bottomStart.toFixed(10),
+      upperBoundStartPrice: +topStart.toFixed(10),
+      patternStartDate,
     };
   }
 
@@ -345,6 +375,9 @@ function detectWedges(candles: CandleRaw[]): PatternResult | null {
       confirmed: lastClose > topNow,
       necklinePrice: +bottomNow.toFixed(10),
       upperBound:    +topNow.toFixed(10),
+      necklineStartPrice:   +bottomStart.toFixed(10),
+      upperBoundStartPrice: +topStart.toFixed(10),
+      patternStartDate,
     };
   }
 

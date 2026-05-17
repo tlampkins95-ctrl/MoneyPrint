@@ -3,6 +3,7 @@ import {
   createChart,
   CandlestickSeries,
   BaselineSeries,
+  LineSeries,
   LineStyle,
   type IChartApi,
   type ISeriesApi,
@@ -49,6 +50,8 @@ export function LevelsChart({
   const candleSeriesRef   = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const buyZoneRef        = useRef<ISeriesApi<"Baseline"> | null>(null);
   const sellZoneRef       = useRef<ISeriesApi<"Baseline"> | null>(null);
+  const patUpperRailRef   = useRef<ISeriesApi<"Line"> | null>(null);
+  const patLowerRailRef   = useRef<ISeriesApi<"Line"> | null>(null);
   const linesRef          = useRef<IPriceLine[]>([]);
   // Raw date strings from the first/last candle — used to anchor zone band data.
   // Stored as strings so toTime() can apply the right conversion (business-day
@@ -160,23 +163,48 @@ export function LevelsChart({
       lastValueVisible: false,
     });
 
-    candleSeriesRef.current = candles;
-    buyZoneRef.current      = buyZone;
-    sellZoneRef.current     = sellZone;
-    chartRef.current        = chart;
-    linesRef.current        = [];
-    firstDateRef.current    = null;
-    lastDateRef.current     = null;
-    hasScrolledRef.current  = false;
+    // ── Pattern diagonal rail series ──────────────────────────────────────
+    // Two LineSeries with exactly 2 data points each (start + end of pattern).
+    // Data is cleared when no diagonal pattern is active. priceLineVisible and
+    // lastValueVisible are off so they don't clutter the axis.
+    const patUpper = chart.addSeries(LineSeries, {
+      color:                  "#fbbf24",
+      lineWidth:              1 as LineWidth,
+      lineStyle:              LineStyle.Dashed,
+      priceLineVisible:       false,
+      lastValueVisible:       false,
+      crosshairMarkerVisible: false,
+    });
+    const patLower = chart.addSeries(LineSeries, {
+      color:                  "#a855f7",
+      lineWidth:              1 as LineWidth,
+      lineStyle:              LineStyle.Dashed,
+      priceLineVisible:       false,
+      lastValueVisible:       false,
+      crosshairMarkerVisible: false,
+    });
+
+    candleSeriesRef.current   = candles;
+    buyZoneRef.current        = buyZone;
+    sellZoneRef.current       = sellZone;
+    patUpperRailRef.current   = patUpper;
+    patLowerRailRef.current   = patLower;
+    chartRef.current          = chart;
+    linesRef.current          = [];
+    firstDateRef.current      = null;
+    lastDateRef.current       = null;
+    hasScrolledRef.current    = false;
 
     return () => {
-      linesRef.current        = [];
-      candleSeriesRef.current = null;
-      buyZoneRef.current      = null;
-      sellZoneRef.current     = null;
-      firstDateRef.current    = null;
-      lastDateRef.current     = null;
-      hasScrolledRef.current  = false;
+      linesRef.current          = [];
+      candleSeriesRef.current   = null;
+      buyZoneRef.current        = null;
+      sellZoneRef.current       = null;
+      patUpperRailRef.current   = null;
+      patLowerRailRef.current   = null;
+      firstDateRef.current      = null;
+      lastDateRef.current       = null;
+      hasScrolledRef.current    = false;
       try { chart.remove(); } catch { /**/ }
       chartRef.current = null;
     };
@@ -256,21 +284,61 @@ export function LevelsChart({
     // Only drawn when the overlay is ON AND the pattern is confirmed.
     // Forming patterns: badge only, no lines (avoid noise during the setup phase).
     // Candlestick patterns (single/two-bar): badge only, no structural chart lines.
-    // Two-line patterns (triangles, wedges, flags): purple lower rail + amber upper rail.
+    //
+    // Diagonal patterns (triangles, wedges): rendered as 2-point LineSeries so the
+    // rails slope correctly across time. Start coordinates come from the API's
+    // patternStartDate + patternNecklineStart/patternUpperBoundStart fields.
+    //
+    // Horizontal patterns (H&S neckline, flags): rendered as priceLine as before.
     const CANDLESTICK_TYPES = new Set([
       "BULLISH_ENGULFING", "BEARISH_ENGULFING", "HAMMER", "SHOOTING_STAR",
     ]);
-    const isCandlestickOnly = CANDLESTICK_TYPES.has(levels.detectedPattern ?? "");
-    if (showPatterns && levels.patternConfirmed === true && levels.patternNeckline != null && !isCandlestickOnly) {
-      const p = levels.detectedPattern;
-      const isHS = p === "HEAD_AND_SHOULDERS" || p === "INVERSE_HEAD_AND_SHOULDERS";
-      const lowerLabel = isHS ? "Neckline" : "Pat Low";
-      addLine(levels.patternNeckline, "#a855f7", lowerLabel, LineStyle.SparseDotted, 1);
-      if (levels.patternUpperBound != null) {
-        // Amber (#fbbf24) is visually distinct from the resistance orange (#f97316)
-        // used by S/R level lines, so both rails read as a coordinated pair (purple + amber)
-        // without clashing with the S/R stack.
-        addLine(levels.patternUpperBound, "#fbbf24", "Pat High", LineStyle.SparseDotted, 1);
+    const DIAGONAL_TYPES = new Set([
+      "ASCENDING_TRIANGLE", "DESCENDING_TRIANGLE", "SYMMETRICAL_TRIANGLE",
+      "RISING_WEDGE", "FALLING_WEDGE",
+    ]);
+    const isCandlestickOnly  = CANDLESTICK_TYPES.has(levels.detectedPattern ?? "");
+    const hasDiagonalPattern = DIAGONAL_TYPES.has(levels.detectedPattern ?? "");
+
+    const patUpper = patUpperRailRef.current;
+    const patLower = patLowerRailRef.current;
+
+    const canDrawDiagonal =
+      showPatterns &&
+      levels.patternConfirmed === true &&
+      hasDiagonalPattern &&
+      levels.patternStartDate != null &&
+      levels.patternNecklineStart != null &&
+      lastDateRef.current != null;
+
+    if (canDrawDiagonal && patUpper && patLower) {
+      // Draw diagonal rails. The two data points anchor the regression line at
+      // the earliest swing point (start) and the most recent candle (end).
+      const startTime = toTime(levels.patternStartDate!);
+      const endTime   = toTime(lastDateRef.current!);
+      patUpper.setData([
+        { time: startTime, value: levels.patternUpperBoundStart ?? levels.patternUpperBound ?? 0 },
+        { time: endTime,   value: levels.patternUpperBound! },
+      ]);
+      patLower.setData([
+        { time: startTime, value: levels.patternNecklineStart! },
+        { time: endTime,   value: levels.patternNeckline! },
+      ]);
+    } else {
+      // No diagonal pattern — clear the rail series so previous lines don't linger.
+      patUpper?.setData([]);
+      patLower?.setData([]);
+
+      // Horizontal fallback for H&S necklines, flags/pennants, and other single-rail patterns.
+      if (showPatterns && levels.patternConfirmed === true && levels.patternNeckline != null && !isCandlestickOnly) {
+        const p = levels.detectedPattern;
+        const isHS = p === "HEAD_AND_SHOULDERS" || p === "INVERSE_HEAD_AND_SHOULDERS";
+        const lowerLabel = isHS ? "Neckline" : "Pat Low";
+        addLine(levels.patternNeckline, "#a855f7", lowerLabel, LineStyle.SparseDotted, 1);
+        if (levels.patternUpperBound != null) {
+          // Amber (#fbbf24) is visually distinct from the resistance orange (#f97316).
+          addLine(levels.patternUpperBound, "#fbbf24", "Pat High", LineStyle.SparseDotted, 1);
+        }
       }
     }
 
