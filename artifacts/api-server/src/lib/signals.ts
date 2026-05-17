@@ -2678,15 +2678,29 @@ export function computeLevelsStable(
   // but honest: if the daily candle doesn't confirm the fill, we don't claim one.
   const preTriggerCheck = activeTrades.get(k);
   if (preTriggerCheck && !preTriggerCheck.triggered) {
-    const useLiveSpot = timeframe !== "1d";
-    const spotTagged = useLiveSpot && (
-      preTriggerCheck.signal === "BUY"
-        ? fresh.currentPrice < preTriggerCheck.entryPrice
-        : fresh.currentPrice > preTriggerCheck.entryPrice
-    );
-    if (spotTagged || wasEntryTagged(preTriggerCheck, candles)) {
+    // Market entries (DAGGER, PATTERN_BREAKOUT) should always be treated as
+    // immediately filled. If an old snapshot slipped through with triggered=false
+    // (created before this fix), force it triggered now rather than waiting for
+    // a candle wick that may never arrive or arriving in the wrong direction.
+    const isMarketEntryTrade =
+      preTriggerCheck.signalType === "DAGGER" ||
+      preTriggerCheck.signalType === "PATTERN_BREAKOUT";
+    if (isMarketEntryTrade) {
       preTriggerCheck.triggered = true;
       persistActiveTrades();
+    } else {
+      // Limit orders: use live-spot tap + candle-wick scan.
+      // Skip live-spot on daily bars (single spike can false-trigger).
+      const useLiveSpot = timeframe !== "1d";
+      const spotTagged = useLiveSpot && (
+        preTriggerCheck.signal === "BUY"
+          ? fresh.currentPrice < preTriggerCheck.entryPrice
+          : fresh.currentPrice > preTriggerCheck.entryPrice
+      );
+      if (spotTagged || wasEntryTagged(preTriggerCheck, candles)) {
+        preTriggerCheck.triggered = true;
+        persistActiveTrades();
+      }
     }
   }
 
@@ -2774,13 +2788,20 @@ export function computeLevelsStable(
 
   // No active trade. If fresh is BUY/SELL, snapshot it as the new active trade.
   if (fresh.signal === "BUY" || fresh.signal === "SELL") {
-    // If price is already strictly past the limit at fire time, the order
-    // fills immediately. Use strict inequality so that when entryPrice is
-    // clamped to currentPrice (max(R1, price) for SELL / min(S1, price) for
-    // BUY), equality does NOT auto-trigger — price must actually move through
-    // the level after the signal appears.
-    const triggered =
-      fresh.signal === "BUY"
+    // Market entries (DAGGER, PATTERN_BREAKOUT) fill immediately — no limit
+    // to wait for. Set triggered=true on creation so the dashboard shows
+    // the correct FILLED state from the first tick and `spotTagged` / candle
+    // wick checks are never incorrectly applied to these trades.
+    //
+    // Limit entries (PIVOT_BOUNCE, FIB_BOUNCE, BREAKOUT) use strict inequality:
+    // triggered = price has moved strictly past the staged level. Equality is
+    // excluded so that when entryPrice is clamped to currentPrice (e.g.
+    // max(R1, price)), price must actually move through the level to fill.
+    const isMarketEntry =
+      fresh.signalType === "DAGGER" || fresh.signalType === "PATTERN_BREAKOUT";
+    const triggered = isMarketEntry
+      ? true
+      : fresh.signal === "BUY"
         ? fresh.currentPrice < fresh.entryPrice
         : fresh.currentPrice > fresh.entryPrice;
     // Capture the in-progress candle's range as a baseline, so subsequent
