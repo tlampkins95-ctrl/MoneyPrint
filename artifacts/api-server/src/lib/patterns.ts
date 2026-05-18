@@ -131,17 +131,24 @@ function detectHS(candles: CandleRaw[]): PatternResult | null {
     const H3 = highs[i], H2 = highs[i - 1], H1 = highs[i - 2];
     if (H2.price <= H1.price || H2.price <= H3.price) continue;
     const lowerShoulder = Math.min(H1.price, H3.price);
-    if ((H2.price - lowerShoulder) / lowerShoulder < 0.02) continue;
+    // Head must stick out at least 5% above shoulders (was 2% — too loose)
+    if ((H2.price - lowerShoulder) / lowerShoulder < 0.05) continue;
+    // Shoulders must be within 8% of each other in price
     if (Math.abs(H1.price - H3.price) / Math.max(H1.price, H3.price) > 0.08) continue;
+    // Pattern must span at least 15 bars so it's a real formation not noise
+    if (H3.idx - H1.idx < 15) continue;
     const lt = lows.filter(l => l.idx > H1.idx && l.idx < H2.idx)
                    .reduce((a, b) => b.price < a.price ? b : a, { idx: -1, price: Infinity });
     const rt = lows.filter(l => l.idx > H2.idx && l.idx < H3.idx)
                    .reduce((a, b) => b.price < a.price ? b : a, { idx: -1, price: Infinity });
     if (lt.idx === -1 || rt.idx === -1) continue;
-    if (H3.idx < candles.length - 20) continue;
+    // Neckline valleys must be at similar depths (within 5%) — prevents lopsided patterns
+    if (Math.abs(lt.price - rt.price) / Math.max(lt.price, rt.price) > 0.05) continue;
+    // Right shoulder must be recent (within 15 bars)
+    if (H3.idx < candles.length - 15) continue;
     const neckline = (lt.price + rt.price) / 2;
     // upperBound = head price (the highest point, above neckline).
-    // Chart shows it as "Pat High". Measured-move target = 2*neckline - head.
+    // Chart shows it as "H&S Head". Measured-move target = 2*neckline - head.
     return {
       pattern: "HEAD_AND_SHOULDERS", direction: "bearish", category: "reversal",
       confirmed: candles[candles.length - 2].close < neckline,
@@ -161,14 +168,23 @@ function detectIHS(candles: CandleRaw[]): PatternResult | null {
     const L3 = lows[i], L2 = lows[i - 1], L1 = lows[i - 2];
     if (L2.price >= L1.price || L2.price >= L3.price) continue;
     const higherShoulder = Math.max(L1.price, L3.price);
-    if ((higherShoulder - L2.price) / higherShoulder < 0.02) continue;
+    // Head must dip at least 5% below shoulders (was 2% — too loose)
+    if ((higherShoulder - L2.price) / higherShoulder < 0.05) continue;
+    // Shoulders must be within 8% of each other in price
     if (Math.abs(L1.price - L3.price) / Math.max(L1.price, L3.price) > 0.08) continue;
+    // Pattern must span at least 15 bars so it's a real formation not noise
+    if (L3.idx - L1.idx < 15) continue;
     const lp = highs.filter(h => h.idx > L1.idx && h.idx < L2.idx)
                     .reduce((a, b) => b.price > a.price ? b : a, { idx: -1, price: -Infinity });
     const rp = highs.filter(h => h.idx > L2.idx && h.idx < L3.idx)
                     .reduce((a, b) => b.price > a.price ? b : a, { idx: -1, price: -Infinity });
     if (lp.idx === -1 || rp.idx === -1) continue;
-    if (L3.idx < candles.length - 20) continue;
+    // Neckline peaks must be at similar heights (within 5%) — key structural rule.
+    // Without this a double-top's two peaks become a "neckline" and the lows below
+    // get falsely read as an IHS shoulder-head-shoulder structure.
+    if (Math.abs(lp.price - rp.price) / Math.max(lp.price, rp.price) > 0.05) continue;
+    // Right shoulder must be recent (within 15 bars)
+    if (L3.idx < candles.length - 15) continue;
     const neckline = (lp.price + rp.price) / 2;
     // upperBound = classic measured-move target: neckline + (neckline - head).
     // Chart shows it as "IHS Target". SL for pattern entry = below neckline.
