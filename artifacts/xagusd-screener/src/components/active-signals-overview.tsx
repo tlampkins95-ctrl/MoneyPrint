@@ -314,6 +314,18 @@ export function ActiveSignalsOverview({
     .filter((s) => !isFilled(s.levels.tradeState) && !isPending(s.levels.tradeState))
     .sort(sortByTfThenSymbol);
 
+  // Group an already-sorted signal list by timeframe, preserving TF_ORDER.
+  function groupByTf<T extends { timeframe: string }>(arr: T[]): Array<[Timeframe, T[]]> {
+    const map = new Map<Timeframe, T[]>();
+    const order: Timeframe[] = [];
+    for (const s of arr) {
+      const tf = s.timeframe as Timeframe;
+      if (!map.has(tf)) { map.set(tf, []); order.push(tf); }
+      map.get(tf)!.push(s);
+    }
+    return order.map((tf) => [tf, map.get(tf)!]);
+  }
+
   return (
     <section
       className="rounded-xl border border-zinc-800 bg-[#0a0a0a]/50 backdrop-blur-md overflow-hidden"
@@ -406,93 +418,51 @@ export function ActiveSignalsOverview({
         )}
 
         {!isLoading && !isError && signals.length > 0 && (
-          <div className="space-y-3">
-            {filled.length > 0 && (
-              <div>
-                <div className="text-[10px] font-mono uppercase tracking-wider text-emerald-400/80 mb-1.5 px-1">
-                  Filled positions ({filled.length})
+          <div className="space-y-4">
+            {[
+              { list: filled,  label: "Filled positions",  color: "text-emerald-400/80" },
+              { list: pending, label: "Pending limits",    color: "text-amber-400/80"   },
+              { list: other,   label: "Other",             color: "text-zinc-500"        },
+            ].filter(({ list }) => list.length > 0).map(({ list, label, color }) => (
+              <div key={label}>
+                <div className={`text-[10px] font-mono uppercase tracking-wider ${color} mb-2 px-1`}>
+                  {label} ({list.length})
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
-                  {filled.map((s) => (
-                    <SignalRow
-                      key={`${s.symbol}-${s.timeframe}`}
-                      symbol={s.symbol}
-                      timeframe={s.timeframe as Timeframe}
-                      signal={s.levels.signal as "BUY" | "SELL"}
-                      signalType={s.levels.signalType as "PIVOT_BOUNCE" | "BREAKOUT" | "PATTERN_BREAKOUT" | "DAGGER" | undefined}
-                      signalReason={s.levels.signalReason}
-                      currentPrice={s.levels.currentPrice}
-                      entryPrice={s.levels.entryPrice}
-                      stopLoss={s.levels.stopLoss}
-                      takeProfit1={s.levels.takeProfit1}
-                      takeProfit2={s.levels.takeProfit2}
-                      riskRewardRatio={s.levels.riskRewardRatio}
-                      {...toRowSizing(s.levels.positionSizing)}
-                      onClick={() => onSelect(s.symbol, s.timeframe as Timeframe)}
-                      highlighted={s.symbol === selectedSymbol && s.timeframe === selectedTimeframe}
-                    />
+                <div className="space-y-3">
+                  {groupByTf(list).map(([tf, items]) => (
+                    <div key={tf}>
+                      <div className="flex items-center gap-2 mb-1.5 px-1">
+                        <span className="text-[9px] font-bold font-mono tracking-[0.2em] text-zinc-400 bg-zinc-800/70 border border-zinc-700/60 px-1.5 py-0.5 rounded">
+                          {TF_LABEL[tf]}
+                        </span>
+                        <span className="text-[9px] font-mono text-zinc-600">{items.length} signal{items.length !== 1 ? "s" : ""}</span>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
+                        {items.map((s) => (
+                          <SignalRow
+                            key={`${s.symbol}-${s.timeframe}`}
+                            symbol={s.symbol}
+                            timeframe={s.timeframe as Timeframe}
+                            signal={s.levels.signal as "BUY" | "SELL"}
+                            signalType={s.levels.signalType as "PIVOT_BOUNCE" | "BREAKOUT" | "PATTERN_BREAKOUT" | "DAGGER" | undefined}
+                            signalReason={s.levels.signalReason}
+                            currentPrice={s.levels.currentPrice}
+                            entryPrice={s.levels.entryPrice}
+                            stopLoss={s.levels.stopLoss}
+                            takeProfit1={s.levels.takeProfit1}
+                            takeProfit2={s.levels.takeProfit2}
+                            riskRewardRatio={s.levels.riskRewardRatio}
+                            {...toRowSizing(s.levels.positionSizing)}
+                            onClick={() => onSelect(s.symbol, s.timeframe as Timeframe)}
+                            highlighted={s.symbol === selectedSymbol && s.timeframe === selectedTimeframe}
+                          />
+                        ))}
+                      </div>
+                    </div>
                   ))}
                 </div>
               </div>
-            )}
-
-            {pending.length > 0 && (
-              <div>
-                <div className="text-[10px] font-mono uppercase tracking-wider text-amber-400/80 mb-1.5 px-1">
-                  Pending limits ({pending.length})
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
-                  {pending.map((s) => (
-                    <SignalRow
-                      key={`${s.symbol}-${s.timeframe}`}
-                      symbol={s.symbol}
-                      timeframe={s.timeframe as Timeframe}
-                      signal={s.levels.signal as "BUY" | "SELL"}
-                      signalType={s.levels.signalType as "PIVOT_BOUNCE" | "BREAKOUT" | "PATTERN_BREAKOUT" | "DAGGER" | undefined}
-                      signalReason={s.levels.signalReason}
-                      currentPrice={s.levels.currentPrice}
-                      entryPrice={s.levels.entryPrice}
-                      stopLoss={s.levels.stopLoss}
-                      takeProfit1={s.levels.takeProfit1}
-                      takeProfit2={s.levels.takeProfit2}
-                      riskRewardRatio={s.levels.riskRewardRatio}
-                      {...toRowSizing(s.levels.positionSizing)}
-                      onClick={() => onSelect(s.symbol, s.timeframe as Timeframe)}
-                      highlighted={s.symbol === selectedSymbol && s.timeframe === selectedTimeframe}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {other.length > 0 && (
-              <div>
-                <div className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 mb-1.5 px-1">
-                  Other ({other.length})
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
-                  {other.map((s) => (
-                    <SignalRow
-                      key={`${s.symbol}-${s.timeframe}`}
-                      symbol={s.symbol}
-                      timeframe={s.timeframe as Timeframe}
-                      signal={s.levels.signal as "BUY" | "SELL"}
-                      signalType={s.levels.signalType as "PIVOT_BOUNCE" | "BREAKOUT" | "PATTERN_BREAKOUT" | "DAGGER" | undefined}
-                      signalReason={s.levels.signalReason}
-                      currentPrice={s.levels.currentPrice}
-                      entryPrice={s.levels.entryPrice}
-                      stopLoss={s.levels.stopLoss}
-                      takeProfit1={s.levels.takeProfit1}
-                      takeProfit2={s.levels.takeProfit2}
-                      riskRewardRatio={s.levels.riskRewardRatio}
-                      {...toRowSizing(s.levels.positionSizing)}
-                      onClick={() => onSelect(s.symbol, s.timeframe as Timeframe)}
-                      highlighted={s.symbol === selectedSymbol && s.timeframe === selectedTimeframe}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
+            ))}
           </div>
         )}
       </div>

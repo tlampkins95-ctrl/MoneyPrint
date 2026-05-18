@@ -105,9 +105,12 @@ const ALERT_SYMBOLS: Symbol[] = ["XAGUSD", "EURUSD"];
 
 // Alert on 30m, 1h (intraday entries) and 1d (catches major daily moves like metals pumps).
 const TRACKED_TIMEFRAMES: Timeframe[] = ["30m", "1h", "1d"];
-// Only seed-alert on 30m at startup/restart. 1h and 1d seeds create a barrage
-// on every redeploy — they'll still alert on genuine transitions during polling.
+// Only seed-alert on 30m at startup/restart for trending/all symbols.
+// ALERT_SYMBOLS (XAGUSD, EURUSD) also seed on 1h — there are only 2 symbols
+// so the risk of a barrage is minimal, and missing a live 1h metal BUY on
+// restart is a real operational gap.
 const SEED_TIMEFRAMES = new Set<Timeframe>(["30m"]);
+const ALERT_SEED_TIMEFRAMES = new Set<Timeframe>(["30m", "1h"]);
 const POLL_INTERVAL_MS = 60_000;
 
 const COOLDOWN_BY_TIMEFRAME: Record<Timeframe, number> = {
@@ -201,9 +204,9 @@ async function checkSymbol(
     // one-time snapshot alert instead of silently missing the trade. WAIT
     // signals at seed time are still suppressed — there's nothing to
     // alert on.
-    // Seeds only fire for SEED_TIMEFRAMES (30m). 1h/1d first-observations just
-    // record state silently — they'll alert on genuine transitions during polling.
-    const isSeedSnapshot = !prev && SEED_TIMEFRAMES.has(timeframe) && (levels.signal === "BUY" || levels.signal === "SELL");
+    // Seeds fire for ALERT_SEED_TIMEFRAMES (30m + 1h) for these priority symbols.
+    // 1d first-observations still record silently — daily signals rarely miss on restart.
+    const isSeedSnapshot = !prev && ALERT_SEED_TIMEFRAMES.has(timeframe) && (levels.signal === "BUY" || levels.signal === "SELL");
     const transitioned =
       isSeedSnapshot ||
       (!!prev &&

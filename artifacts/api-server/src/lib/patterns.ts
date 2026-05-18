@@ -197,7 +197,10 @@ function detectDoubleTop(candles: CandleRaw[]): PatternResult | null {
     return {
       pattern: "DOUBLE_TOP", direction: "bearish", category: "reversal",
       confirmed: candles[candles.length - 2].close < valley.price,
-      necklinePrice: valley.price,
+      necklinePrice:   +valley.price.toFixed(10),
+      upperBound:      +avgTop.toFixed(10),
+      patternStartDate: candles[H1.idx]?.date,
+      patternEndDate:   candles[H2.idx]?.date,
     };
   }
   return null;
@@ -224,7 +227,10 @@ function detectDoubleBottom(candles: CandleRaw[]): PatternResult | null {
     return {
       pattern: "DOUBLE_BOTTOM", direction: "bullish", category: "reversal",
       confirmed: candles[candles.length - 2].close > peak.price,
-      necklinePrice: peak.price,
+      necklinePrice:    +peak.price.toFixed(10),
+      upperBound:       +avgBot.toFixed(10),
+      patternStartDate:  candles[L1.idx]?.date,
+      patternEndDate:    candles[L2.idx]?.date,
     };
   }
   return null;

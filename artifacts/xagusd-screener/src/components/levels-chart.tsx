@@ -332,15 +332,23 @@ export function LevelsChart({
       patUpper?.setData([]);
       patLower?.setData([]);
 
-      // Horizontal fallback for H&S necklines, flags/pennants, and other single-rail patterns.
-      if (showPatterns && levels.patternConfirmed === true && levels.patternNeckline != null && !isCandlestickOnly) {
-        const p = levels.detectedPattern;
-        const isHS = p === "HEAD_AND_SHOULDERS" || p === "INVERSE_HEAD_AND_SHOULDERS";
-        const lowerLabel = isHS ? "Neckline" : "Pat Low";
-        addLine(levels.patternNeckline, "#a855f7", lowerLabel, LineStyle.SparseDotted, 1);
+      // Horizontal fallback for H&S necklines, flags/pennants, double tops/bottoms.
+      // Double top/bottom: draw both levels even while forming — the resistance/support
+      // structure is actionable before confirmation (neckline break).
+      const p = levels.detectedPattern;
+      const isDoublePattern = p === "DOUBLE_TOP" || p === "DOUBLE_BOTTOM";
+      const isHS = p === "HEAD_AND_SHOULDERS" || p === "INVERSE_HEAD_AND_SHOULDERS";
+      const drawHorizontals =
+        showPatterns &&
+        levels.patternNeckline != null &&
+        !isCandlestickOnly &&
+        (levels.patternConfirmed === true || isDoublePattern);
+      if (drawHorizontals) {
+        const lowerLabel = isHS ? "Neckline" : isDoublePattern ? (p === "DOUBLE_TOP" ? "DT Neck" : "DB Neck") : "Pat Low";
+        const upperLabel = isDoublePattern ? (p === "DOUBLE_TOP" ? "DT Resist" : "DB Support") : "Pat High";
+        addLine(levels.patternNeckline!, "#a855f7", lowerLabel, LineStyle.SparseDotted, 1);
         if (levels.patternUpperBound != null) {
-          // Amber (#fbbf24) is visually distinct from the resistance orange (#f97316).
-          addLine(levels.patternUpperBound, "#fbbf24", "Pat High", LineStyle.SparseDotted, 1);
+          addLine(levels.patternUpperBound, "#fbbf24", upperLabel, LineStyle.SparseDotted, 1);
         }
       }
     }
