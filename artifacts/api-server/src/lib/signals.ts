@@ -588,14 +588,22 @@ const TIMEFRAME_LABELS: Record<Timeframe, string> = {
 //   TP    = B (wave 1 high — wave 3 targets prior top)
 // Bear mirrors the above with inverted direction.
 
-const DAGGER_MIN_TREND_ATR    = 2.0;  // A→B wave 1 must be ≥ 2×ATR
-const DAGGER_MIN_REACTION_ATR = 0.5;  // B→C pullback must be ≥ 0.5×ATR
-const DAGGER_MAX_REACTION_BARS = 50;  // wave 2 can't drag on indefinitely
-const DAGGER_TREND_LOOKBACK   = 80;   // bars to scan for B
-const DAGGER_SL_BUFFER        = 1.0;  // SL = C ± SL_BUFFER × ATR (1 ATR gives room past wick)
-const DAGGER_FIB_LOW          = 0.40; // retracement lower bound (40%)
-const DAGGER_FIB_HIGH         = 0.65; // retracement upper bound (65%)
-const DAGGER_WARMUP           = 50;   // minimum bars before scanning
+const DAGGER_MIN_TREND_ATR     = 2.0;  // A→B wave 1 must be ≥ 2×ATR
+const DAGGER_MIN_REACTION_ATR  = 0.5;  // B→C pullback must be ≥ 0.5×ATR
+const DAGGER_MAX_REACTION_BARS = 50;   // wave 2 can't drag on indefinitely
+const DAGGER_TREND_LOOKBACK    = 80;   // bars to scan for B
+const DAGGER_SL_BUFFER         = 1.0;  // SL = C ± SL_BUFFER × ATR (1 ATR gives room past wick)
+const DAGGER_FIB_LOW           = 0.40; // retracement lower bound (40%)
+const DAGGER_FIB_HIGH          = 0.65; // retracement upper bound (65%)
+const DAGGER_WARMUP            = 50;   // minimum bars before scanning
+// Entry must fire close to the wave 2 turning point (C).
+// Without these gates, bullTrigger can fire 20+ bars after C while price has
+// already run back to resistance — producing an entry at the top instead of
+// near the pullback. Both checks must pass:
+//   MAX_ENTRY_DRIFT_ATR — current price must be within 1.5 ATR of cPrice
+//   ENTRY_WINDOW_BARS   — trigger must fire within 8 bars of C being set
+const DAGGER_MAX_ENTRY_DRIFT_ATR = 1.5;
+const DAGGER_ENTRY_WINDOW_BARS   = 8;
 
 interface DaggerSetup {
   direction: "bull" | "bear";
@@ -1626,8 +1634,12 @@ export function computeLevels(
     // When ranging (ADX < 25) both sides are allowed; wave structure is its own filter.
     if (signal === "WAIT" && bullTrigger && macdBreakoutBuyOk && trend !== "DOWNTREND") {
       const ds = findDaggerBullSetup(candles, n - 1, atr);
-      // Entry bar must not have violated the wave 2 low (C still intact)
-      if (ds && last.low > ds.cPrice) {
+      // Entry bar must not have violated the wave 2 low (C still intact),
+      // must be within 1.5 ATR of C (not already run far above the pullback),
+      // and trigger must fire within 8 bars of C being established.
+      if (ds && last.low > ds.cPrice
+          && currentPrice <= ds.cPrice + DAGGER_MAX_ENTRY_DRIFT_ATR * atr
+          && (n - 1 - ds.cIdx) <= DAGGER_ENTRY_WINDOW_BARS) {
         if (patternBearish) {
           patternVetoed = true; // pattern blocked an otherwise-valid DAGGER BUY
         } else {
@@ -1645,7 +1657,11 @@ export function computeLevels(
 
     if (signal === "WAIT" && !patternVetoed && bearTrigger && macdBreakoutSellOk && !isLongOnly && trend !== "UPTREND") {
       const ds = findDaggerBearSetup(candles, n - 1, atr);
-      if (ds && last.high < ds.cPrice) {
+      // Same proximity gates as bull side: entry must be within 1.5 ATR of C
+      // and trigger must fire within 8 bars of C being set.
+      if (ds && last.high < ds.cPrice
+          && currentPrice >= ds.cPrice - DAGGER_MAX_ENTRY_DRIFT_ATR * atr
+          && (n - 1 - ds.cIdx) <= DAGGER_ENTRY_WINDOW_BARS) {
         if (patternBullish) {
           patternVetoed = true; // pattern blocked an otherwise-valid DAGGER SELL
         } else {
