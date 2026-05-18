@@ -183,13 +183,16 @@ function detectDoubleTop(candles: CandleRaw[]): PatternResult | null {
 
   for (let i = highs.length - 1; i >= 1; i--) {
     const H2 = highs[i], H1 = highs[i - 1];
-    if (Math.abs(H1.price - H2.price) / Math.max(H1.price, H2.price) > 0.025) continue;
-    if (H2.idx - H1.idx < 5) continue;
+    // Two peaks within 1.5% of each other (tighter than 2.5% to avoid noise)
+    if (Math.abs(H1.price - H2.price) / Math.max(H1.price, H2.price) > 0.015) continue;
+    // Must be at least 20 bars apart so the two peaks are visually distinct
+    if (H2.idx - H1.idx < 20) continue;
     const valleys = lows.filter(l => l.idx > H1.idx && l.idx < H2.idx);
     if (!valleys.length) continue;
     const valley = valleys.reduce((a, b) => b.price < a.price ? b : a);
     const avgTop = (H1.price + H2.price) / 2;
-    if ((avgTop - valley.price) / avgTop < 0.02) continue;
+    // Valley must be at least 4% below the tops — shallow dips are just noise
+    if ((avgTop - valley.price) / avgTop < 0.04) continue;
     if (H2.idx < candles.length - 20) continue;
     return {
       pattern: "DOUBLE_TOP", direction: "bearish", category: "reversal",
@@ -207,13 +210,16 @@ function detectDoubleBottom(candles: CandleRaw[]): PatternResult | null {
 
   for (let i = lows.length - 1; i >= 1; i--) {
     const L2 = lows[i], L1 = lows[i - 1];
-    if (Math.abs(L1.price - L2.price) / Math.max(L1.price, L2.price) > 0.025) continue;
-    if (L2.idx - L1.idx < 5) continue;
+    // Two troughs within 1.5% of each other
+    if (Math.abs(L1.price - L2.price) / Math.max(L1.price, L2.price) > 0.015) continue;
+    // Must be at least 20 bars apart so the two troughs are visually distinct
+    if (L2.idx - L1.idx < 20) continue;
     const peaks = highs.filter(h => h.idx > L1.idx && h.idx < L2.idx);
     if (!peaks.length) continue;
     const peak = peaks.reduce((a, b) => b.price > a.price ? b : a);
     const avgBot = (L1.price + L2.price) / 2;
-    if ((peak.price - avgBot) / avgBot < 0.02) continue;
+    // Peak between them must be at least 4% above the troughs
+    if ((peak.price - avgBot) / avgBot < 0.04) continue;
     if (L2.idx < candles.length - 20) continue;
     return {
       pattern: "DOUBLE_BOTTOM", direction: "bullish", category: "reversal",
