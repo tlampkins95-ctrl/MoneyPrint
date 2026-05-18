@@ -340,10 +340,10 @@ function detectTriangles(candles: CandleRaw[]): PatternResult | null {
   const breakBull = breakBullBar <= cur;
   const breakBear = breakBearBar <= cur;
 
-  // Expire the pattern if the breakout happened more than 5 bars ago.
-  // After 5 candles the move is established; showing the old triangle adds noise.
-  // (5 bars = 5 days on 1D, 5 hours on 1H, 2.5 hours on 30m — all sensible windows.)
-  const BREAKOUT_STALE_BARS = 5;
+  // Expire the pattern 2 bars after the breakout bar.
+  // Pattern stays visible for the breakout bar + 2 more for context, then clears.
+  // (2 bars = 2 days on 1D, 2 hours on 1H, 1 hour on 30m.)
+  const BREAKOUT_STALE_BARS = 2;
   if (breakBull || breakBear) {
     const firstBreakBar = Math.min(breakBullBar, breakBearBar);
     if (cur - firstBreakBar > BREAKOUT_STALE_BARS) return null;
