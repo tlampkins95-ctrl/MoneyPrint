@@ -303,13 +303,13 @@ export function LevelsChart({
     const patUpper = patUpperRailRef.current;
     const patLower = patLowerRailRef.current;
 
-    // Draw diagonal rails ONLY while the pattern is forming (not yet confirmed).
-    // Once price breaks out (confirmed=true) the formation has played out — clearing
-    // the rails keeps the chart clean and avoids misleading residual lines.
+    // Draw diagonal rails for forming AND recently confirmed patterns.
+    // Confirmed = breakout just happened — rails show context for the move.
+    // Truly stale confirmed patterns are expired server-side (5-bar window)
+    // so they never reach the chart at all.
     const canDrawDiagonal =
       showPatterns &&
       hasDiagonalPattern &&
-      levels.patternConfirmed !== true &&
       levels.patternStartDate != null &&
       levels.patternNecklineStart != null &&
       levels.patternEndDate != null;
