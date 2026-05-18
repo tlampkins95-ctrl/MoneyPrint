@@ -336,7 +336,7 @@ async function checkSymbol(
       if (isWebPushEnabled()) {
         const sideEmoji = levels.signal === "BUY" ? "🟢" : "🔴";
         const sideWord = levels.signal === "BUY" ? "BUY" : "SELL";
-        const typeTag = levels.signalType === "DAGGER" ? " 🗡 DAGGER" : levels.signalType === "BREAKOUT" ? " ◈ BREAKOUT" : " ↕ PIVOT";
+        const typeTag = levels.signalType === "DAGGER" ? " 🗡 DAGGER" : levels.signalType === "BREAKOUT" ? " ◈ BREAKOUT" : levels.signalType === "PATTERN_BREAKOUT" ? " ⬛ PATTERN" : " ↕ PIVOT";
         const m = SYMBOLS[symbol];
         const fmtN = (n: number) => `${m.prefix}${n.toFixed(m.decimals)}`;
         // Body keeps the most decision-relevant numbers within the
@@ -464,14 +464,17 @@ async function checkTrendingSymbol(
       prev.lastAlertSignal === levels.signal;
 
     if (transitioned && !cooldownActive) {
-      // DAGGER-only guard for trending coins. PIVOT_BOUNCE and BREAKOUT on
+      // Signal-type guard for trending coins. PIVOT_BOUNCE and BREAKOUT on
       // trending symbols showed 0% WR across every coin in production.
-      // DAGGER is structure-agnostic — if the Elliott Wave 2 setup is there,
-      // the coin doesn't matter. Everything else stays silent.
-      if (levels.signalType !== "DAGGER") {
+      // DAGGER and PATTERN_BREAKOUT are allowed: DAGGER is wave-structure-
+      // agnostic, and PATTERN_BREAKOUT requires a confirmed chart pattern
+      // boundary close — both are meaningfully different from blind pivot fades.
+      const trendingTypeAllowed =
+        levels.signalType === "DAGGER" || levels.signalType === "PATTERN_BREAKOUT";
+      if (!trendingTypeAllowed) {
         logger.info(
           { symbolKey, timeframe, signalType: levels.signalType },
-          "Trending signal alert suppressed (only DAGGER allowed on trending coins)",
+          "Trending signal alert suppressed (only DAGGER/PATTERN_BREAKOUT allowed on trending coins)",
         );
         stateMap.set(k, { ...(prev ?? {}), signal: levels.signal, lastAlertAt: prev?.lastAlertAt ?? 0 });
         return;
@@ -515,7 +518,7 @@ async function checkTrendingSymbol(
       if (isWebPushEnabled()) {
         const sideEmoji = levels.signal === "BUY" ? "🟢" : "🔴";
         const sideWord = levels.signal === "BUY" ? "BUY" : "SELL";
-        const typeTagT = " 🗡 DAGGER"; // only DAGGER reaches this point for trending coins
+        const typeTagT = levels.signalType === "PATTERN_BREAKOUT" ? " ⬛ PATTERN" : " 🗡 DAGGER";
         const fmtN = (n: number) => `$${n.toFixed(tMeta.decimals)}`;
         const lines = [
           `${tfLabel} · ${fmtN(levels.currentPrice)}`,
