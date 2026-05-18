@@ -326,12 +326,27 @@ function detectTriangles(candles: CandleRaw[]): PatternResult | null {
   const patternEndDate   = candles[displayEnd]?.date;
 
   // ── Breakout check: scan candles from last anchor to n-2 ──────────────────
+  // Track the FIRST bar where price crossed the rail so we can expire stale
+  // confirmed patterns. A triangle that broke out 10+ days ago is no longer
+  // an actionable setup — clear it so it doesn't clutter the chart.
   const cur = n - 2;
-  let breakBull = false;
-  let breakBear = false;
+  const NO_BREAK = cur + 1; // sentinel: no breakout found
+  let breakBullBar = NO_BREAK;
+  let breakBearBar = NO_BREAK;
   for (let bi = lastAnchorBar; bi <= cur; bi++) {
-    if (candles[bi].close > evalTop(bi)) breakBull = true;
-    if (candles[bi].close < evalBot(bi)) breakBear = true;
+    if (candles[bi].close > evalTop(bi) && breakBullBar === NO_BREAK) breakBullBar = bi;
+    if (candles[bi].close < evalBot(bi) && breakBearBar === NO_BREAK) breakBearBar = bi;
+  }
+  const breakBull = breakBullBar <= cur;
+  const breakBear = breakBearBar <= cur;
+
+  // Expire the pattern if the breakout happened more than 5 bars ago.
+  // After 5 candles the move is established; showing the old triangle adds noise.
+  // (5 bars = 5 days on 1D, 5 hours on 1H, 2.5 hours on 30m — all sensible windows.)
+  const BREAKOUT_STALE_BARS = 5;
+  if (breakBull || breakBear) {
+    const firstBreakBar = Math.min(breakBullBar, breakBearBar);
+    if (cur - firstBreakBar > BREAKOUT_STALE_BARS) return null;
   }
   const breakDir: "bullish" | "bearish" = breakBull ? "bullish" : "bearish";
 

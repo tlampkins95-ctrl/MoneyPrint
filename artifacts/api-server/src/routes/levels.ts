@@ -19,8 +19,8 @@ import {
   fetchSpotForDynamic,
 } from "../lib/trending-discovery";
 
-// 30m is the primary entry timeframe. 1h/1d are used as confirmation gates only.
-const OVERVIEW_TIMEFRAMES: Timeframe[] = ["30m"];
+// Show active signals across all tracked entry timeframes.
+const OVERVIEW_TIMEFRAMES: Timeframe[] = ["30m", "1h", "1d"];
 
 const router: IRouter = Router();
 
