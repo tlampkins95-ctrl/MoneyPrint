@@ -140,10 +140,13 @@ function detectHS(candles: CandleRaw[]): PatternResult | null {
     if (lt.idx === -1 || rt.idx === -1) continue;
     if (H3.idx < candles.length - 20) continue;
     const neckline = (lt.price + rt.price) / 2;
+    // upperBound = head price (the highest point, above neckline).
+    // Chart shows it as "Pat High". Measured-move target = 2*neckline - head.
     return {
       pattern: "HEAD_AND_SHOULDERS", direction: "bearish", category: "reversal",
       confirmed: candles[candles.length - 2].close < neckline,
-      necklinePrice: neckline,
+      necklinePrice: +neckline.toFixed(10),
+      upperBound:    +H2.price.toFixed(10),
     };
   }
   return null;
@@ -167,10 +170,14 @@ function detectIHS(candles: CandleRaw[]): PatternResult | null {
     if (lp.idx === -1 || rp.idx === -1) continue;
     if (L3.idx < candles.length - 20) continue;
     const neckline = (lp.price + rp.price) / 2;
+    // upperBound = classic measured-move target: neckline + (neckline - head).
+    // Chart shows it as "IHS Target". SL for pattern entry = below neckline.
+    const measuredTarget = neckline + (neckline - L2.price);
     return {
       pattern: "INVERSE_HEAD_AND_SHOULDERS", direction: "bullish", category: "reversal",
       confirmed: candles[candles.length - 2].close > neckline,
-      necklinePrice: neckline,
+      necklinePrice: +neckline.toFixed(10),
+      upperBound:    +measuredTarget.toFixed(10),
     };
   }
   return null;

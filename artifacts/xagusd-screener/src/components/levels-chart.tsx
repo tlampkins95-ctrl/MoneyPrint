@@ -344,7 +344,10 @@ export function LevelsChart({
         (levels.patternConfirmed === true || isDoublePattern);
       if (drawHorizontals) {
         const lowerLabel = isHS ? "Neckline" : isDoublePattern ? (p === "DOUBLE_TOP" ? "DT Neck" : "DB Neck") : "Pat Low";
-        const upperLabel = isDoublePattern ? (p === "DOUBLE_TOP" ? "DT Resist" : "DB Support") : "Pat High";
+        const upperLabel = p === "INVERSE_HEAD_AND_SHOULDERS" ? "IHS Target"
+                         : p === "HEAD_AND_SHOULDERS"         ? "H&S Head"
+                         : isDoublePattern ? (p === "DOUBLE_TOP" ? "DT Resist" : "DB Support")
+                         : "Pat High";
         addLine(levels.patternNeckline!, "#a855f7", lowerLabel, LineStyle.SparseDotted, 1);
         if (levels.patternUpperBound != null) {
           addLine(levels.patternUpperBound, "#fbbf24", upperLabel, LineStyle.SparseDotted, 1);

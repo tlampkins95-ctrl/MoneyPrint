@@ -1564,11 +1564,53 @@ export function computeLevels(
     currentPrice > goldenPocket!.high && (currentPrice - goldenPocket!.high) < atr * 0.5;
   const fibBounceEnabled = fibBounceAllowed && pivotBounceEnabled && gpValid;
 
-  // ─── DAGGER: highest priority — 50% pullback on wave 1 ──────────────────────
+  // ─── REVERSAL PATTERN BREAKOUT ───────────────────────────────────────────────
+  // Fires on the first bar where a confirmed reversal pattern's neckline has been
+  // closed through. IH&S → BUY at neckline break, SL just below neckline, TP at
+  // the classic measured-move target (stored in chartPattern.upperBound).
+  // H&S → SELL at neckline breakdown, SL just above neckline, TP = 2*neckline - head.
+  //
+  // This fires BEFORE DAGGER so the clean neckline-break entry is never delayed
+  // by waiting for a secondary wave-2 pullback setup.
+  if (signal === "WAIT" && chartPattern?.confirmed && chartPattern.category === "reversal") {
+    const cp = chartPattern;
+    const patLabel = PATTERN_LABELS[cp.pattern] ?? cp.pattern;
+
+    if (cp.direction === "bullish" && cp.upperBound != null && last.close > cp.necklinePrice && macdBreakoutBuyOk) {
+      // IH&S neckline breakout BUY — enter at the break, TP = measured-move target
+      const slPrice   = round(cp.necklinePrice - atr * 0.5);
+      const tp2Price  = round(floorTarget(currentPrice, slPrice, cp.upperBound,                                   MIN_RR_TP2, "BUY"));
+      const tp1Price  = round(floorTarget(currentPrice, slPrice, currentPrice + (cp.upperBound - currentPrice) * 0.6, MIN_RR_TP1, "BUY"));
+      signal     = "BUY";
+      signalType = "PATTERN_BREAKOUT";
+      entryPrice  = round(currentPrice);
+      stopLoss    = slPrice;
+      takeProfit1 = tp1Price;
+      takeProfit2 = tp2Price;
+      signalReason = `[${tfLabel}] ${patLabel} neckline breakout BUY: neckline at ${fmt(cp.necklinePrice)}, entry ${fmt(entryPrice)}, SL ${fmt(stopLoss)} (below neckline), TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)} (measured-move target).`;
+    } else if (cp.direction === "bearish" && cp.upperBound != null && last.close < cp.necklinePrice && !isLongOnly && macdBreakoutSellOk) {
+      // H&S neckline breakdown SELL — head stored in upperBound; target = 2*neckline - head
+      const hsTarget  = 2 * cp.necklinePrice - cp.upperBound;
+      const slPrice   = round(cp.necklinePrice + atr * 0.5);
+      const tp2Price  = round(floorTarget(currentPrice, slPrice, hsTarget,                                        MIN_RR_TP2, "SELL"));
+      const tp1Price  = round(floorTarget(currentPrice, slPrice, currentPrice - (currentPrice - hsTarget) * 0.6,  MIN_RR_TP1, "SELL"));
+      signal     = "SELL";
+      signalType = "PATTERN_BREAKOUT";
+      entryPrice  = round(currentPrice);
+      stopLoss    = slPrice;
+      takeProfit1 = tp1Price;
+      takeProfit2 = tp2Price;
+      signalReason = `[${tfLabel}] ${patLabel} neckline breakdown SELL: neckline at ${fmt(cp.necklinePrice)}, entry ${fmt(entryPrice)}, SL ${fmt(stopLoss)} (above neckline), TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)} (measured-move target).`;
+    }
+  }
+
+  // ─── DAGGER: 50% pullback on wave 1 ──────────────────────────────────────────
   // Fires when: valid A→B→C structure (wave 1 impulse, wave 2 retrace 40–65%),
   // the current bar's high/low has ticked back in trend direction (wave 3 launch),
   // and MACD histogram is confirming momentum. Bull and bear both implemented;
-  // longOnly symbols suppress the bear side. Checked first — overrides all others.
+  // longOnly symbols suppress the bear side.
+  // Runs AFTER reversal pattern breakout so the neckline-break entry always fires
+  // first; DAGGER handles the wave-2-pullback entry if no pattern fired.
   //
   // `patternVetoed` is true only when the DAGGER setup WAS found but the confirmed
   // pattern gate specifically suppressed it. Used for annotation causality.
@@ -1582,7 +1624,7 @@ export function computeLevels(
     // A bull DAGGER in a confirmed downtrend is a counter-trend fade — blocked.
     // A bear DAGGER in a confirmed uptrend is the same — blocked.
     // When ranging (ADX < 25) both sides are allowed; wave structure is its own filter.
-    if (bullTrigger && macdBreakoutBuyOk && trend !== "DOWNTREND") {
+    if (signal === "WAIT" && bullTrigger && macdBreakoutBuyOk && trend !== "DOWNTREND") {
       const ds = findDaggerBullSetup(candles, n - 1, atr);
       // Entry bar must not have violated the wave 2 low (C still intact)
       if (ds && last.low > ds.cPrice) {
