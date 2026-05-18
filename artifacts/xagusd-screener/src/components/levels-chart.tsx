@@ -303,20 +303,18 @@ export function LevelsChart({
     const patUpper = patUpperRailRef.current;
     const patLower = patLowerRailRef.current;
 
-    // Draw diagonal rails for any detected wedge/triangle regardless of confirmation.
-    // The rails are shifted to touch the actual swing extremes (server-side), so price
-    // is geometrically inside the formation during development and only exits on a
-    // genuine breakout above/below the outermost swing high/low trajectory.
+    // Draw diagonal rails ONLY while the pattern is forming (not yet confirmed).
+    // Once price breaks out (confirmed=true) the formation has played out — clearing
+    // the rails keeps the chart clean and avoids misleading residual lines.
     const canDrawDiagonal =
       showPatterns &&
       hasDiagonalPattern &&
+      levels.patternConfirmed !== true &&
       levels.patternStartDate != null &&
       levels.patternNecklineStart != null &&
       levels.patternEndDate != null;
 
     if (canDrawDiagonal && patUpper && patLower) {
-      // Rails run from the earliest swing point (left) to the last completed bar (right).
-      // The shifted regression ensures all historical candles stay inside the wedge.
       const startTime = toTime(levels.patternStartDate!);
       const endTime   = toTime(levels.patternEndDate!);
       patUpper.setData([
@@ -328,13 +326,13 @@ export function LevelsChart({
         { time: endTime,   value: levels.patternNeckline! },
       ]);
     } else {
-      // No diagonal pattern — clear the rail series so previous lines don't linger.
+      // Clear rails — either no diagonal, already confirmed, or missing coords.
       patUpper?.setData([]);
       patLower?.setData([]);
 
-      // Horizontal fallback for H&S necklines, flags/pennants, double tops/bottoms.
-      // Double top/bottom: draw both levels even while forming — the resistance/support
-      // structure is actionable before confirmation (neckline break).
+      // Horizontal lines for non-diagonal structural patterns (H&S, double top/bottom,
+      // flags). Diagonal patterns are excluded — their rails were cleared above and
+      // horizontal approximations would be meaningless.
       const p = levels.detectedPattern;
       const isDoublePattern = p === "DOUBLE_TOP" || p === "DOUBLE_BOTTOM";
       const isHS = p === "HEAD_AND_SHOULDERS" || p === "INVERSE_HEAD_AND_SHOULDERS";
@@ -342,6 +340,7 @@ export function LevelsChart({
         showPatterns &&
         levels.patternNeckline != null &&
         !isCandlestickOnly &&
+        !hasDiagonalPattern &&
         (levels.patternConfirmed === true || isDoublePattern);
       if (drawHorizontals) {
         const lowerLabel = isHS ? "Neckline" : isDoublePattern ? (p === "DOUBLE_TOP" ? "DT Neck" : "DB Neck") : "Pat Low";
@@ -350,6 +349,21 @@ export function LevelsChart({
         if (levels.patternUpperBound != null) {
           addLine(levels.patternUpperBound, "#fbbf24", upperLabel, LineStyle.SparseDotted, 1);
         }
+      }
+
+      // Candlestick key-level line — draw the candle's defining price as a
+      // dashed horizontal so the level is visible on the chart.
+      // Bullish (engulfing/hammer): support at the candle's low (green).
+      // Bearish (engulfing/star):   resistance at the candle's high (red).
+      if (showPatterns && isCandlestickOnly && levels.patternConfirmed === true && levels.patternNeckline != null) {
+        const isBullishCandle = p === "BULLISH_ENGULFING" || p === "HAMMER";
+        const candleLabel =
+          p === "BULLISH_ENGULFING" ? "Engulf Sup" :
+          p === "BEARISH_ENGULFING" ? "Engulf Res" :
+          p === "HAMMER"            ? "Hammer Low" :
+                                      "Star High";
+        const candleColor = isBullishCandle ? "#22c55e" : "#ef4444";
+        addLine(levels.patternNeckline!, candleColor, candleLabel, LineStyle.SparseDotted, 1);
       }
     }
 
