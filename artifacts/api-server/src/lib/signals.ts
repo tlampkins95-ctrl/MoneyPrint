@@ -1692,12 +1692,24 @@ export function computeLevels(
   //
   // SL = pattern lower rail (necklinePrice for BUY) / upper rail (upperBound for SELL)
   // TP = pattern width (upperBound - necklinePrice) projected from breakout close
+  //
+  // Zone-conflict gates: a continuation pattern can break right at a pivot support
+  // or resistance floor, producing a signal that fights the zone direction.
+  // Classic failure case: rising wedge breaks down INTO pivot S1 support → SELL
+  // fires at the structural bottom (ETH daily $2104 incident).
+  //
+  // Rule: don't fire a continuation SELL when price is within 1 ATR of the buy-zone
+  // ceiling (close to or inside support). Don't fire a continuation BUY when price
+  // is within 1 ATR of the sell-zone floor (close to or inside resistance).
+  const patBreakoutSellZoneOk = currentPrice > buyZoneHigh + atr * 1.0;
+  const patBreakoutBuyZoneOk  = currentPrice < sellZoneLow  - atr * 1.0;
+
   if (signal === "WAIT" && chartPattern?.confirmed && chartPattern.category === "continuation") {
     const cp = chartPattern;
     const patWidth = cp.upperBound != null ? cp.upperBound - cp.necklinePrice : atr * 2;
     const patLabel = PATTERN_LABELS[cp.pattern] ?? cp.pattern;
 
-    if (cp.direction === "bullish" && macdBreakoutBuyOk && last.close > last21) {
+    if (cp.direction === "bullish" && macdBreakoutBuyOk && last.close > last21 && patBreakoutBuyZoneOk) {
       const slPrice   = round(cp.necklinePrice - atr * 0.25); // just below pattern support
       const tp1Price  = round(floorTarget(currentPrice, slPrice, currentPrice + patWidth * 0.6,  MIN_RR_TP1, "BUY"));
       const tp2Price  = round(floorTarget(currentPrice, slPrice, currentPrice + patWidth,         MIN_RR_TP2, "BUY"));
@@ -1708,7 +1720,7 @@ export function computeLevels(
       takeProfit1 = tp1Price;
       takeProfit2 = tp2Price;
       signalReason = `[${tfLabel}] PATTERN BREAKOUT BUY: ${patLabel} confirmed — price closed through the upper boundary. SL ${fmt(stopLoss)} (below pattern support at ${fmt(cp.necklinePrice)}), TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)} (${(patWidth / (currentPrice - slPrice)).toFixed(1)}R pattern projection).`;
-    } else if (cp.direction === "bearish" && macdBreakoutSellOk && last.close < last21 && !isLongOnly) {
+    } else if (cp.direction === "bearish" && macdBreakoutSellOk && last.close < last21 && !isLongOnly && patBreakoutSellZoneOk) {
       const upperRail = cp.upperBound ?? (cp.necklinePrice + patWidth);
       const slPrice   = round(upperRail + atr * 0.25); // just above pattern resistance
       const tp1Price  = round(floorTarget(currentPrice, slPrice, currentPrice - patWidth * 0.6,  MIN_RR_TP1, "SELL"));
