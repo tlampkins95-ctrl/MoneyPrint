@@ -147,11 +147,15 @@ function detectHS(candles: CandleRaw[]): PatternResult | null {
     // Right shoulder must be recent (within 15 bars)
     if (H3.idx < candles.length - 15) continue;
     const neckline = (lt.price + rt.price) / 2;
+    // Confirmation requires closing BELOW the lower of the two neckline valleys
+    // (not just the average). Prevents a borderline bar near the valley mid-point
+    // from triggering a false confirmation.
+    const necklineBreakLevel = Math.min(lt.price, rt.price);
     // upperBound = head price (the highest point, above neckline).
     // Chart shows it as "H&S Head". Measured-move target = 2*neckline - head.
     return {
       pattern: "HEAD_AND_SHOULDERS", direction: "bearish", category: "reversal",
-      confirmed: candles[candles.length - 2].close < neckline,
+      confirmed: candles[candles.length - 2].close < necklineBreakLevel,
       necklinePrice: +neckline.toFixed(10),
       upperBound:    +H2.price.toFixed(10),
     };
@@ -186,12 +190,17 @@ function detectIHS(candles: CandleRaw[]): PatternResult | null {
     // Right shoulder must be recent (within 15 bars)
     if (L3.idx < candles.length - 15) continue;
     const neckline = (lp.price + rp.price) / 2;
+    // Confirmation requires closing ABOVE the higher of the two neckline peaks
+    // (not just the average). In a double-top scenario price sits at the second
+    // peak (~= max(lp, rp)), so requiring close > max ensures it has genuinely
+    // cleared both anchors — not just slightly above the midpoint.
+    const necklineBreakLevel = Math.max(lp.price, rp.price);
     // upperBound = classic measured-move target: neckline + (neckline - head).
     // Chart shows it as "IHS Target". SL for pattern entry = below neckline.
     const measuredTarget = neckline + (neckline - L2.price);
     return {
       pattern: "INVERSE_HEAD_AND_SHOULDERS", direction: "bullish", category: "reversal",
-      confirmed: candles[candles.length - 2].close > neckline,
+      confirmed: candles[candles.length - 2].close > necklineBreakLevel,
       necklinePrice: +neckline.toFixed(10),
       upperBound:    +measuredTarget.toFixed(10),
     };
@@ -711,24 +720,25 @@ export function detectCandlestickSignal(candles: CandleRaw[]): PatternResult | n
 // ── Main entry points ─────────────────────────────────────────────────────────
 
 // Returns the single highest-priority multi-bar chart pattern.
-// Priority: confirmed > forming; reversal > continuation (by sort order).
-// Within the same tier: H&S > Double > Triangle > Wedge > Flag/Pennant.
+// Priority: double top/bottom → H&S/IHS → continuation patterns.
 export function detectChartPattern(candles: CandleRaw[]): PatternResult | null {
   if (candles.length < 20) return null;
 
   // Priority order (highest first):
-  //   1. Reversal patterns  — H&S, IHS, double top/bottom
-  //   2. Triangles          — 50-bar window (most current market context)
-  //   3. Wedges             — 100-bar window (longer-span formation)
-  //   4. Flags / pennants
-  // Within each tier, the first detector that returns a result wins.
-  // This ordering ensures a forming triangle (March anchor) is always
-  // preferred over an old confirmed wedge (January anchor).
+  //   1. Double top / bottom — runs BEFORE H&S/IHS.
+  //      A double top's two similar-height peaks are structurally identical to
+  //      IHS neckline anchors. Running IHS first caused it to win over clear
+  //      double tops and fire a BUY when the correct call was SELL.
+  //      Double patterns are more specific to recent price action and win.
+  //   2. H&S / IHS          — fires only when no double pattern is present
+  //   3. Triangles          — 50-bar window (most current market context)
+  //   4. Wedges             — 100-bar window (longer-span formation)
+  //   5. Flags / pennants
   return (
-    detectHS(candles)           ??
-    detectIHS(candles)          ??
     detectDoubleTop(candles)    ??
     detectDoubleBottom(candles) ??
+    detectHS(candles)           ??
+    detectIHS(candles)          ??
     detectTriangles(candles)    ??
     detectWedges(candles)       ??
     detectFlagsPennants(candles) ??
