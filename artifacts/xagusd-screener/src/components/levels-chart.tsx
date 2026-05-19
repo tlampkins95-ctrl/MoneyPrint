@@ -227,9 +227,11 @@ export function LevelsChart({
     firstDateRef.current = history.candles[0].date;
     lastDateRef.current  = history.candles[history.candles.length - 1].date;
 
-    // Only scroll to the right edge on first load; don't yank the view back
-    // every time price-history refreshes (every 10 s).
+    // On first load: fit content so the full price range is visible (prevents
+    // the current price being off-screen when the asset has dropped far from
+    // historical highs), then scroll to pin the latest candle at the right edge.
     if (!hasScrolledRef.current) {
+      chartRef.current?.timeScale().fitContent();
       chartRef.current?.timeScale().scrollToRealTime();
       hasScrolledRef.current = true;
     }
@@ -261,6 +263,11 @@ export function LevelsChart({
 
     const isBuy  = levels.signal === "BUY";
     const isSell = levels.signal === "SELL";
+
+    // ── Current price line ────────────────────────────────────────────────
+    if (levels.currentPrice) {
+      addLine(levels.currentPrice, "#e2e8f0", "▶ Price", LineStyle.Solid, 1);
+    }
 
     // ── Active trade lines ────────────────────────────────────────────────
     if (isBuy || isSell) {
