@@ -46,7 +46,7 @@ export interface PatternResult {
   necklinePrice: number;   // key break level / lower rail at the last completed bar (n-2)
   upperBound?:   number;   // upper rail at the last completed bar (n-2) for two-rail patterns
   category:      PatternCategory;
-  // Diagonal trendline coordinates (triangles/wedges only).
+  // Diagonal trendline coordinates (triangles, wedges, flags, pennants).
   // Absent for single-rail patterns (H&S, double top/bottom) and candlestick patterns.
   necklineStartPrice?:   number; // lower rail price at patternStartDate (left anchor)
   upperBoundStartPrice?: number; // upper rail price at patternStartDate (left anchor)
@@ -615,26 +615,44 @@ function detectFlagsPennants(candles: CandleRaw[]): PatternResult | null {
       // Bar n-2 is the candidate breakout bar — its close is compared against pre-breakout channel
       const lastClose = candles[n - 2].close;
 
-      // Determine flag vs pennant via regression on the consolidation highs/lows
+      // Determine flag vs pennant via regression on the consolidation highs/lows.
+      // Regression endpoints become the diagonal rail anchors for the chart:
+      //   Upper rail: topReg value at index 0 (start) → topReg value at last index (end).
+      //   Lower rail: botReg value at index 0 (start) → botReg value at last index (end).
+      // The breakout confirmation still uses the raw maxH/minL extremes so that
+      // `lastClose > maxH` is a strict, geometrically achievable threshold.
       const topReg = linReg(consolSlice.map((c, i) => ({ x: i, y: c.high })));
       const botReg = linReg(consolSlice.map((c, i) => ({ x: i, y: c.low  })));
       const isPennant = topReg.slope < -0.00001 && botReg.slope > 0.00001;
+      const lastIdx   = consolSlice.length - 1;
+      const topStart  = topReg.intercept;
+      const topEnd    = topReg.intercept + topReg.slope * lastIdx;
+      const botStart  = botReg.intercept;
+      const botEnd    = botReg.intercept + botReg.slope * lastIdx;
 
       if (isBullPole) {
         return {
           pattern: isPennant ? "BULL_PENNANT" : "BULL_FLAG",
           direction: "bullish", category: "continuation",
           confirmed: lastClose > maxH,
-          necklinePrice: +minL.toFixed(10),
-          upperBound:    +maxH.toFixed(10),
+          necklinePrice:        +botEnd.toFixed(10),
+          upperBound:           +topEnd.toFixed(10),
+          necklineStartPrice:   +botStart.toFixed(10),
+          upperBoundStartPrice: +topStart.toFixed(10),
+          patternStartDate:     consolSlice[0].date,
+          patternEndDate:       consolSlice[lastIdx].date,
         };
       } else {
         return {
           pattern: isPennant ? "BEAR_PENNANT" : "BEAR_FLAG",
           direction: "bearish", category: "continuation",
           confirmed: lastClose < minL,
-          necklinePrice: +minL.toFixed(10),
-          upperBound:    +maxH.toFixed(10),
+          necklinePrice:        +botEnd.toFixed(10),
+          upperBound:           +topEnd.toFixed(10),
+          necklineStartPrice:   +botStart.toFixed(10),
+          upperBoundStartPrice: +topStart.toFixed(10),
+          patternStartDate:     consolSlice[0].date,
+          patternEndDate:       consolSlice[lastIdx].date,
         };
       }
     }

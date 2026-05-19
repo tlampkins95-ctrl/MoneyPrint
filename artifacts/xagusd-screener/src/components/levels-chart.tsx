@@ -303,6 +303,7 @@ export function LevelsChart({
     const DIAGONAL_TYPES = new Set([
       "ASCENDING_TRIANGLE", "DESCENDING_TRIANGLE", "SYMMETRICAL_TRIANGLE",
       "RISING_WEDGE", "FALLING_WEDGE",
+      "BULL_PENNANT", "BEAR_PENNANT", "BULL_FLAG", "BEAR_FLAG",
     ]);
     const isCandlestickOnly  = CANDLESTICK_TYPES.has(levels.detectedPattern ?? "");
     const hasDiagonalPattern = DIAGONAL_TYPES.has(levels.detectedPattern ?? "");
