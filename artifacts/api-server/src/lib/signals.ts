@@ -1515,7 +1515,7 @@ export function computeLevels(
   const fibBounceAllowed   = false; // -9.98R production  — no edge at any timeframe
 
   let signal: "BUY" | "SELL" | "WAIT" = "WAIT";
-  let signalType: "PIVOT_BOUNCE" | "BREAKOUT" | "FIB_BOUNCE" | "DAGGER" | "PATTERN_BREAKOUT" = "PIVOT_BOUNCE";
+  let signalType: "PIVOT_BOUNCE" | "BREAKOUT" | "FIB_BOUNCE" | "DAGGER" | "PATTERN_BREAKOUT" | "TREND_BOUNCE" = "PIVOT_BOUNCE";
   let signalReason = "";
   let entryPrice = currentPrice;
   let stopLoss = currentPrice;
@@ -1732,6 +1732,57 @@ export function computeLevels(
       takeProfit1 = tp1Price;
       takeProfit2 = tp2Price;
       signalReason = `[${tfLabel}] PATTERN BREAKOUT SELL: ${patLabel} confirmed — price closed through the lower boundary. SL ${fmt(stopLoss)} (above pattern resistance at ${fmt(upperRail)}), TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)} (${(patWidth / (slPrice - currentPrice)).toFixed(1)}R pattern projection).`;
+    }
+  }
+
+  // ─── TREND_BOUNCE ─────────────────────────────────────────────────────────────
+  // Fires in a CONFIRMED TREND when price pulls back to the S1/R1 zone and the
+  // MACD histogram just crossed zero — the timing signal the user described:
+  //   Downtrend → bounce to R1 → MACD flips red → SELL
+  //   Uptrend   → dip to S1   → MACD flips green → BUY
+  //
+  // This is the trend complement to PIVOT_BOUNCE (which requires RANGING).
+  // PIVOT_BOUNCE fades the zone in choppy/sideways markets; TREND_BOUNCE
+  // fades the zone in directional markets using MACD crossover as the
+  // precise entry bar (not just "MACD is bearish" — specifically the flip bar).
+  //
+  // Location gate: price within 1.5 ATR of the zone in the bounce direction
+  // (above sellZoneHigh for sells, below buyZoneLow for buys) to allow for
+  // entries slightly extended past the zone boundary (channel-top entries
+  // often pip slightly above R1 before rejecting).
+  //
+  // Confirmed reversal patterns (patternBullish/patternBearish) block the signal
+  // to avoid fading into an IHS/HS neckline breakout.
+  if (signal === "WAIT" && macdWarm) {
+    const macdFlippedRed   = histPrev2 >= 0 && histPrev1 < 0;
+    const macdFlippedGreen = histPrev2 <= 0 && histPrev1 > 0;
+    const nearSellZone = currentPrice >= sellZoneLow - atr * 0.5
+                      && currentPrice <= sellZoneHigh + atr * 1.5;
+    const nearBuyZone  = currentPrice >= buyZoneLow  - atr * 1.5
+                      && currentPrice <= buyZoneHigh + atr * 0.5;
+
+    if (trend === "DOWNTREND" && macdFlippedRed && nearSellZone && !isLongOnly && !patternBullish) {
+      const slPrice  = round(sellZoneHigh + atr * 0.5);
+      const tp1Price = round(floorTarget(currentPrice, slPrice, currentPrice - (currentPrice - buyZoneHigh) * 0.5, MIN_RR_TP1, "SELL"));
+      const tp2Price = round(floorTarget(currentPrice, slPrice, buyZoneHigh, MIN_RR_TP2, "SELL"));
+      signal     = "SELL";
+      signalType = "TREND_BOUNCE";
+      entryPrice  = round(currentPrice);
+      stopLoss    = slPrice;
+      takeProfit1 = tp1Price;
+      takeProfit2 = tp2Price;
+      signalReason = `[${tfLabel}] TREND BOUNCE SELL: MACD flipped red (${histPrev2.toFixed(5)} → ${histPrev1.toFixed(5)}) near R1 resistance ${fmt(sellZoneLow)}–${fmt(sellZoneHigh)} in downtrend. Entry ${fmt(entryPrice)}, SL ${fmt(stopLoss)} (above resistance), TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)} (S1 support).`;
+    } else if (trend === "UPTREND" && macdFlippedGreen && nearBuyZone && !patternBearish) {
+      const slPrice  = round(buyZoneLow - atr * 0.5);
+      const tp1Price = round(floorTarget(currentPrice, slPrice, currentPrice + (sellZoneLow - currentPrice) * 0.5, MIN_RR_TP1, "BUY"));
+      const tp2Price = round(floorTarget(currentPrice, slPrice, sellZoneLow, MIN_RR_TP2, "BUY"));
+      signal     = "BUY";
+      signalType = "TREND_BOUNCE";
+      entryPrice  = round(currentPrice);
+      stopLoss    = slPrice;
+      takeProfit1 = tp1Price;
+      takeProfit2 = tp2Price;
+      signalReason = `[${tfLabel}] TREND BOUNCE BUY: MACD flipped green (${histPrev2.toFixed(5)} → ${histPrev1.toFixed(5)}) near S1 support ${fmt(buyZoneLow)}–${fmt(buyZoneHigh)} in uptrend. Entry ${fmt(entryPrice)}, SL ${fmt(stopLoss)} (below support), TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)} (R1 resistance).`;
     }
   }
 
@@ -2069,7 +2120,7 @@ type Levels = ReturnType<typeof computeLevels>;
 
 interface ActiveTrade {
   signal: "BUY" | "SELL";
-  signalType?: "PIVOT_BOUNCE" | "BREAKOUT" | "FIB_BOUNCE" | "DAGGER" | "PATTERN_BREAKOUT";
+  signalType?: "PIVOT_BOUNCE" | "BREAKOUT" | "FIB_BOUNCE" | "DAGGER" | "PATTERN_BREAKOUT" | "TREND_BOUNCE";
   signalReason: string;
   entryPrice: number;
   stopLoss: number;

@@ -15,4 +15,5 @@ export const ClosedTradeSignalType = {
   FIB_BOUNCE: "FIB_BOUNCE",
   DAGGER: "DAGGER",
   PATTERN_BREAKOUT: "PATTERN_BREAKOUT",
+  TREND_BOUNCE: "TREND_BOUNCE",
 } as const;

@@ -271,7 +271,8 @@ async function checkSymbol(
       const signalTypeAllowed =
         levels.signalType === "DAGGER" ||
         levels.signalType === "PIVOT_BOUNCE" ||
-        levels.signalType === "PATTERN_BREAKOUT";
+        levels.signalType === "PATTERN_BREAKOUT" ||
+        levels.signalType === "TREND_BOUNCE";
       if (!signalTypeAllowed) {
         logger.info(
           { symbol, timeframe, signalType: levels.signalType },
@@ -336,7 +337,7 @@ async function checkSymbol(
       if (isWebPushEnabled()) {
         const sideEmoji = levels.signal === "BUY" ? "🟢" : "🔴";
         const sideWord = levels.signal === "BUY" ? "BUY" : "SELL";
-        const typeTag = levels.signalType === "DAGGER" ? " 🗡 DAGGER" : levels.signalType === "BREAKOUT" ? " ◈ BREAKOUT" : levels.signalType === "PATTERN_BREAKOUT" ? " ⬛ PATTERN" : " ↕ PIVOT";
+        const typeTag = levels.signalType === "DAGGER" ? " 🗡 DAGGER" : levels.signalType === "BREAKOUT" ? " ◈ BREAKOUT" : levels.signalType === "PATTERN_BREAKOUT" ? " ⬛ PATTERN" : levels.signalType === "TREND_BOUNCE" ? " ↗ TREND" : " ↕ PIVOT";
         const m = SYMBOLS[symbol];
         const fmtN = (n: number) => `${m.prefix}${n.toFixed(m.decimals)}`;
         // Body keeps the most decision-relevant numbers within the
@@ -470,7 +471,9 @@ async function checkTrendingSymbol(
       // agnostic, and PATTERN_BREAKOUT requires a confirmed chart pattern
       // boundary close — both are meaningfully different from blind pivot fades.
       const trendingTypeAllowed =
-        levels.signalType === "DAGGER" || levels.signalType === "PATTERN_BREAKOUT";
+        levels.signalType === "DAGGER" ||
+        levels.signalType === "PATTERN_BREAKOUT" ||
+        levels.signalType === "TREND_BOUNCE";
       if (!trendingTypeAllowed) {
         logger.info(
           { symbolKey, timeframe, signalType: levels.signalType },
@@ -518,7 +521,7 @@ async function checkTrendingSymbol(
       if (isWebPushEnabled()) {
         const sideEmoji = levels.signal === "BUY" ? "🟢" : "🔴";
         const sideWord = levels.signal === "BUY" ? "BUY" : "SELL";
-        const typeTagT = levels.signalType === "PATTERN_BREAKOUT" ? " ⬛ PATTERN" : " 🗡 DAGGER";
+        const typeTagT = levels.signalType === "PATTERN_BREAKOUT" ? " ⬛ PATTERN" : levels.signalType === "TREND_BOUNCE" ? " ↗ TREND" : " 🗡 DAGGER";
         const fmtN = (n: number) => `$${n.toFixed(tMeta.decimals)}`;
         const lines = [
           `${tfLabel} · ${fmtN(levels.currentPrice)}`,
