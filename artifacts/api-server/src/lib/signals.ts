@@ -1302,6 +1302,8 @@ export function computeLevels(
   // Use prev bar (last completed candle) for EMA200 and MACD checks — the
   // current bar may be an incomplete live tick and would contaminate the signal.
   const prevEma200 = ema200[ema200.length - 2];
+  const lastEma200 = ema200[ema200.length - 1];
+  const prevEma50  = ema50[ema50.length - 2];
   const ema200Warm = closes.length >= 210 && !isNaN(prevEma200) && prevEma200 > 0;
   const ema21Recent = ema21.slice(-5).filter((v) => !isNaN(v));
   const slopeUp = ema21Recent[ema21Recent.length - 1] > ema21Recent[0];
@@ -1515,7 +1517,7 @@ export function computeLevels(
   const fibBounceAllowed   = false; // -9.98R production  — no edge at any timeframe
 
   let signal: "BUY" | "SELL" | "WAIT" = "WAIT";
-  let signalType: "PIVOT_BOUNCE" | "BREAKOUT" | "FIB_BOUNCE" | "DAGGER" | "PATTERN_BREAKOUT" | "TREND_BOUNCE" = "PIVOT_BOUNCE";
+  let signalType: "PIVOT_BOUNCE" | "BREAKOUT" | "FIB_BOUNCE" | "DAGGER" | "PATTERN_BREAKOUT" | "TREND_BOUNCE" | "EMA_CROSS" = "PIVOT_BOUNCE";
   let signalReason = "";
   let entryPrice = currentPrice;
   let stopLoss = currentPrice;
@@ -1571,6 +1573,56 @@ export function computeLevels(
   const approachingGoldenPocket = gpValid && !inGoldenPocket &&
     currentPrice > goldenPocket!.high && (currentPrice - goldenPocket!.high) < atr * 0.5;
   const fibBounceEnabled = fibBounceAllowed && pivotBounceEnabled && gpValid;
+
+  // ─── EMA CROSS ────────────────────────────────────────────────────────────────
+  // Fires on the bar where EMA50 crosses EMA200 — the highest-conviction structural
+  // trend-change signal. Requires EMA200 to be warm (≥210 bars of history).
+  //
+  //   Golden Cross — EMA50 crosses ABOVE EMA200 → BUY.
+  //     Previous bar: EMA50 < EMA200. Current bar: EMA50 > EMA200.
+  //     Marks the transition from a bear-to-bull structure. EMA200 becomes
+  //     the support floor; SL just below it.
+  //
+  //   Death Cross  — EMA50 crosses BELOW EMA200 → SELL.
+  //     Previous bar: EMA50 > EMA200. Current bar: EMA50 < EMA200.
+  //     Marks the transition from a bull-to-bear structure. EMA200 becomes
+  //     the resistance ceiling; SL just above it.
+  //
+  // Priority: fires FIRST — before all other signal types. A genuine EMA50/200
+  // cross is a structural regime shift and should never be suppressed by a
+  // shorter-term pattern or zone signal.
+  //
+  // Reversal patterns (patternBullish / patternBearish) are still respected:
+  // a confirmed IHS blocking a Death Cross entry is correct — the reversal wins.
+  if (signal === "WAIT" && ema200Warm && Number.isFinite(prevEma50)) {
+    const lastEma200val = !isNaN(lastEma200) ? lastEma200 : prevEma200;
+    const goldenCross = prevEma50 <= prevEma200 && last50 > lastEma200val;
+    const deathCross  = prevEma50 >= prevEma200 && last50 < lastEma200val;
+
+    if (goldenCross && !patternBearish) {
+      const slPrice  = round(lastEma200val - atr * 0.5);
+      const tp1Price = round(floorTarget(currentPrice, slPrice, currentPrice + (sellZoneLow - currentPrice) * 0.5, MIN_RR_TP1, "BUY"));
+      const tp2Price = round(floorTarget(currentPrice, slPrice, sellZoneLow, MIN_RR_TP2, "BUY"));
+      signal     = "BUY";
+      signalType = "EMA_CROSS";
+      entryPrice  = round(currentPrice);
+      stopLoss    = slPrice;
+      takeProfit1 = tp1Price;
+      takeProfit2 = tp2Price;
+      signalReason = `[${tfLabel}] GOLDEN CROSS: EMA50 (${fmt(last50)}) crossed above EMA200 (${fmt(lastEma200val)}) — bull regime confirmed. Entry ${fmt(entryPrice)}, SL ${fmt(stopLoss)} (below EMA200), TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)} (R1 resistance).`;
+    } else if (deathCross && !isLongOnly && !patternBullish) {
+      const slPrice  = round(lastEma200val + atr * 0.5);
+      const tp1Price = round(floorTarget(currentPrice, slPrice, currentPrice - (currentPrice - buyZoneHigh) * 0.5, MIN_RR_TP1, "SELL"));
+      const tp2Price = round(floorTarget(currentPrice, slPrice, buyZoneHigh, MIN_RR_TP2, "SELL"));
+      signal     = "SELL";
+      signalType = "EMA_CROSS";
+      entryPrice  = round(currentPrice);
+      stopLoss    = slPrice;
+      takeProfit1 = tp1Price;
+      takeProfit2 = tp2Price;
+      signalReason = `[${tfLabel}] DEATH CROSS: EMA50 (${fmt(last50)}) crossed below EMA200 (${fmt(lastEma200val)}) — bear regime confirmed. Entry ${fmt(entryPrice)}, SL ${fmt(stopLoss)} (above EMA200), TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)} (S1 support).`;
+    }
+  }
 
   // ─── REVERSAL PATTERN BREAKOUT ───────────────────────────────────────────────
   // Fires on the first bar where a confirmed reversal pattern's neckline has been
@@ -2120,7 +2172,7 @@ type Levels = ReturnType<typeof computeLevels>;
 
 interface ActiveTrade {
   signal: "BUY" | "SELL";
-  signalType?: "PIVOT_BOUNCE" | "BREAKOUT" | "FIB_BOUNCE" | "DAGGER" | "PATTERN_BREAKOUT" | "TREND_BOUNCE";
+  signalType?: "PIVOT_BOUNCE" | "BREAKOUT" | "FIB_BOUNCE" | "DAGGER" | "PATTERN_BREAKOUT" | "TREND_BOUNCE" | "EMA_CROSS";
   signalReason: string;
   entryPrice: number;
   stopLoss: number;

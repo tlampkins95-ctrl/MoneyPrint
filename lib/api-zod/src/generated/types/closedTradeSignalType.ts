@@ -16,4 +16,5 @@ export const ClosedTradeSignalType = {
   DAGGER: "DAGGER",
   PATTERN_BREAKOUT: "PATTERN_BREAKOUT",
   TREND_BOUNCE: "TREND_BOUNCE",
+  EMA_CROSS: "EMA_CROSS",
 } as const;
