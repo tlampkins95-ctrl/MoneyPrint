@@ -1330,6 +1330,20 @@ export function computeLevels(
   const macdBuyOk  = !macdWarm || histPrev1 > histPrev2; // histogram ticking up
   const macdSellOk = !macdWarm || histPrev1 < histPrev2; // histogram ticking down
 
+  // Closed-bar reversal confirmation for PIVOT_BOUNCE entries.
+  // Require the last COMPLETED bar (prev = candles[n-2]) to show a directional
+  // body aligned with the signal direction before firing.
+  //
+  // Without this gate the BUY fires the instant price touches S1 and the MACD
+  // ticks up even once — including while price is still in free-fall.
+  // The signal reason used to say "Watch for bullish reversal candle" but didn't
+  // actually enforce it. This makes the system wait for that candle before entry.
+  //
+  // A doji (close == open) is treated as no-confirmation (conservative but correct —
+  // a doji resolves ambiguity, not direction).
+  const closedBarBullish = prev.close > prev.open; // bullish reversal bar confirmed
+  const closedBarBearish = prev.close < prev.open; // bearish reversal bar confirmed
+
   const choppiness = calcChoppiness(candles, 14);
   const swingRhythm = calcSwingRhythm(candles, atr);
   const adx = calcADX(candles, 14);
@@ -1552,14 +1566,16 @@ export function computeLevels(
   // when the WAIT is caused by price being out of zone entirely.
   const buyAllowed  = (isNaN(rsi) || rsi <= RSI_OVERSOLD)
     && macdBuyOk
-    && ema200BuyOk;
+    && ema200BuyOk
+    && closedBarBullish; // last completed bar must close bullish — no entry into a falling knife
   // SELL gate: RSI overbought + trend is NOT an established uptrend.
   // Selling into a strong uptrend = fighting momentum. Mean-reversion shorts
   // only have edge in ranging or downtrending markets. Production data: SELL
   // signals in UPTREND regime → 0% WR, -12R. The trend filter stops that.
   const sellAllowed = (isNaN(rsi) || rsi >= RSI_OVERBOUGHT)
     && !isLongOnly
-    && trend !== "UPTREND";
+    && trend !== "UPTREND"
+    && closedBarBearish; // last completed bar must close bearish — no entry into a rising knife
 
   // ─── Golden-pocket inputs (computed here; FIB_BOUNCE fires last — see below) ──
   // FIB_BOUNCE is lowest priority: PIVOT_BOUNCE and BREAKOUT always get first
@@ -1865,7 +1881,7 @@ export function computeLevels(
     takeProfit1 = round(floorTarget(entryPrice, stopLoss, pivots.pivot, MIN_RR_TP1, "BUY"));
     takeProfit2 = round(floorTarget(entryPrice, stopLoss, sellZoneLow, MIN_RR_TP2, "BUY"));
     const pivotRegimeTag = `ADX ${adxWarm ? adx.toFixed(1) : "—"} · CI ${Number.isFinite(choppiness) ? choppiness.toFixed(1) : "—"}`;
-    signalReason = `[${tfLabel}] PIVOT BUY (RANGING): Price (${fmt(currentPrice)}) at S1 support zone ${fmt(buyZoneLow)}–${fmt(buyZoneHigh)}. Market is ranging — mean-reversion setup (${pivotRegimeTag}). Watch for bullish reversal candle. Entry ${fmt(entryPrice)}, SL ${fmt(stopLoss)}, TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)}.`;
+    signalReason = `[${tfLabel}] PIVOT BUY (RANGING): Price (${fmt(currentPrice)}) at S1 support zone ${fmt(buyZoneLow)}–${fmt(buyZoneHigh)}. Market is ranging — mean-reversion setup (${pivotRegimeTag}). Bullish reversal bar confirmed on last close. Entry ${fmt(entryPrice)}, SL ${fmt(stopLoss)}, TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)}.`;
   } else if (pivotBounceEnabled && inBuyZone && buyAllowed && patternBearish) {
     // All zone + indicator conditions are met but a confirmed bearish chart pattern
     // specifically blocks this BUY. Mark `patternVetoed` so the annotation correctly
@@ -1886,7 +1902,7 @@ export function computeLevels(
     takeProfit1 = round(floorTarget(entryPrice, stopLoss, pivots.pivot, MIN_RR_TP1, "SELL"));
     takeProfit2 = round(floorTarget(entryPrice, stopLoss, buyZoneHigh, MIN_RR_TP2, "SELL"));
     const pivotRegimeTagSell = `ADX ${adxWarm ? adx.toFixed(1) : "—"} · CI ${Number.isFinite(choppiness) ? choppiness.toFixed(1) : "—"}`;
-    signalReason = `[${tfLabel}] PIVOT SELL (RANGING): Price (${fmt(currentPrice)}) at R1 resistance zone ${fmt(sellZoneLow)}–${fmt(sellZoneHigh)}. Market is ranging — mean-reversion setup (${pivotRegimeTagSell}). Watch for bearish rejection candle. Entry ${fmt(entryPrice)}, SL ${fmt(stopLoss)}, TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)}.`;
+    signalReason = `[${tfLabel}] PIVOT SELL (RANGING): Price (${fmt(currentPrice)}) at R1 resistance zone ${fmt(sellZoneLow)}–${fmt(sellZoneHigh)}. Market is ranging — mean-reversion setup (${pivotRegimeTagSell}). Bearish rejection bar confirmed on last close. Entry ${fmt(entryPrice)}, SL ${fmt(stopLoss)}, TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)}.`;
   } else if (pivotBounceEnabled && inSellZone && sellAllowed && patternBullish) {
     // All zone + indicator conditions are met but a confirmed bullish chart pattern
     // specifically blocks this SELL.
@@ -1906,6 +1922,8 @@ export function computeLevels(
         ? ` RSI ${rsi.toFixed(0)} not yet oversold (need ≤${RSI_OVERSOLD}) — wait for exhaustion.`
         : macdWarm && !macdBuyOk
         ? ` MACD histogram still falling — selling momentum not yet cooling. Wait for the turn.`
+        : !closedBarBullish
+        ? ` Last bar closed bearish — wait for a bullish close inside the zone before entering.`
         : ` Conditions not yet met.`;
     signalReason = `[${tfLabel}] Price is in the buy zone (${fmt(buyZoneLow)}–${fmt(buyZoneHigh)}) but conditions not met.${blockNote}`;
     // Entry stays inside the buy zone — show a pending BUY at S1, not a SELL.
@@ -1924,6 +1942,8 @@ export function computeLevels(
         ? ` RSI ${rsi.toFixed(0)} not yet overbought (need ≥${RSI_OVERBOUGHT}) — wait for exhaustion.`
         : macdWarm && !macdSellOk
         ? ` MACD histogram still rising — buying momentum not yet cooling. Wait for the turn.`
+        : !closedBarBearish
+        ? ` Last bar closed bullish — wait for a bearish close inside the zone before entering.`
         : ` Conditions not yet met.`;
     signalReason = `[${tfLabel}] Price is in the sell zone (${fmt(sellZoneLow)}–${fmt(sellZoneHigh)}) but conditions not met.${blockNote}`;
     // Entry stays inside the sell zone — show a pending SELL at R1, not a BUY.
