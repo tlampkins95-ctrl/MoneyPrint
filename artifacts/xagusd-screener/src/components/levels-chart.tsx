@@ -325,14 +325,42 @@ export function LevelsChart({
     if (canDrawDiagonal && patUpper && patLower) {
       const startTime = toTime(levels.patternStartDate!);
       const endTime   = toTime(levels.patternEndDate!);
-      patUpper.setData([
-        { time: startTime, value: levels.patternUpperBoundStart ?? levels.patternUpperBound ?? 0 },
-        { time: endTime,   value: levels.patternUpperBound! },
-      ]);
-      patLower.setData([
-        { time: startTime, value: levels.patternNecklineStart! },
-        { time: endTime,   value: levels.patternNeckline! },
-      ]);
+
+      const upperStart = levels.patternUpperBoundStart ?? levels.patternUpperBound!;
+      const upperEnd   = levels.patternUpperBound!;
+      const lowerStart = levels.patternNecklineStart!;
+      const lowerEnd   = levels.patternNeckline!;
+
+      // Extrapolate the slope forward to the current candle so the rails
+      // always reach the current price position, even as new bars print.
+      const startMs = new Date(levels.patternStartDate!).getTime();
+      const endMs   = new Date(levels.patternEndDate!).getTime();
+      const spanMs  = endMs - startMs;
+      const upperSlope = spanMs > 0 ? (upperEnd - upperStart) / spanMs : 0;
+      const lowerSlope = spanMs > 0 ? (lowerEnd - lowerStart) / spanMs : 0;
+
+      const lastDate = lastDateRef.current;
+      const lastMs   = lastDate ? new Date(lastDate).getTime() : 0;
+      const shouldExtend = lastDate !== null && lastMs > endMs + 1000;
+
+      const upperData: { time: ReturnType<typeof toTime>; value: number }[] = [
+        { time: startTime, value: upperStart },
+        { time: endTime,   value: upperEnd },
+      ];
+      const lowerData: { time: ReturnType<typeof toTime>; value: number }[] = [
+        { time: startTime, value: lowerStart },
+        { time: endTime,   value: lowerEnd },
+      ];
+
+      if (shouldExtend) {
+        const extraMs  = lastMs - endMs;
+        const lastTime = toTime(lastDate!);
+        upperData.push({ time: lastTime, value: upperEnd + upperSlope * extraMs });
+        lowerData.push({ time: lastTime, value: lowerEnd + lowerSlope * extraMs });
+      }
+
+      patUpper.setData(upperData as Parameters<typeof patUpper.setData>[0]);
+      patLower.setData(lowerData as Parameters<typeof patLower.setData>[0]);
     } else {
       // Clear rails — either no diagonal, already confirmed, or missing coords.
       patUpper?.setData([]);
