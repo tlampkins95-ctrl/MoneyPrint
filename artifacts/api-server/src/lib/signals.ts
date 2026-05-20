@@ -1851,26 +1851,32 @@ export function computeLevels(
 
     if (trend === "DOWNTREND" && macdFlippedRed && nearSellZone && !isLongOnly && !patternBullish) {
       const slPrice  = round(sellZoneHigh + atr * 0.5);
-      const tp1Price = round(floorTarget(currentPrice, slPrice, currentPrice - (currentPrice - buyZoneHigh) * 0.5, MIN_RR_TP1, "SELL"));
-      const tp2Price = round(floorTarget(currentPrice, slPrice, buyZoneHigh, MIN_RR_TP2, "SELL"));
+      // Entry anchored at R1 (the zone level the bounce is happening at), not currentPrice.
+      // nearSellZone extends up to 1.5 ATR above sellZoneHigh, so currentPrice can be well
+      // above R1 when the MACD flip fires — entering there puts the trade immediately offside.
+      const ep = round(pivots.r1);
+      const tp1Price = round(floorTarget(ep, slPrice, ep - (ep - buyZoneHigh) * 0.5, MIN_RR_TP1, "SELL"));
+      const tp2Price = round(floorTarget(ep, slPrice, buyZoneHigh, MIN_RR_TP2, "SELL"));
       signal     = "SELL";
       signalType = "TREND_BOUNCE";
-      entryPrice  = round(currentPrice);
+      entryPrice  = ep;
       stopLoss    = slPrice;
       takeProfit1 = tp1Price;
       takeProfit2 = tp2Price;
-      signalReason = `[${tfLabel}] TREND BOUNCE SELL: MACD flipped red (${histPrev2.toFixed(5)} → ${histPrev1.toFixed(5)}) near R1 resistance ${fmt(sellZoneLow)}–${fmt(sellZoneHigh)} in downtrend. Entry ${fmt(entryPrice)}, SL ${fmt(stopLoss)} (above resistance), TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)} (S1 support).`;
+      signalReason = `[${tfLabel}] TREND BOUNCE SELL: MACD flipped red (${histPrev2.toFixed(5)} → ${histPrev1.toFixed(5)}) near R1 resistance ${fmt(sellZoneLow)}–${fmt(sellZoneHigh)} in downtrend. Entry ${fmt(entryPrice)} (R1 zone), SL ${fmt(stopLoss)} (above resistance), TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)} (S1 support).`;
     } else if (trend === "UPTREND" && macdFlippedGreen && nearBuyZone && !patternBearish) {
       const slPrice  = round(buyZoneLow - atr * 0.5);
-      const tp1Price = round(floorTarget(currentPrice, slPrice, currentPrice + (sellZoneLow - currentPrice) * 0.5, MIN_RR_TP1, "BUY"));
-      const tp2Price = round(floorTarget(currentPrice, slPrice, sellZoneLow, MIN_RR_TP2, "BUY"));
+      // Entry anchored at S1 (the zone level the dip is touching), not currentPrice.
+      const ep = round(pivots.s1);
+      const tp1Price = round(floorTarget(ep, slPrice, ep + (sellZoneLow - ep) * 0.5, MIN_RR_TP1, "BUY"));
+      const tp2Price = round(floorTarget(ep, slPrice, sellZoneLow, MIN_RR_TP2, "BUY"));
       signal     = "BUY";
       signalType = "TREND_BOUNCE";
-      entryPrice  = round(currentPrice);
+      entryPrice  = ep;
       stopLoss    = slPrice;
       takeProfit1 = tp1Price;
       takeProfit2 = tp2Price;
-      signalReason = `[${tfLabel}] TREND BOUNCE BUY: MACD flipped green (${histPrev2.toFixed(5)} → ${histPrev1.toFixed(5)}) near S1 support ${fmt(buyZoneLow)}–${fmt(buyZoneHigh)} in uptrend. Entry ${fmt(entryPrice)}, SL ${fmt(stopLoss)} (below support), TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)} (R1 resistance).`;
+      signalReason = `[${tfLabel}] TREND BOUNCE BUY: MACD flipped green (${histPrev2.toFixed(5)} → ${histPrev1.toFixed(5)}) near S1 support ${fmt(buyZoneLow)}–${fmt(buyZoneHigh)} in uptrend. Entry ${fmt(entryPrice)} (S1 zone), SL ${fmt(stopLoss)} (below support), TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)} (R1 resistance).`;
     }
   }
 
@@ -1882,14 +1888,17 @@ export function computeLevels(
     // Only fire when price is ACTUALLY IN the buy zone — not approaching from above.
     // "Approaching" signals generated 46 MISSED trades in production (price went
     // to TP without filling the limit at S1, or filled into a falling knife).
-    // Market entry at currentPrice when inside the zone eliminates phantom pending.
+    // Entry anchored at S1 (zone centre) — not currentPrice. inBuyZone guarantees
+    // price is within ±0.5×ATR of S1, so S1 is always achievable on a limit.
+    // Using currentPrice when price has bounced to buyZoneHigh gives an entry that
+    // is 1×ATR above the structural level, showing false drawdown immediately.
     signal = "BUY";
-    entryPrice = round(currentPrice);
+    entryPrice = round(pivots.s1);
     stopLoss = round(buyZoneLow - atr * 0.5);
     takeProfit1 = round(floorTarget(entryPrice, stopLoss, pivots.pivot, MIN_RR_TP1, "BUY"));
     takeProfit2 = round(floorTarget(entryPrice, stopLoss, sellZoneLow, MIN_RR_TP2, "BUY"));
     const pivotRegimeTag = `ADX ${adxWarm ? adx.toFixed(1) : "—"} · CI ${Number.isFinite(choppiness) ? choppiness.toFixed(1) : "—"}`;
-    signalReason = `[${tfLabel}] PIVOT BUY (RANGING): Price (${fmt(currentPrice)}) at S1 support zone ${fmt(buyZoneLow)}–${fmt(buyZoneHigh)}. Market is ranging — mean-reversion setup (${pivotRegimeTag}). Bullish reversal bar confirmed on last close. Entry ${fmt(entryPrice)}, SL ${fmt(stopLoss)}, TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)}.`;
+    signalReason = `[${tfLabel}] PIVOT BUY (RANGING): Price (${fmt(currentPrice)}) at S1 support zone ${fmt(buyZoneLow)}–${fmt(buyZoneHigh)}. Market is ranging — mean-reversion setup (${pivotRegimeTag}). Bullish reversal bar confirmed on last close. Entry ${fmt(entryPrice)} (S1 zone), SL ${fmt(stopLoss)}, TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)}.`;
   } else if (pivotBounceEnabled && inBuyZone && buyAllowed && patternBearish) {
     // All zone + indicator conditions are met but a confirmed bearish chart pattern
     // specifically blocks this BUY. Mark `patternVetoed` so the annotation correctly
@@ -1903,14 +1912,16 @@ export function computeLevels(
     signalReason = `[${tfLabel}] Price is in the buy zone (${fmt(buyZoneLow)}–${fmt(buyZoneHigh)}) and all conditions are met, but entry is blocked by a confirmed bearish chart pattern.`;
   } else if (pivotBounceEnabled && inSellZone && sellAllowed && !patternBullish) {
     // Same logic as buy: only fire when price is ACTUALLY IN the sell zone.
-    // Market entry at currentPrice — no phantom limit orders.
+    // Entry anchored at R1 (zone centre) — not currentPrice. Same rationale as BUY:
+    // currentPrice at the bottom of inSellZone is still 1×ATR below R1, giving a
+    // worse short reference point and inflated R:R illusion.
     signal = "SELL";
-    entryPrice = round(currentPrice);
+    entryPrice = round(pivots.r1);
     stopLoss = round(sellZoneHigh + atr * 0.5);
     takeProfit1 = round(floorTarget(entryPrice, stopLoss, pivots.pivot, MIN_RR_TP1, "SELL"));
     takeProfit2 = round(floorTarget(entryPrice, stopLoss, buyZoneHigh, MIN_RR_TP2, "SELL"));
     const pivotRegimeTagSell = `ADX ${adxWarm ? adx.toFixed(1) : "—"} · CI ${Number.isFinite(choppiness) ? choppiness.toFixed(1) : "—"}`;
-    signalReason = `[${tfLabel}] PIVOT SELL (RANGING): Price (${fmt(currentPrice)}) at R1 resistance zone ${fmt(sellZoneLow)}–${fmt(sellZoneHigh)}. Market is ranging — mean-reversion setup (${pivotRegimeTagSell}). Bearish rejection bar confirmed on last close. Entry ${fmt(entryPrice)}, SL ${fmt(stopLoss)}, TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)}.`;
+    signalReason = `[${tfLabel}] PIVOT SELL (RANGING): Price (${fmt(currentPrice)}) at R1 resistance zone ${fmt(sellZoneLow)}–${fmt(sellZoneHigh)}. Market is ranging — mean-reversion setup (${pivotRegimeTagSell}). Bearish rejection bar confirmed on last close. Entry ${fmt(entryPrice)} (R1 zone), SL ${fmt(stopLoss)}, TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)}.`;
   } else if (pivotBounceEnabled && inSellZone && sellAllowed && patternBullish) {
     // All zone + indicator conditions are met but a confirmed bullish chart pattern
     // specifically blocks this SELL.
