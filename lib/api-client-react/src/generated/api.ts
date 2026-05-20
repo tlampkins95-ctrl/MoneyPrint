@@ -23,6 +23,7 @@ import type {
   GetBacktestParams,
   GetLevelsParams,
   GetPriceHistoryParams,
+  GetSignalLogParams,
   GetTradeHistoryParams,
   HealthStatus,
   LevelsData,
@@ -30,6 +31,7 @@ import type {
   PushSubscribeResponse,
   PushSubscriptionPayload,
   PushUnsubscribeRequest,
+  SignalLogResponse,
   TradeHistoryResponse,
   TrendingSymbolsResponse,
   VapidPublicKey,
@@ -820,6 +822,101 @@ export function useGetTradeHistory<
   },
 ): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetTradeHistoryQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Returns a permanent record of every BUY/SELL signal that fired, including TP1, TP2, SL levels. Unlike closed_trades this log is never deleted — signals that were lost due to server restarts or missed eviction are still here.
+ * @summary Append-only log of every fired signal
+ */
+export const getGetSignalLogUrl = (params?: GetSignalLogParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/signal-log?${stringifiedParams}`
+    : `/api/signal-log`;
+};
+
+export const getSignalLog = async (
+  params?: GetSignalLogParams,
+  options?: RequestInit,
+): Promise<SignalLogResponse> => {
+  return customFetch<SignalLogResponse>(getGetSignalLogUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetSignalLogQueryKey = (params?: GetSignalLogParams) => {
+  return [`/api/signal-log`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetSignalLogQueryOptions = <
+  TData = Awaited<ReturnType<typeof getSignalLog>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetSignalLogParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getSignalLog>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetSignalLogQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getSignalLog>>> = ({
+    signal,
+  }) => getSignalLog(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getSignalLog>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetSignalLogQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getSignalLog>>
+>;
+export type GetSignalLogQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Append-only log of every fired signal
+ */
+
+export function useGetSignalLog<
+  TData = Awaited<ReturnType<typeof getSignalLog>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetSignalLogParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getSignalLog>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetSignalLogQueryOptions(params, options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

@@ -543,6 +543,51 @@ export interface TradeHistoryResponse {
   lastUpdated: string;
 }
 
+export type SignalLogEntrySignal =
+  (typeof SignalLogEntrySignal)[keyof typeof SignalLogEntrySignal];
+
+export const SignalLogEntrySignal = {
+  BUY: "BUY",
+  SELL: "SELL",
+} as const;
+
+export type SignalLogEntrySignalType =
+  (typeof SignalLogEntrySignalType)[keyof typeof SignalLogEntrySignalType];
+
+export const SignalLogEntrySignalType = {
+  PIVOT_BOUNCE: "PIVOT_BOUNCE",
+  BREAKOUT: "BREAKOUT",
+  FIB_BOUNCE: "FIB_BOUNCE",
+  DAGGER: "DAGGER",
+  PATTERN_BREAKOUT: "PATTERN_BREAKOUT",
+  TREND_BOUNCE: "TREND_BOUNCE",
+  EMA_CROSS: "EMA_CROSS",
+} as const;
+
+export interface SignalLogEntry {
+  id: number;
+  /** Composite key (e.g. ZECUSD::1h) */
+  key: string;
+  symbol: string;
+  timeframe: string;
+  signal: SignalLogEntrySignal;
+  signalType: SignalLogEntrySignalType;
+  entryPrice: number;
+  stopLoss: number;
+  takeProfit1: number;
+  takeProfit2: number;
+  riskRewardRatio: number;
+  signalReason: string;
+  /** Unix ms timestamp when the signal fired */
+  firedAt: number;
+}
+
+export interface SignalLogResponse {
+  entries: SignalLogEntry[];
+  total: number;
+  lastUpdated: string;
+}
+
 export interface BacktestResult {
   symbol: string;
   startDate: string;
@@ -708,6 +753,19 @@ export type GetActiveSignalsParams = {
 export type GetTradeHistoryParams = {
   /**
    * Filter by symbol key (e.g. XAGUSD). Returns all symbols if omitted.
+   */
+  symbol?: string;
+  /**
+   * Maximum number of records to return, newest first.
+   * @minimum 1
+   * @maximum 500
+   */
+  limit?: number;
+};
+
+export type GetSignalLogParams = {
+  /**
+   * Filter by symbol key (e.g. ZECUSD). Returns all symbols if omitted.
    */
   symbol?: string;
   /**

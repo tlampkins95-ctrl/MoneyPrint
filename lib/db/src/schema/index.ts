@@ -19,5 +19,6 @@
 
 export * from "./active-trades";
 export * from "./closed-trades";
+export * from "./signal-log";
 export * from "./push-subscriptions";
 export * from "./trending-symbols";

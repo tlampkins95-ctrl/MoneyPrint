@@ -2265,6 +2265,63 @@ async function initClosedTradesTable(): Promise<void> {
   }
 }
 
+async function initSignalLogTable(): Promise<void> {
+  const pool = getPool();
+  if (!pool) return;
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS signal_log (
+        id               SERIAL PRIMARY KEY,
+        key              TEXT NOT NULL,
+        symbol           TEXT NOT NULL,
+        timeframe        TEXT NOT NULL,
+        signal           TEXT NOT NULL,
+        signal_type      TEXT NOT NULL,
+        entry_price      DOUBLE PRECISION NOT NULL,
+        stop_loss        DOUBLE PRECISION NOT NULL,
+        take_profit1     DOUBLE PRECISION NOT NULL,
+        take_profit2     DOUBLE PRECISION NOT NULL,
+        risk_reward_ratio DOUBLE PRECISION NOT NULL,
+        signal_reason    TEXT NOT NULL DEFAULT '',
+        fired_at         BIGINT NOT NULL,
+        created_at       TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+  } catch {
+    // best-effort — table already exists or DB unavailable
+  }
+}
+
+function insertSignalLog(trade: ActiveTrade, symbolKey: string, timeframe: Timeframe): void {
+  const pool = getPool();
+  if (!pool) return;
+  void pool
+    .query(
+      `INSERT INTO signal_log
+         (key, symbol, timeframe, signal, signal_type,
+          entry_price, stop_loss, take_profit1, take_profit2,
+          risk_reward_ratio, signal_reason, fired_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+      [
+        tradeKey(symbolKey, timeframe),
+        symbolKey,
+        timeframe,
+        trade.signal,
+        trade.signalType ?? "PIVOT_BOUNCE",
+        trade.entryPrice,
+        trade.stopLoss,
+        trade.takeProfit1,
+        trade.takeProfit2,
+        trade.riskRewardRatio,
+        trade.signalReason,
+        trade.openedAt ?? Date.now(),
+      ],
+    )
+    .catch(() => {
+      // best-effort
+    });
+}
+
 // "TP1" is a milestone outcome (trade stays open, stop is trailed to BE).
 // It is used exclusively to notify the notifier so the SL streak can reset
 // on a partial win — the trade is NOT closed and activeTrades is NOT modified.
@@ -2372,6 +2429,7 @@ async function syncFromDb(): Promise<void> {
   const pool = getPool();
   if (!pool) return;
   await initClosedTradesTable();
+  await initSignalLogTable();
   try {
     const res = await pool.query<{ key: string; data: Record<string, unknown> }>(
       "SELECT key, data FROM active_trades",
@@ -2383,7 +2441,8 @@ async function syncFromDb(): Promise<void> {
       activeTrades.set(row.key, {
         ...(v as ActiveTrade),
         signalType:
-          v.signalType === "PIVOT_BOUNCE" || v.signalType === "BREAKOUT" || v.signalType === "DAGGER" || v.signalType === "PATTERN_BREAKOUT"
+          v.signalType === "PIVOT_BOUNCE" || v.signalType === "BREAKOUT" || v.signalType === "DAGGER" ||
+          v.signalType === "PATTERN_BREAKOUT" || v.signalType === "TREND_BOUNCE" || v.signalType === "EMA_CROSS"
             ? v.signalType
             : "PIVOT_BOUNCE",
         triggered: typeof v.triggered === "boolean" ? v.triggered : false,
@@ -2440,7 +2499,8 @@ function loadActiveTradesFromDisk(): void {
       const migrated: ActiveTrade = {
         ...(v as ActiveTrade),
         signalType:
-          v.signalType === "PIVOT_BOUNCE" || v.signalType === "BREAKOUT" || v.signalType === "DAGGER" || v.signalType === "PATTERN_BREAKOUT"
+          v.signalType === "PIVOT_BOUNCE" || v.signalType === "BREAKOUT" || v.signalType === "DAGGER" ||
+          v.signalType === "PATTERN_BREAKOUT" || v.signalType === "TREND_BOUNCE" || v.signalType === "EMA_CROSS"
             ? v.signalType
             : "PIVOT_BOUNCE",
         triggered: typeof v.triggered === "boolean" ? v.triggered : false,
@@ -3012,6 +3072,7 @@ export function computeLevelsStable(
     };
     activeTrades.set(k, newTrade);
     persistActiveTrades();
+    insertSignalLog(newTrade, symbolKey, timeframe);
     // Upgrade tradeState if the snapshot fired pre-triggered (price already
     // at/past entry). The default "PENDING" set by computeLevels would lie
     // about a brand-new filled trade for one tick otherwise.
@@ -3079,7 +3140,8 @@ export function seedActiveTrades(raw: Record<string, unknown>): number {
     activeTrades.set(k, {
       ...(p as ActiveTrade),
       signalType:
-        p.signalType === "PIVOT_BOUNCE" || p.signalType === "BREAKOUT" || p.signalType === "DAGGER" || p.signalType === "PATTERN_BREAKOUT"
+        p.signalType === "PIVOT_BOUNCE" || p.signalType === "BREAKOUT" || p.signalType === "DAGGER" ||
+        p.signalType === "PATTERN_BREAKOUT" || p.signalType === "TREND_BOUNCE" || p.signalType === "EMA_CROSS"
           ? p.signalType
           : "PIVOT_BOUNCE",
       triggered: typeof p.triggered === "boolean" ? p.triggered : false,

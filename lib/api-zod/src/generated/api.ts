@@ -1173,6 +1173,58 @@ export const GetTradeHistoryResponse = zod.object({
 });
 
 /**
+ * Returns a permanent record of every BUY/SELL signal that fired, including TP1, TP2, SL levels. Unlike closed_trades this log is never deleted — signals that were lost due to server restarts or missed eviction are still here.
+ * @summary Append-only log of every fired signal
+ */
+export const getSignalLogQueryLimitDefault = 200;
+export const getSignalLogQueryLimitMax = 500;
+
+export const GetSignalLogQueryParams = zod.object({
+  symbol: zod.coerce
+    .string()
+    .optional()
+    .describe(
+      "Filter by symbol key (e.g. ZECUSD). Returns all symbols if omitted.",
+    ),
+  limit: zod.coerce
+    .number()
+    .min(1)
+    .max(getSignalLogQueryLimitMax)
+    .default(getSignalLogQueryLimitDefault)
+    .describe("Maximum number of records to return, newest first."),
+});
+
+export const GetSignalLogResponse = zod.object({
+  entries: zod.array(
+    zod.object({
+      id: zod.number(),
+      key: zod.string().describe("Composite key (e.g. ZECUSD::1h)"),
+      symbol: zod.string(),
+      timeframe: zod.string(),
+      signal: zod.enum(["BUY", "SELL"]),
+      signalType: zod.enum([
+        "PIVOT_BOUNCE",
+        "BREAKOUT",
+        "FIB_BOUNCE",
+        "DAGGER",
+        "PATTERN_BREAKOUT",
+        "TREND_BOUNCE",
+        "EMA_CROSS",
+      ]),
+      entryPrice: zod.number(),
+      stopLoss: zod.number(),
+      takeProfit1: zod.number(),
+      takeProfit2: zod.number(),
+      riskRewardRatio: zod.number(),
+      signalReason: zod.string(),
+      firedAt: zod.number().describe("Unix ms timestamp when the signal fired"),
+    }),
+  ),
+  total: zod.number(),
+  lastUpdated: zod.string(),
+});
+
+/**
  * @summary Get price history aligned to live OANDA spot
  */
 export const getPriceHistoryQuerySymbolDefault = `XAGUSD`;

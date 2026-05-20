@@ -283,6 +283,36 @@ paths:
               schema:
                 $ref: "#/components/schemas/TradeHistoryResponse"
 
+  /signal-log:
+    get:
+      operationId: getSignalLog
+      tags: [signals]
+      summary: Append-only log of every fired signal
+      description: Returns a permanent record of every BUY/SELL signal that fired, including TP1, TP2, SL levels. Unlike closed_trades this log is never deleted — signals that were lost due to server restarts or missed eviction are still here.
+      parameters:
+        - in: query
+          name: symbol
+          schema:
+            type: string
+          required: false
+          description: Filter by symbol key (e.g. ZECUSD). Returns all symbols if omitted.
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 200
+          required: false
+          description: Maximum number of records to return, newest first.
+      responses:
+        "200":
+          description: Signal log
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SignalLogResponse"
+
   /price-history:
     get:
       operationId: getPriceHistory
@@ -1002,6 +1032,70 @@ components:
         - totalR
         - winCount
         - lossCount
+        - lastUpdated
+
+    SignalLogEntry:
+      type: object
+      properties:
+        id:
+          type: integer
+        key:
+          type: string
+          description: Composite key (e.g. ZECUSD::1h)
+        symbol:
+          type: string
+        timeframe:
+          type: string
+        signal:
+          type: string
+          enum: [BUY, SELL]
+        signalType:
+          type: string
+          enum: [PIVOT_BOUNCE, BREAKOUT, FIB_BOUNCE, DAGGER, PATTERN_BREAKOUT, TREND_BOUNCE, EMA_CROSS]
+        entryPrice:
+          type: number
+        stopLoss:
+          type: number
+        takeProfit1:
+          type: number
+        takeProfit2:
+          type: number
+        riskRewardRatio:
+          type: number
+        signalReason:
+          type: string
+        firedAt:
+          type: integer
+          description: Unix ms timestamp when the signal fired
+      required:
+        - id
+        - key
+        - symbol
+        - timeframe
+        - signal
+        - signalType
+        - entryPrice
+        - stopLoss
+        - takeProfit1
+        - takeProfit2
+        - riskRewardRatio
+        - signalReason
+        - firedAt
+
+    SignalLogResponse:
+      type: object
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/SignalLogEntry"
+        total:
+          type: integer
+        lastUpdated:
+          type: string
+      required:
+        - entries
+        - total
         - lastUpdated
 
     BacktestResult:
