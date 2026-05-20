@@ -224,6 +224,24 @@ export function LevelsChart({
     }));
 
     series.setData(data);
+
+    // Derive the right decimal precision from the actual price level so that
+    // sub-penny assets (e.g. KATUSDT ~$0.0086) don't get rounded to "$0.01"
+    // by the lightweight-charts default precision of 2.
+    //
+    // Formula: leading zeros past the decimal point + 2 extra digits,
+    // but never fewer than the symbol's configured decimals floor.
+    // Examples: $0.00855 → precision 5 (→ "0.00855")
+    //           $75.85   → precision 3 (→ "75.850", floor from meta.decimals=3)
+    //           $1.1631  → precision 5 (→ "1.16310", floor from meta.decimals=5)
+    {
+      const meta       = getSymbolMeta(symbol);
+      const midClose   = history.candles[Math.floor(history.candles.length / 2)].close;
+      const leadZeros  = midClose > 0 ? Math.max(0, -Math.floor(Math.log10(midClose))) : 0;
+      const precision  = Math.max(meta.decimals, leadZeros + 2);
+      const minMove    = Number(`1e-${precision}`);
+      series.applyOptions({ priceFormat: { type: "price", precision, minMove } });
+    }
     firstDateRef.current = history.candles[0].date;
     lastDateRef.current  = history.candles[history.candles.length - 1].date;
 
