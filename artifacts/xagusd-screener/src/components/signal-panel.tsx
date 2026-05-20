@@ -48,6 +48,7 @@ export function SignalPanel({
   // enforced server-side from symbol meta — there is no $-collateral floor
   // on Phemex USDT-perps, so the only user-facing knob here is the lev cap.
   const [maxLeverage, setMaxLeverage] = useState<number>(() => readNumber(MAX_LEV_KEY, 100));
+  const [maxLeverageText, setMaxLeverageText] = useState<string>(() => String(readNumber(MAX_LEV_KEY, 100)));
   const [mt5Lots, setMt5Lots] = useState<number>(() => readNumber(MT5_LOTS_KEY, 0.01));
   // The lots input is backed by a string buffer so the user can freely type
   // intermediate values like "0." or "0.0" without our >= 0.01 guard
@@ -598,12 +599,15 @@ export function SignalPanel({
                         inputMode="decimal"
                         min={1}
                         max={200}
-                        step={5}
-                        value={maxLeverage}
+                        step={1}
+                        value={maxLeverageText}
                         onChange={(e) => {
-                          const v = Number(e.target.value);
-                          if (Number.isFinite(v) && v >= 1) setMaxLeverage(v);
+                          const raw = e.target.value;
+                          setMaxLeverageText(raw);
+                          const v = Number(raw);
+                          if (Number.isFinite(v) && v >= 1) setMaxLeverage(Math.round(v));
                         }}
+                        onBlur={() => setMaxLeverageText(String(maxLeverage))}
                         className="w-12 bg-zinc-900 border border-zinc-700 rounded px-1.5 py-0.5 text-right tabular-nums text-zinc-100 focus:outline-none focus:border-amber-500/60"
                         aria-label="Max leverage"
                       />
