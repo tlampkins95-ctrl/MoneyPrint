@@ -827,11 +827,12 @@ export function SignalPanel({
                   <div className="grid grid-cols-3 gap-px bg-zinc-800 text-center">
                     <div className="bg-[#0a0a0a]/50 px-2 py-2">
                       <div className="text-[8px] text-zinc-500 font-sans font-semibold tracking-widest">
-                        COLLATERAL
+                        MARGIN
                       </div>
                       <div className="text-base font-bold text-amber-200 tabular-nums mt-0.5">
                         ${data.positionSizing.achievable.collateral.toFixed(2)}
                       </div>
+                      <div className="text-[8px] text-zinc-600 mt-0.5">locked on exch</div>
                     </div>
                     <div className="bg-[#0a0a0a]/50 px-2 py-2">
                       <div className="text-[8px] text-zinc-500 font-sans font-semibold tracking-widest">
