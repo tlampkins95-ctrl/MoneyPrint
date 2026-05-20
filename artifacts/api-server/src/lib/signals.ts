@@ -1713,12 +1713,17 @@ export function computeLevels(
         } else {
           signal     = "BUY";
           signalType = "DAGGER";
-          entryPrice  = round(currentPrice);
+          // Entry anchored at the wave-2 low (ds.cPrice = the wick that retested support).
+          // Using currentPrice here fires 1–2 cents ABOVE the actual retest, turning a
+          // perfectly-timed wick entry into an immediate drawdown as price consolidates
+          // back toward the wave-2 level. Anchoring at cPrice gives the correct
+          // fill reference and correct R:R from the actual setup price.
+          entryPrice  = round(ds.cPrice);
           stopLoss    = round(ds.sl);
           takeProfit1 = round(floorTarget(entryPrice, stopLoss, ds.tp,              MIN_RR_TP1, "BUY"));
           takeProfit2 = round(floorTarget(entryPrice, stopLoss, ds.tp + atr * 0.5,  MIN_RR_TP2, "BUY"));
           const fibPct = Math.round(ds.retracePct * 100);
-          signalReason = `[${tfLabel}] DAGGER BUY: Wave 1 peaked at ${fmt(ds.bPrice)}, wave 2 retraced ${fibPct}% to ${fmt(ds.cPrice)} (50% pocket). Trend: ${trend}. First bar ticking up — wave 3 launch. Entry ${fmt(entryPrice)}, SL ${fmt(stopLoss)} (1 ATR below wave 2 low), TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)} (wave 1 peak).`;
+          signalReason = `[${tfLabel}] DAGGER BUY: Wave 1 peaked at ${fmt(ds.bPrice)}, wave 2 retraced ${fibPct}% to ${fmt(ds.cPrice)} (50% pocket). Trend: ${trend}. Wave 3 launch confirmed. Entry ${fmt(entryPrice)} (wave 2 low retest), SL ${fmt(stopLoss)} (1 ATR below wave 2 low), TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)} (wave 1 peak).`;
         }
       }
     }
@@ -1735,12 +1740,15 @@ export function computeLevels(
         } else {
           signal     = "SELL";
           signalType = "DAGGER";
-          entryPrice  = round(currentPrice);
+          // Entry anchored at the wave-2 high (ds.cPrice = the wick that retested resistance).
+          // Same rationale as DAGGER BUY: currentPrice at trigger time is already below
+          // the wick rejection level, giving a worse short entry.
+          entryPrice  = round(ds.cPrice);
           stopLoss    = round(ds.sl);
           takeProfit1 = round(floorTarget(entryPrice, stopLoss, ds.tp,             MIN_RR_TP1, "SELL"));
           takeProfit2 = round(floorTarget(entryPrice, stopLoss, ds.tp - atr * 0.5, MIN_RR_TP2, "SELL"));
           const fibPct = Math.round(ds.retracePct * 100);
-          signalReason = `[${tfLabel}] DAGGER SELL: Wave 1 dropped to ${fmt(ds.bPrice)}, wave 2 bounced ${fibPct}% to ${fmt(ds.cPrice)} (50% pocket). Trend: ${trend}. First bar ticking down — wave 3 drop. Entry ${fmt(entryPrice)}, SL ${fmt(stopLoss)} (1 ATR above wave 2 high), TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)} (wave 1 low).`;
+          signalReason = `[${tfLabel}] DAGGER SELL: Wave 1 dropped to ${fmt(ds.bPrice)}, wave 2 bounced ${fibPct}% to ${fmt(ds.cPrice)} (50% pocket). Trend: ${trend}. Wave 3 drop confirmed. Entry ${fmt(entryPrice)} (wave 2 high retest), SL ${fmt(stopLoss)} (1 ATR above wave 2 high), TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)} (wave 1 low).`;
         }
       }
     }
