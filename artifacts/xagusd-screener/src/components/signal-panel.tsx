@@ -41,7 +41,9 @@ export function SignalPanel({
 }) {
   const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
   const [accountSize, setAccountSize] = useState<number>(() => readNumber(ACCOUNT_KEY, 500));
+  const [accountSizeText, setAccountSizeText] = useState<string>(() => String(readNumber(ACCOUNT_KEY, 500)));
   const [riskPct, setRiskPct] = useState<number>(() => readNumber(RISK_KEY, 1));
+  const [riskPctText, setRiskPctText] = useState<string>(() => String(readNumber(RISK_KEY, 1)));
   // Phemex's binding minimum is the contract qty (0.001 BTC, 0.01 ETH),
   // enforced server-side from symbol meta — there is no $-collateral floor
   // on Phemex USDT-perps, so the only user-facing knob here is the lev cap.
@@ -487,15 +489,16 @@ export function SignalPanel({
                   <Settings className="w-3 h-3 text-zinc-600" />
                   <span>$</span>
                   <input
-                    type="number"
+                    type="text"
                     inputMode="decimal"
-                    min={1}
-                    step={50}
-                    value={accountSize}
+                    value={accountSizeText}
                     onChange={(e) => {
-                      const v = Number(e.target.value);
+                      const text = e.target.value;
+                      setAccountSizeText(text);
+                      const v = Number(text);
                       if (Number.isFinite(v) && v > 0) setAccountSize(v);
                     }}
+                    onBlur={() => setAccountSizeText(String(accountSize))}
                     className="w-16 bg-zinc-900 border border-zinc-700 rounded px-1.5 py-0.5 text-right tabular-nums text-zinc-100 focus:outline-none focus:border-amber-500/60"
                     aria-label="Account size in USD"
                   />
@@ -550,16 +553,16 @@ export function SignalPanel({
                       {/* Spot venue: only risk % matters — no leverage, no lots. */}
                       <span className="text-zinc-600">·</span>
                       <input
-                        type="number"
+                        type="text"
                         inputMode="decimal"
-                        min={0.01}
-                        max={100}
-                        step={0.25}
-                        value={riskPct}
+                        value={riskPctText}
                         onChange={(e) => {
-                          const v = Number(e.target.value);
+                          const text = e.target.value;
+                          setRiskPctText(text);
+                          const v = Number(text);
                           if (Number.isFinite(v) && v > 0) setRiskPct(v);
                         }}
+                        onBlur={() => setRiskPctText(String(riskPct))}
                         className="w-12 bg-zinc-900 border border-zinc-700 rounded px-1.5 py-0.5 text-right tabular-nums text-zinc-100 focus:outline-none focus:border-amber-500/60"
                         aria-label="Risk percent of account"
                       />
@@ -569,16 +572,16 @@ export function SignalPanel({
                     <>
                       <span className="text-zinc-600">·</span>
                       <input
-                        type="number"
+                        type="text"
                         inputMode="decimal"
-                        min={0.01}
-                        max={100}
-                        step={0.25}
-                        value={riskPct}
+                        value={riskPctText}
                         onChange={(e) => {
-                          const v = Number(e.target.value);
+                          const text = e.target.value;
+                          setRiskPctText(text);
+                          const v = Number(text);
                           if (Number.isFinite(v) && v > 0) setRiskPct(v);
                         }}
+                        onBlur={() => setRiskPctText(String(riskPct))}
                         className="w-12 bg-zinc-900 border border-zinc-700 rounded px-1.5 py-0.5 text-right tabular-nums text-zinc-100 focus:outline-none focus:border-amber-500/60"
                         aria-label="Risk percent of account"
                       />
