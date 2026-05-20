@@ -2270,6 +2270,11 @@ const ACTIVE_TRADES_FILE =
   process.env.ACTIVE_TRADES_FILE ??
   join(process.cwd(), ".runtime", "active-trades.json");
 
+// Namespace that scopes all DB reads/writes so development and production
+// never read or overwrite each other's active-trade rows.
+// Production sets NODE_ENV=production via artifact.toml; dev leaves it unset.
+const DB_NAMESPACE = process.env["NODE_ENV"] === "production" ? "production" : "dev";
+
 // ─── PostgreSQL pool (lazy) ───────────────────────────────────────────────────
 // Used as the durable persistence layer so active trades survive across
 // production deployments (the local JSON file is wiped on each redeploy).
@@ -2483,7 +2488,8 @@ async function syncFromDb(): Promise<void> {
   await initSignalLogTable();
   try {
     const res = await pool.query<{ key: string; data: Record<string, unknown> }>(
-      "SELECT key, data FROM active_trades",
+      "SELECT key, data FROM active_trades WHERE key LIKE $1",
+      [`${DB_NAMESPACE}::%`],
     );
     let merged = 0;
     for (const row of res.rows) {
@@ -2613,12 +2619,16 @@ function persistActiveTrades(): void {
         );
       }
       // Remove rows for trades that were cleared from the Map.
+      // Scope deletes to this namespace so dev can never wipe production rows.
       if (snapshot.length === 0) {
-        await pool.query("DELETE FROM active_trades");
+        await pool.query(
+          "DELETE FROM active_trades WHERE key LIKE $1",
+          [`${DB_NAMESPACE}::%`],
+        );
       } else {
         await pool.query(
-          "DELETE FROM active_trades WHERE key <> ALL($1::text[])",
-          [snapshot.map(([k]) => k)],
+          "DELETE FROM active_trades WHERE key LIKE $1 AND key <> ALL($2::text[])",
+          [`${DB_NAMESPACE}::%`, snapshot.map(([k]) => k)],
         );
       }
     } catch {
@@ -2633,7 +2643,7 @@ loadActiveTradesFromDisk();
 void syncFromDb();
 
 function tradeKey(symbolKey: string, timeframe: Timeframe): string {
-  return `${symbolKey}::${timeframe}`;
+  return `${DB_NAMESPACE}::${symbolKey}::${timeframe}`;
 }
 
 function isInvalidated(trade: ActiveTrade, currentPrice: number): boolean {
