@@ -14,9 +14,9 @@ const TF_LABEL: Record<Timeframe, string> = {
 };
 
 const TF_ORDER: Record<Timeframe, number> = {
-  "1d": 0,
-  "1h": 1,
-  "30m": 2,
+  "30m": 0,
+  "1h":  1,
+  "1d":  2,
   "15m": 3,
 };
 
