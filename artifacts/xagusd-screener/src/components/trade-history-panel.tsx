@@ -88,7 +88,7 @@ export function TradeHistoryPanel({ selectedSymbol, onSelect }: Props) {
   });
   const [filterSymbol, setFilterSymbol] = useState<string>("");
 
-  const effectiveSymbol = filterSymbol.trim() || undefined;
+  const effectiveSymbol = filterSymbol.trim().toUpperCase() || undefined;
 
   const { data, isLoading, isError, refetch, isFetching } = useGetTradeHistory(
     { symbol: effectiveSymbol, limit: 200 },

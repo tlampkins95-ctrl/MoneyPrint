@@ -37,7 +37,7 @@ router.get("/trade-history", async (req: Request, res: Response) => {
                   take_profit1, take_profit2, risk_reward_ratio, exit_price, outcome,
                   r_multiple, tp1_hit, opened_at, closed_at
            FROM closed_trades
-           WHERE symbol = $1
+           WHERE symbol ILIKE '%' || $1 || '%'
            ORDER BY closed_at DESC
            LIMIT $2`,
           [symbol, limit],

@@ -28,7 +28,7 @@ router.get("/signal-log", async (req: Request, res: Response) => {
           `SELECT id, key, symbol, timeframe, signal, signal_type, entry_price, stop_loss,
                   take_profit1, take_profit2, risk_reward_ratio, signal_reason, fired_at
            FROM signal_log
-           WHERE symbol = $1
+           WHERE symbol ILIKE '%' || $1 || '%'
            ORDER BY fired_at DESC
            LIMIT $2`,
           [symbol, limit],
