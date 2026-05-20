@@ -50,15 +50,23 @@ function SectionHeader({ label }: { label: string }) {
   );
 }
 
+function SignalDot() {
+  return (
+    <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0 shadow-[0_0_5px_rgba(251,191,36,0.9)]" />
+  );
+}
+
 function SymbolRow({
   sym,
   isActive,
   change,
+  hasSignal,
   onClick,
 }: {
   sym: Symbol;
   isActive: boolean;
   change?: number | null;
+  hasSignal?: boolean;
   onClick: () => void;
 }) {
   const m = SYMBOLS[sym];
@@ -72,14 +80,20 @@ function SymbolRow({
         isActive ? "bg-primary/15 text-foreground" : "hover:bg-muted/40 text-foreground/90",
       )}
     >
-      <span
-        className={cn(
-          "w-7 h-7 rounded-md flex items-center justify-center text-[11px] font-black shrink-0",
-          isActive ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground",
+      {/* Badge icon with optional signal ring */}
+      <span className="relative shrink-0">
+        <span
+          className={cn(
+            "w-7 h-7 rounded-md flex items-center justify-center text-[11px] font-black",
+            isActive ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground",
+          )}
+          style={{ fontFamily: "var(--app-font-display)" }}
+        >
+          {m.badge}
+        </span>
+        {hasSignal && (
+          <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-amber-400 border-2 border-card shadow-[0_0_5px_rgba(251,191,36,0.9)]" />
         )}
-        style={{ fontFamily: "var(--app-font-display)" }}
-      >
-        {m.badge}
       </span>
       <div className="flex-1 min-w-0">
         <div className="text-xs font-bold tracking-wider" style={{ fontFamily: "var(--app-font-display)" }}>
@@ -96,6 +110,8 @@ function SymbolRow({
         </span>
       ) : isActive ? (
         <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse shrink-0" />
+      ) : hasSignal ? (
+        <SignalDot />
       ) : null}
     </button>
   );
@@ -104,9 +120,11 @@ function SymbolRow({
 export function SymbolSelector({
   value,
   onChange,
+  signalSymbols,
 }: {
   value: string;
   onChange: (s: string) => void;
+  signalSymbols?: ReadonlySet<string>;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -123,6 +141,7 @@ export function SymbolSelector({
   }, [open]);
 
   const meta = getSymbolMeta(value);
+  const currentHasSignal = signalSymbols?.has(value) ?? false;
 
   return (
     <div ref={ref} className="relative">
@@ -134,11 +153,17 @@ export function SymbolSelector({
           "hover:bg-primary/10 hover:border-primary/60 transition-colors text-xs font-bold",
         )}
       >
-        <span
-          className="w-5 h-5 rounded bg-primary text-primary-foreground flex items-center justify-center text-[10px] font-black"
-          style={{ fontFamily: "var(--app-font-display)" }}
-        >
-          {meta.badge}
+        {/* Badge with signal dot */}
+        <span className="relative">
+          <span
+            className="w-5 h-5 rounded bg-primary text-primary-foreground flex items-center justify-center text-[10px] font-black"
+            style={{ fontFamily: "var(--app-font-display)" }}
+          >
+            {meta.badge}
+          </span>
+          {currentHasSignal && (
+            <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-amber-400 border border-card shadow-[0_0_5px_rgba(251,191,36,0.9)]" />
+          )}
         </span>
         <span
           className="text-foreground tracking-widest"
@@ -163,6 +188,7 @@ export function SymbolSelector({
                 sym={sym}
                 isActive={sym === value}
                 change={symbolChanges[sym]}
+                hasSignal={signalSymbols?.has(sym)}
                 onClick={() => { onChange(sym); setOpen(false); }}
               />
             ))}
@@ -175,6 +201,7 @@ export function SymbolSelector({
                 sym={sym}
                 isActive={sym === value}
                 change={symbolChanges[sym]}
+                hasSignal={signalSymbols?.has(sym)}
                 onClick={() => { onChange(sym); setOpen(false); }}
               />
             ))}
@@ -189,6 +216,7 @@ export function SymbolSelector({
                 {trending.map((t) => {
                   const isActive = t.symbolKey === value;
                   const m = getSymbolMeta(t.symbolKey);
+                  const hasSignal = signalSymbols?.has(t.symbolKey) ?? false;
                   const changeStr = t.priceChange24h > 0
                     ? `+${t.priceChange24h.toFixed(1)}%`
                     : `${t.priceChange24h.toFixed(1)}%`;
@@ -202,14 +230,19 @@ export function SymbolSelector({
                         isActive ? "bg-amber-500/15 text-foreground" : "hover:bg-muted/40 text-foreground/90",
                       )}
                     >
-                      <span
-                        className={cn(
-                          "w-7 h-7 rounded-md flex items-center justify-center text-[11px] font-black shrink-0",
-                          isActive ? "bg-amber-500 text-black" : "bg-amber-500/20 text-amber-400",
+                      <span className="relative shrink-0">
+                        <span
+                          className={cn(
+                            "w-7 h-7 rounded-md flex items-center justify-center text-[11px] font-black",
+                            isActive ? "bg-amber-500 text-black" : "bg-amber-500/20 text-amber-400",
+                          )}
+                          style={{ fontFamily: "var(--app-font-display)" }}
+                        >
+                          {m.badge}
+                        </span>
+                        {hasSignal && (
+                          <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-amber-400 border-2 border-card shadow-[0_0_5px_rgba(251,191,36,0.9)]" />
                         )}
-                        style={{ fontFamily: "var(--app-font-display)" }}
-                      >
-                        {m.badge}
                       </span>
                       <div className="flex-1 min-w-0">
                         <div className="text-xs font-bold tracking-wider" style={{ fontFamily: "var(--app-font-display)" }}>
@@ -225,6 +258,7 @@ export function SymbolSelector({
                       )}>
                         {changeStr}
                       </span>
+                      {hasSignal && <SignalDot />}
                     </button>
                   );
                 })}

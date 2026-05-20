@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { LevelsChart } from "@/components/levels-chart";
 import { SignalPanel } from "@/components/signal-panel";
 import { ActiveSignalsOverview } from "@/components/active-signals-overview";
@@ -12,6 +12,7 @@ import { SymbolSelector } from "@/components/symbol-selector";
 import { PushNotificationsToggle } from "@/components/push-notifications-toggle";
 import { getSymbolMeta } from "@/lib/symbols";
 import { cn } from "@/lib/utils";
+import { useGetActiveSignals, getGetActiveSignalsQueryKey } from "@workspace/api-client-react";
 
 const VALID_TIMEFRAMES: readonly Timeframe[] = ["15m", "30m", "1h", "1d"];
 type Tab = "signals" | "journal" | "learn";
@@ -52,6 +53,26 @@ export default function Dashboard() {
     }
   }, [signalExpanded]);
 
+  // Active signals — used to show signal dots on the symbol dropdown + timeframe buttons.
+  const { data: activeSignalsData } = useGetActiveSignals(
+    {},
+    { query: { queryKey: getGetActiveSignalsQueryKey({}), refetchInterval: 30_000, staleTime: 20_000 } },
+  );
+
+  // Build two derived sets from the active signals response:
+  //   signalSymbols    — all symbols that currently have a BUY or SELL signal
+  //   signalsBySymbol  — maps each symbol → set of timeframes with signals
+  const { signalSymbols, signalsBySymbol } = useMemo(() => {
+    const bySymbol = new Map<string, Set<string>>();
+    for (const entry of activeSignalsData?.signals ?? []) {
+      if (!bySymbol.has(entry.symbol)) bySymbol.set(entry.symbol, new Set());
+      bySymbol.get(entry.symbol)!.add(entry.timeframe);
+    }
+    return { signalSymbols: new Set(bySymbol.keys()), signalsBySymbol: bySymbol };
+  }, [activeSignalsData]);
+
+  const signalTimeframes = signalsBySymbol.get(symbol) ?? new Set<string>();
+
   // Keep the URL in sync so the current view is always shareable / bookmarkable.
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -90,12 +111,12 @@ export default function Dashboard() {
         <div className="flex items-center gap-3 text-xs font-mono">
           {tab === "signals" && (
             <>
-              <SymbolSelector value={symbol} onChange={setSymbol} />
-              <TimeframeSelector value={timeframe} onChange={setTimeframe} />
+              <SymbolSelector value={symbol} onChange={setSymbol} signalSymbols={signalSymbols} />
+              <TimeframeSelector value={timeframe} onChange={setTimeframe} signalTimeframes={signalTimeframes} />
             </>
           )}
           {tab === "journal" && (
-            <SymbolSelector value={symbol} onChange={setSymbol} />
+            <SymbolSelector value={symbol} onChange={setSymbol} signalSymbols={signalSymbols} />
           )}
           <PushNotificationsToggle />
           <div className="hidden sm:flex items-center gap-1.5 border-l pl-3 border-border/50">
