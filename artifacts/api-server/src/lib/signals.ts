@@ -1761,7 +1761,19 @@ export function computeLevels(
     const patWidth = cp.upperBound != null ? cp.upperBound - cp.necklinePrice : atr * 2;
     const patLabel = PATTERN_LABELS[cp.pattern] ?? cp.pattern;
 
-    if (cp.direction === "bullish" && macdBreakoutBuyOk && last.close > last21 && patBreakoutBuyZoneOk) {
+    // For pattern breakouts the setup IS the confirmation — MACD is far too lagging
+    // (takes 2-3 bars to react), and the pattern expiry window is only 2 bars, so by
+    // the time MACD turns positive the window has closed entirely.
+    //
+    // Fast structural gates instead:
+    //   • Price must still be on the correct side of the pattern boundary (not a
+    //     false breakout that has already reversed back inside the pattern).
+    //   • Broad EMA21/50 trend must not be directly opposed (faster than MACD).
+    //   • Zone conflict gate is unchanged.
+    const patBONotFalseBreakBuy  = last.close > cp.necklinePrice - atr * 0.3;
+    const patBONotFalseBreakSell = last.close < (cp.upperBound ?? (cp.necklinePrice + patWidth)) + atr * 0.3;
+
+    if (cp.direction === "bullish" && trendBullishBreakout && patBONotFalseBreakBuy && patBreakoutBuyZoneOk) {
       const slPrice   = round(cp.necklinePrice - atr * 0.25); // just below pattern support
       const tp1Price  = round(floorTarget(currentPrice, slPrice, currentPrice + patWidth * 0.6,  MIN_RR_TP1, "BUY"));
       const tp2Price  = round(floorTarget(currentPrice, slPrice, currentPrice + patWidth,         MIN_RR_TP2, "BUY"));
@@ -1772,7 +1784,7 @@ export function computeLevels(
       takeProfit1 = tp1Price;
       takeProfit2 = tp2Price;
       signalReason = `[${tfLabel}] PATTERN BREAKOUT BUY: ${patLabel} confirmed — price closed through the upper boundary. SL ${fmt(stopLoss)} (below pattern support at ${fmt(cp.necklinePrice)}), TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)} (${(patWidth / (currentPrice - slPrice)).toFixed(1)}R pattern projection).`;
-    } else if (cp.direction === "bearish" && macdBreakoutSellOk && last.close < last21 && !isLongOnly && patBreakoutSellZoneOk) {
+    } else if (cp.direction === "bearish" && trendBearishBreakout && patBONotFalseBreakSell && !isLongOnly && patBreakoutSellZoneOk) {
       const upperRail = cp.upperBound ?? (cp.necklinePrice + patWidth);
       const slPrice   = round(upperRail + atr * 0.25); // just above pattern resistance
       const tp1Price  = round(floorTarget(currentPrice, slPrice, currentPrice - patWidth * 0.6,  MIN_RR_TP1, "SELL"));
