@@ -1806,7 +1806,7 @@ export function computeLevels(
       // The breakout bar confirmed the pattern; now wait for the pullback to the
       // neckline before entering — same mechanic as DAGGER anchoring at ds.cPrice.
       const entryRef  = cp.necklinePrice;
-      const slPrice   = round(entryRef - atr * 0.25);
+      const slPrice   = round(entryRef - atr * 0.75); // 0.75 ATR gives room past normal retest wicks
       const tp1Price  = round(floorTarget(entryRef, slPrice, entryRef + patWidth * 0.6,  MIN_RR_TP1, "BUY"));
       const tp2Price  = round(floorTarget(entryRef, slPrice, entryRef + patWidth,         MIN_RR_TP2, "BUY"));
       signal     = "BUY";
@@ -1819,7 +1819,7 @@ export function computeLevels(
     } else if (cp.direction === "bearish" && trendBearishBreakout && patBONotFalseBreakSell && !isLongOnly && patBreakoutSellZoneOk) {
       // Limit entry at the neckline retest (broken lower boundary → resistance).
       const entryRef  = cp.necklinePrice;
-      const slPrice   = round(entryRef + atr * 0.25);
+      const slPrice   = round(entryRef + atr * 0.75); // 0.75 ATR gives room past normal retest wicks
       const tp1Price  = round(floorTarget(entryRef, slPrice, entryRef - patWidth * 0.6,  MIN_RR_TP1, "SELL"));
       const tp2Price  = round(floorTarget(entryRef, slPrice, entryRef - patWidth,         MIN_RR_TP2, "SELL"));
       signal     = "SELL";
