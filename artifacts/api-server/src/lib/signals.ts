@@ -1653,30 +1653,34 @@ export function computeLevels(
     const patLabel = PATTERN_LABELS[cp.pattern] ?? cp.pattern;
 
     if (cp.direction === "bullish" && cp.upperBound != null && last.close > cp.necklinePrice && macdBreakoutBuyOk) {
-      // IH&S neckline breakout BUY — enter at the break, TP = measured-move target
-      const slPrice   = round(cp.necklinePrice - atr * 0.5);
-      const tp2Price  = round(floorTarget(currentPrice, slPrice, cp.upperBound,                                   MIN_RR_TP2, "BUY"));
-      const tp1Price  = round(floorTarget(currentPrice, slPrice, currentPrice + (cp.upperBound - currentPrice) * 0.6, MIN_RR_TP1, "BUY"));
+      // IH&S neckline breakout BUY — limit entry at the neckline retest (former resistance → support).
+      // Do NOT enter at the breakout candle close; wait for price to pull back to the broken
+      // neckline and confirm it as new support. Same mechanic as DAGGER anchoring at ds.cPrice.
+      const entryRef  = cp.necklinePrice;
+      const slPrice   = round(entryRef - atr * 0.5);
+      const tp2Price  = round(floorTarget(entryRef, slPrice, cp.upperBound,                               MIN_RR_TP2, "BUY"));
+      const tp1Price  = round(floorTarget(entryRef, slPrice, entryRef + (cp.upperBound - entryRef) * 0.6, MIN_RR_TP1, "BUY"));
       signal     = "BUY";
       signalType = "PATTERN_BREAKOUT";
-      entryPrice  = round(currentPrice);
+      entryPrice  = round(entryRef);
       stopLoss    = slPrice;
       takeProfit1 = tp1Price;
       takeProfit2 = tp2Price;
-      signalReason = `[${tfLabel}] ${patLabel} neckline breakout BUY: neckline at ${fmt(cp.necklinePrice)}, entry ${fmt(entryPrice)}, SL ${fmt(stopLoss)} (below neckline), TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)} (measured-move target).`;
+      signalReason = `[${tfLabel}] ${patLabel} breakout BUY — limit at neckline retest ${fmt(entryRef)}: price closed through neckline, waiting for pullback to confirm support. SL ${fmt(stopLoss)} (below neckline), TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)} (measured-move target).`;
     } else if (cp.direction === "bearish" && cp.upperBound != null && last.close < cp.necklinePrice && !isLongOnly && macdBreakoutSellOk) {
-      // H&S neckline breakdown SELL — head stored in upperBound; target = 2*neckline - head
-      const hsTarget  = 2 * cp.necklinePrice - cp.upperBound;
-      const slPrice   = round(cp.necklinePrice + atr * 0.5);
-      const tp2Price  = round(floorTarget(currentPrice, slPrice, hsTarget,                                        MIN_RR_TP2, "SELL"));
-      const tp1Price  = round(floorTarget(currentPrice, slPrice, currentPrice - (currentPrice - hsTarget) * 0.6,  MIN_RR_TP1, "SELL"));
+      // H&S neckline breakdown SELL — limit entry at neckline retest (former support → resistance).
+      const entryRef  = cp.necklinePrice;
+      const hsTarget  = 2 * entryRef - cp.upperBound;
+      const slPrice   = round(entryRef + atr * 0.5);
+      const tp2Price  = round(floorTarget(entryRef, slPrice, hsTarget,                              MIN_RR_TP2, "SELL"));
+      const tp1Price  = round(floorTarget(entryRef, slPrice, entryRef - (entryRef - hsTarget) * 0.6, MIN_RR_TP1, "SELL"));
       signal     = "SELL";
       signalType = "PATTERN_BREAKOUT";
-      entryPrice  = round(currentPrice);
+      entryPrice  = round(entryRef);
       stopLoss    = slPrice;
       takeProfit1 = tp1Price;
       takeProfit2 = tp2Price;
-      signalReason = `[${tfLabel}] ${patLabel} neckline breakdown SELL: neckline at ${fmt(cp.necklinePrice)}, entry ${fmt(entryPrice)}, SL ${fmt(stopLoss)} (above neckline), TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)} (measured-move target).`;
+      signalReason = `[${tfLabel}] ${patLabel} breakdown SELL — limit at neckline retest ${fmt(entryRef)}: price closed through neckline, waiting for pullback to confirm resistance. SL ${fmt(stopLoss)} (above neckline), TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)} (measured-move target).`;
     }
   }
 
@@ -1798,28 +1802,33 @@ export function computeLevels(
     const patBONotFalseBreakSell = last.close < (cp.upperBound ?? (cp.necklinePrice + patWidth)) + atr * 0.3;
 
     if (cp.direction === "bullish" && trendBullishBreakout && patBONotFalseBreakBuy && patBreakoutBuyZoneOk) {
-      const slPrice   = round(cp.necklinePrice - atr * 0.25); // just below pattern support
-      const tp1Price  = round(floorTarget(currentPrice, slPrice, currentPrice + patWidth * 0.6,  MIN_RR_TP1, "BUY"));
-      const tp2Price  = round(floorTarget(currentPrice, slPrice, currentPrice + patWidth,         MIN_RR_TP2, "BUY"));
+      // Limit entry at the neckline retest (broken upper boundary → support).
+      // The breakout bar confirmed the pattern; now wait for the pullback to the
+      // neckline before entering — same mechanic as DAGGER anchoring at ds.cPrice.
+      const entryRef  = cp.necklinePrice;
+      const slPrice   = round(entryRef - atr * 0.25);
+      const tp1Price  = round(floorTarget(entryRef, slPrice, entryRef + patWidth * 0.6,  MIN_RR_TP1, "BUY"));
+      const tp2Price  = round(floorTarget(entryRef, slPrice, entryRef + patWidth,         MIN_RR_TP2, "BUY"));
       signal     = "BUY";
       signalType = "PATTERN_BREAKOUT";
-      entryPrice  = round(currentPrice);
+      entryPrice  = round(entryRef);
       stopLoss    = slPrice;
       takeProfit1 = tp1Price;
       takeProfit2 = tp2Price;
-      signalReason = `[${tfLabel}] PATTERN BREAKOUT BUY: ${patLabel} confirmed — price closed through the upper boundary. SL ${fmt(stopLoss)} (below pattern support at ${fmt(cp.necklinePrice)}), TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)} (${(patWidth / (currentPrice - slPrice)).toFixed(1)}R pattern projection).`;
+      signalReason = `[${tfLabel}] PATTERN BREAKOUT BUY: ${patLabel} breakout confirmed — limit at neckline retest ${fmt(entryRef)}, SL ${fmt(stopLoss)} (below pattern support), TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)} (${(patWidth / (entryRef - slPrice)).toFixed(1)}R pattern projection).`;
     } else if (cp.direction === "bearish" && trendBearishBreakout && patBONotFalseBreakSell && !isLongOnly && patBreakoutSellZoneOk) {
-      const upperRail = cp.upperBound ?? (cp.necklinePrice + patWidth);
-      const slPrice   = round(upperRail + atr * 0.25); // just above pattern resistance
-      const tp1Price  = round(floorTarget(currentPrice, slPrice, currentPrice - patWidth * 0.6,  MIN_RR_TP1, "SELL"));
-      const tp2Price  = round(floorTarget(currentPrice, slPrice, currentPrice - patWidth,         MIN_RR_TP2, "SELL"));
+      // Limit entry at the neckline retest (broken lower boundary → resistance).
+      const entryRef  = cp.necklinePrice;
+      const slPrice   = round(entryRef + atr * 0.25);
+      const tp1Price  = round(floorTarget(entryRef, slPrice, entryRef - patWidth * 0.6,  MIN_RR_TP1, "SELL"));
+      const tp2Price  = round(floorTarget(entryRef, slPrice, entryRef - patWidth,         MIN_RR_TP2, "SELL"));
       signal     = "SELL";
       signalType = "PATTERN_BREAKOUT";
-      entryPrice  = round(currentPrice);
+      entryPrice  = round(entryRef);
       stopLoss    = slPrice;
       takeProfit1 = tp1Price;
       takeProfit2 = tp2Price;
-      signalReason = `[${tfLabel}] PATTERN BREAKOUT SELL: ${patLabel} confirmed — price closed through the lower boundary. SL ${fmt(stopLoss)} (above pattern resistance at ${fmt(upperRail)}), TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)} (${(patWidth / (slPrice - currentPrice)).toFixed(1)}R pattern projection).`;
+      signalReason = `[${tfLabel}] PATTERN BREAKOUT SELL: ${patLabel} breakdown confirmed — limit at neckline retest ${fmt(entryRef)}, SL ${fmt(stopLoss)} (above pattern resistance), TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)} (${(patWidth / (slPrice - entryRef)).toFixed(1)}R pattern projection).`;
     }
   }
 
