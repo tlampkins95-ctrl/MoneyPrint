@@ -266,21 +266,34 @@ async function checkSymbol(
       tradeAlreadyAlerted;
 
     if (transitioned && !cooldownActive && !alreadyInSameDirection) {
+      // Filled-trade and direction-flip checks run FIRST — both exempt from
+      // the type filter and the higher-TF gate below.
+      const isFilledTrade =
+        levels.tradeState !== "WAIT" && levels.tradeState !== "PENDING";
+      const isDirectionFlip =
+        !!prev &&
+        ((prev.signal === "BUY" && levels.signal === "SELL") ||
+          (prev.signal === "SELL" && levels.signal === "BUY"));
+
       // Hard type filter: DAGGER, PIVOT_BOUNCE, and PATTERN_BREAKOUT are allowed.
       // BREAKOUT and FIB_BOUNCE remain permanently disabled at both layers.
-      const signalTypeAllowed =
-        levels.signalType === "DAGGER" ||
-        levels.signalType === "PIVOT_BOUNCE" ||
-        levels.signalType === "PATTERN_BREAKOUT" ||
-        levels.signalType === "TREND_BOUNCE" ||
-        levels.signalType === "EMA_CROSS";
-      if (!signalTypeAllowed) {
-        logger.info(
-          { symbol, timeframe, signalType: levels.signalType },
-          "Signal alert suppressed (signal type not allowed for notifications)",
-        );
-        stateMap.set(k, { ...(prev ?? {}), signal: levels.signal, lastAlertAt: prev?.lastAlertAt ?? 0 });
-        return;
+      // Filled trades bypass this: a fill notification is always actionable
+      // regardless of what signal type originally opened the position.
+      if (!isFilledTrade) {
+        const signalTypeAllowed =
+          levels.signalType === "DAGGER" ||
+          levels.signalType === "PIVOT_BOUNCE" ||
+          levels.signalType === "PATTERN_BREAKOUT" ||
+          levels.signalType === "TREND_BOUNCE" ||
+          levels.signalType === "EMA_CROSS";
+        if (!signalTypeAllowed) {
+          logger.info(
+            { symbol, timeframe, signalType: levels.signalType },
+            "Signal alert suppressed (signal type not allowed for notifications)",
+          );
+          stateMap.set(k, { ...(prev ?? {}), signal: levels.signal, lastAlertAt: prev?.lastAlertAt ?? 0 });
+          return;
+        }
       }
 
       // Gate: pending signals must be confirmed by the next higher TF before alerting.
@@ -288,12 +301,6 @@ async function checkSymbol(
       // Direction flips (BUY→SELL or SELL→BUY) are also exempt: a lower-TF
       // reversal is valid even when the higher TF disagrees — e.g. a 30m BUY
       // rally within a 1h SELL trend is a real counter-move worth alerting.
-      const isFilledTrade =
-        levels.tradeState !== "WAIT" && levels.tradeState !== "PENDING";
-      const isDirectionFlip =
-        !!prev &&
-        ((prev.signal === "BUY" && levels.signal === "SELL") ||
-          (prev.signal === "SELL" && levels.signal === "BUY"));
       if (
         higherTf != null &&
         !isFilledTrade &&
@@ -466,33 +473,37 @@ async function checkTrendingSymbol(
       prev.lastAlertSignal === levels.signal;
 
     if (transitioned && !cooldownActive) {
-      // Signal-type guard for trending coins. PIVOT_BOUNCE and BREAKOUT on
-      // trending symbols showed 0% WR across every coin in production.
-      // DAGGER and PATTERN_BREAKOUT are allowed: DAGGER is wave-structure-
-      // agnostic, and PATTERN_BREAKOUT requires a confirmed chart pattern
-      // boundary close — both are meaningfully different from blind pivot fades.
-      const trendingTypeAllowed =
-        levels.signalType === "DAGGER" ||
-        levels.signalType === "PATTERN_BREAKOUT" ||
-        levels.signalType === "TREND_BOUNCE" ||
-        levels.signalType === "EMA_CROSS";
-      if (!trendingTypeAllowed) {
-        logger.info(
-          { symbolKey, timeframe, signalType: levels.signalType },
-          "Trending signal alert suppressed (only DAGGER/PATTERN_BREAKOUT allowed on trending coins)",
-        );
-        stateMap.set(k, { ...(prev ?? {}), signal: levels.signal, lastAlertAt: prev?.lastAlertAt ?? 0 });
-        return;
-      }
-
-      // Gate: pending signals must be confirmed by the next higher TF before alerting.
-      // 30m is gated by 1h; 1h is gated by 1d. Filled trades are exempt.
+      // Filled-trade and direction-flip checks run FIRST — both exempt from
+      // the type filter and the higher-TF gate below.
       const isFilledTrade =
         levels.tradeState !== "WAIT" && levels.tradeState !== "PENDING";
       const isDirectionFlip =
         !!prev &&
         ((prev.signal === "BUY" && levels.signal === "SELL") ||
           (prev.signal === "SELL" && levels.signal === "BUY"));
+
+      // Signal-type guard for trending coins. PIVOT_BOUNCE and BREAKOUT on
+      // trending symbols showed 0% WR across every coin in production.
+      // Filled trades bypass this: fills are always actionable regardless of
+      // what signal type originally opened the position.
+      if (!isFilledTrade) {
+        const trendingTypeAllowed =
+          levels.signalType === "DAGGER" ||
+          levels.signalType === "PATTERN_BREAKOUT" ||
+          levels.signalType === "TREND_BOUNCE" ||
+          levels.signalType === "EMA_CROSS";
+        if (!trendingTypeAllowed) {
+          logger.info(
+            { symbolKey, timeframe, signalType: levels.signalType },
+            "Trending signal alert suppressed (only DAGGER/PATTERN_BREAKOUT allowed on trending coins)",
+          );
+          stateMap.set(k, { ...(prev ?? {}), signal: levels.signal, lastAlertAt: prev?.lastAlertAt ?? 0 });
+          return;
+        }
+      }
+
+      // Gate: pending signals must be confirmed by the next higher TF before alerting.
+      // 30m is gated by 1h; 1h is gated by 1d. Filled trades are exempt.
       if (
         higherTf != null &&
         !isFilledTrade &&
