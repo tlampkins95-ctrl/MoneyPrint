@@ -962,6 +962,26 @@ export function SignalPanel({
             </div>
           )}
 
+          {/* ── 4.5b. Risk-free runner (SL trailed to break-even, positionSizing unavailable) ── */}
+          {!data.positionSizing && (data.tradeState === "FILLED_TP1" || data.tradeState === "FILLED_TP2") && (
+            <div>
+              <div className="text-[10px] text-zinc-500 tracking-widest font-sans font-semibold mb-2 flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-zinc-600 inline-block" />
+                POSITION SIZE
+              </div>
+              <div className="rounded-lg border border-emerald-800/40 bg-emerald-950/20 px-4 py-3 flex items-center gap-3">
+                <span className="text-emerald-400 text-lg">🛡</span>
+                <div>
+                  <div className="text-[11px] font-semibold text-emerald-400 font-mono">Risk-free runner</div>
+                  <div className="text-[10px] text-zinc-400 mt-0.5">
+                    {data.tradeState === "FILLED_TP1" ? "TP1 hit — SL trailed to break-even." : "TP2 hit — position closed."}
+                    {" "}No capital at risk. Let it run.
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* ── 5. Market Structure ─────────────────────────────────────── */}
           <div>
             <div className="text-[10px] text-zinc-500 tracking-widest font-sans font-semibold mb-2 flex items-center gap-2">
