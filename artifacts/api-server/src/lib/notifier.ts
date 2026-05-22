@@ -206,7 +206,10 @@ async function checkSymbol(
     // alert on.
     // Seeds fire for ALERT_SEED_TIMEFRAMES (30m + 1h) for these priority symbols.
     // 1d first-observations still record silently — daily signals rarely miss on restart.
-    const isSeedSnapshot = !prev && ALERT_SEED_TIMEFRAMES.has(timeframe) && (levels.signal === "BUY" || levels.signal === "SELL");
+    // Seed only for PENDING limit orders (not yet filled). Already-running
+    // positions are recorded silently — re-alerting a filled trade after a
+    // restart looks like a stale "new entry" to the user.
+    const isSeedSnapshot = !prev && ALERT_SEED_TIMEFRAMES.has(timeframe) && (levels.signal === "BUY" || levels.signal === "SELL") && (levels.tradeState === "WAIT" || levels.tradeState === "PENDING");
     const transitioned =
       isSeedSnapshot ||
       (!!prev &&
@@ -448,7 +451,10 @@ async function checkTrendingSymbol(
     const levels = computeLevelsStable(candles, spot, timeframe, symbolKey, tMeta);
     const now = Date.now();
 
-    const isSeedSnapshot = !prev && SEED_TIMEFRAMES.has(timeframe) && (levels.signal === "BUY" || levels.signal === "SELL");
+    // Seed only for PENDING limit orders (not yet filled). Already-running
+    // positions are recorded silently — re-alerting a filled trade after a
+    // restart looks like a stale "new entry" to the user.
+    const isSeedSnapshot = !prev && SEED_TIMEFRAMES.has(timeframe) && (levels.signal === "BUY" || levels.signal === "SELL") && (levels.tradeState === "WAIT" || levels.tradeState === "PENDING");
     const transitioned =
       isSeedSnapshot ||
       (!!prev && prev.signal !== levels.signal && (levels.signal === "BUY" || levels.signal === "SELL"));
