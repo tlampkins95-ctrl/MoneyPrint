@@ -2130,6 +2130,17 @@ export function computeLevels(
     }
   }
 
+  // ── Minimum SL floor ─────────────────────────────────────────────────────
+  // Guarantees |entry − SL| ≥ 1.0 ATR regardless of how narrow the structural
+  // zone was. Prevents sub-1-pip stops on tight forex pairs (e.g. AUDUSD 30m
+  // where 0.5 ATR = 2 pips — easily clipped by a normal wick).
+  if (signal !== "WAIT" && entryPrice > 0 && stopLoss > 0 && atr > 0) {
+    const minSlDist = atr * 1.0;
+    if (Math.abs(entryPrice - stopLoss) < minSlDist) {
+      stopLoss = round(signal === "BUY" ? entryPrice - minSlDist : entryPrice + minSlDist);
+    }
+  }
+
   const riskDist = Math.abs(entryPrice - stopLoss);
   const rewardDist = Math.abs(takeProfit1 - entryPrice);
   const riskRewardRatio = riskDist > 0 ? Math.round((rewardDist / riskDist) * 100) / 100 : 0;
