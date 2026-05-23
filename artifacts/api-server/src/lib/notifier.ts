@@ -32,11 +32,6 @@ interface TrackedState {
   // Direction of the run of SLs being counted. If the next SL is in the
   // opposite direction, the streak resets to 1 rather than continuing.
   lastSlSignal?: SignalKind;
-  // Last observed tradeState. Used to fire fill-milestone alerts (entry fill,
-  // TP1 hit) immediately when tradeState advances, independently of any
-  // signal-direction change. Without this, TP1 alerts only fired accidentally
-  // when the signal happened to oscillate SELL→WAIT→SELL after TP1 was hit.
-  lastTradeState?: string;
 }
 
 export interface NotifierSymbolStatus {
@@ -144,12 +139,6 @@ const TIMEFRAME_LABEL: Record<Timeframe, string> = {
 
 const stateMap = new Map<string, TrackedState>();
 
-// tradeStates that warrant an immediate alert when first observed.
-// FILLED_PROFIT = entry order was filled (trade is live).
-// FILLED_TP1    = TP1 hit, stop trailed to break-even (risk-free runner).
-// FILLED_TP2    = full target reached.
-const ALERTABLE_TRADE_STATES = new Set(["FILLED_PROFIT", "FILLED_TP1", "FILLED_TP2"]);
-
 function key(symbolKey: string, timeframe: Timeframe): string {
   return `${symbolKey}::${timeframe}`;
 }
@@ -228,7 +217,7 @@ async function checkSymbol(
         (levels.signal === "BUY" || levels.signal === "SELL"));
 
     if (!prev && !isSeedSnapshot) {
-      stateMap.set(k, { signal: levels.signal, lastAlertAt: 0, lastTradeState: levels.tradeState ?? undefined });
+      stateMap.set(k, { signal: levels.signal, lastAlertAt: 0 });
       return;
     }
 
