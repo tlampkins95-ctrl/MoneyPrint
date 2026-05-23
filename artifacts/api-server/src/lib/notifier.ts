@@ -217,7 +217,16 @@ async function checkSymbol(
         (levels.signal === "BUY" || levels.signal === "SELL"));
 
     if (!prev && !isSeedSnapshot) {
-      stateMap.set(k, { signal: levels.signal, lastAlertAt: 0 });
+      // For already-filled trades, stamp lastAlertAt = now so the
+      // tradeAlreadyAlerted guard fires correctly on subsequent oscillations
+      // (SELL→WAIT→SELL). Without this, lastAlertAt=0 makes tradeAlreadyAlerted
+      // false and the oscillation alert fires with a stale "filled/TP1" message.
+      const isAlreadyFilled = levels.tradeState !== "WAIT" && levels.tradeState !== "PENDING";
+      stateMap.set(k, {
+        signal: levels.signal,
+        lastAlertAt: isAlreadyFilled ? Date.now() : 0,
+        lastAlertSignal: isAlreadyFilled ? (levels.signal as SignalKind) : undefined,
+      });
       return;
     }
 
@@ -268,63 +277,6 @@ async function checkSymbol(
       (levels.signal === "BUY" || levels.signal === "SELL") &&
       tradeAlreadyAlerted;
 
-    // ── Trade-state milestone alert ───────────────────────────────────────────
-    // Fires when tradeState advances to a fill milestone (FILLED_PROFIT,
-    // FILLED_TP1, FILLED_TP2) independently of any signal-direction change.
-    // Bypasses cooldown and direction-change guards — a fill is always
-    // immediately actionable regardless of when the entry alert fired.
-    const tradeStateTransitioned =
-      !!prev &&
-      prev.lastTradeState !== (levels.tradeState ?? "WAIT") &&
-      ALERTABLE_TRADE_STATES.has(levels.tradeState ?? "");
-
-    if (tradeStateTransitioned) {
-      const tfLabelM = TIMEFRAME_LABEL[timeframe];
-      const linkM = buildAppLink(symbol, timeframe);
-      const ctxM = buildAlertContext(symbol, SYMBOLS[symbol], timeframe, tfLabelM, levels, linkM);
-      const tasksM: Promise<void>[] = [];
-      if (isTelegramEnabled()) tasksM.push(sendTelegramAlert(ctxM));
-      if (isWebPushEnabled()) {
-        const sideEmoji = levels.signal === "BUY" ? "🟢" : "🔴";
-        const sideWord = levels.signal === "BUY" ? "BUY" : "SELL";
-        const typeTag = levels.signalType === "DAGGER" ? " 🗡 DAGGER" : levels.signalType === "BREAKOUT" ? " ◈ BREAKOUT" : levels.signalType === "PATTERN_BREAKOUT" ? " ⬛ PATTERN" : levels.signalType === "TREND_BOUNCE" ? " ↗ TREND" : levels.signalType === "EMA_CROSS" ? " ⊕ CROSS" : " ↕ PIVOT";
-        const m = SYMBOLS[symbol];
-        const fmtNM = (n: number) => `${m.prefix}${n.toFixed(m.decimals)}`;
-        const linesM: string[] = [
-          `${tfLabelM} · ${fmtNM(levels.currentPrice)}`,
-          `Entry ${fmtNM(levels.entryPrice)} · SL ${fmtNM(levels.stopLoss)}`,
-          `TP1 ${fmtNM(levels.takeProfit1)} · TP2 ${fmtNM(levels.takeProfit2)}`,
-        ];
-        const originM = linkM ? new URL(linkM).origin : null;
-        tasksM.push(
-          broadcastWebPush({
-            title: `${sideEmoji} ${sideWord}${typeTag} ${m.label}`,
-            body: linesM.join("\n"),
-            url: linkM ?? "/",
-            tag: `${symbol}-${timeframe}`,
-            icon: originM ? `${originM}/notification-icon.png` : undefined,
-            badge: originM ? `${originM}/notification-badge.png` : undefined,
-            requireInteraction: timeframe === "1d",
-          }),
-        );
-      }
-      if (tasksM.length > 0) {
-        await Promise.allSettled(tasksM);
-        logger.info(
-          { symbol, timeframe, from: prev.lastTradeState, to: levels.tradeState },
-          "Trade milestone alert dispatched",
-        );
-      }
-      stateMap.set(k, {
-        ...(prev ?? {}),
-        signal: levels.signal,
-        lastAlertAt: now,
-        lastAlertSignal: levels.signal,
-        lastTradeState: levels.tradeState ?? undefined,
-      });
-      return;
-    }
-
     if (transitioned && !cooldownActive && !alreadyInSameDirection) {
       // Filled-trade and direction-flip checks run FIRST — both exempt from
       // the type filter and the higher-TF gate below.
@@ -351,7 +303,7 @@ async function checkSymbol(
             { symbol, timeframe, signalType: levels.signalType },
             "Signal alert suppressed (signal type not allowed for notifications)",
           );
-          stateMap.set(k, { ...(prev ?? {}), signal: levels.signal, lastAlertAt: prev?.lastAlertAt ?? 0, lastTradeState: levels.tradeState ?? undefined });
+          stateMap.set(k, { ...(prev ?? {}), signal: levels.signal, lastAlertAt: prev?.lastAlertAt ?? 0 });
           return;
         }
       }
@@ -387,7 +339,6 @@ async function checkSymbol(
             ...(prev ?? {}),
             signal: prev?.signal ?? "WAIT",
             lastAlertAt: prev?.lastAlertAt ?? 0,
-            lastTradeState: levels.tradeState ?? undefined,
           });
           return;
         }
@@ -444,7 +395,7 @@ async function checkSymbol(
           "Signal alert dispatched",
         );
       }
-      stateMap.set(k, { ...(prev ?? {}), signal: levels.signal, lastAlertAt: now, lastAlertSignal: levels.signal, lastTradeState: levels.tradeState ?? undefined });
+      stateMap.set(k, { ...(prev ?? {}), signal: levels.signal, lastAlertAt: now, lastAlertSignal: levels.signal });
       return;
     }
 
@@ -482,7 +433,6 @@ async function checkSymbol(
       ...(prev ?? {}),
       signal: levels.signal,
       lastAlertAt: prev?.lastAlertAt ?? 0,
-      lastTradeState: levels.tradeState ?? undefined,
     });
   } catch (err) {
     logger.warn({ err, symbol, timeframe }, "Notifier check failed");
@@ -519,7 +469,12 @@ async function checkTrendingSymbol(
       (!!prev && prev.signal !== levels.signal && (levels.signal === "BUY" || levels.signal === "SELL"));
 
     if (!prev && !isSeedSnapshot) {
-      stateMap.set(k, { signal: levels.signal, lastAlertAt: 0, lastTradeState: levels.tradeState ?? undefined });
+      const isAlreadyFilled = levels.tradeState !== "WAIT" && levels.tradeState !== "PENDING";
+      stateMap.set(k, {
+        signal: levels.signal,
+        lastAlertAt: isAlreadyFilled ? Date.now() : 0,
+        lastAlertSignal: isAlreadyFilled ? (levels.signal as SignalKind) : undefined,
+      });
       return;
     }
 
@@ -536,52 +491,6 @@ async function checkTrendingSymbol(
       !!prev &&
       now - prev.lastAlertAt < effectiveCooldownMsT &&
       prev.lastAlertSignal === levels.signal;
-
-    // ── Trade-state milestone alert (trending) ────────────────────────────────
-    const tradeStateTransitionedT =
-      !!prev &&
-      prev.lastTradeState !== (levels.tradeState ?? "WAIT") &&
-      ALERTABLE_TRADE_STATES.has(levels.tradeState ?? "");
-
-    if (tradeStateTransitionedT) {
-      const tfLabelT = TIMEFRAME_LABEL[timeframe];
-      const linkT = buildAppLink(symbolKey, timeframe);
-      const ctxT = buildAlertContext(symbolKey, tMeta, timeframe, tfLabelT, levels, linkT);
-      const tasksT: Promise<void>[] = [];
-      if (isTelegramEnabled()) tasksT.push(sendTelegramAlert(ctxT));
-      if (isWebPushEnabled()) {
-        const sideEmoji = levels.signal === "BUY" ? "🟢" : "🔴";
-        const sideWord = levels.signal === "BUY" ? "BUY" : "SELL";
-        const typeTagT2 = levels.signalType === "PATTERN_BREAKOUT" ? " ⬛ PATTERN" : levels.signalType === "TREND_BOUNCE" ? " ↗ TREND" : levels.signalType === "EMA_CROSS" ? " ⊕ CROSS" : " 🗡 DAGGER";
-        const fmtNT = (n: number) => `$${n.toFixed(tMeta.decimals)}`;
-        const linesT = [
-          `${tfLabelT} · ${fmtNT(levels.currentPrice)}`,
-          `Entry ${fmtNT(levels.entryPrice)} · SL ${fmtNT(levels.stopLoss)}`,
-          `TP1 ${fmtNT(levels.takeProfit1)} · TP2 ${fmtNT(levels.takeProfit2)}`,
-        ];
-        tasksT.push(broadcastWebPush({
-          title: `${sideEmoji} ${sideWord}${typeTagT2} ${symbolKey} (TRENDING)`,
-          body: linesT.join("\n"),
-          url: linkT ?? "/",
-          tag: `${symbolKey}-${timeframe}`,
-        }));
-      }
-      if (tasksT.length > 0) {
-        await Promise.allSettled(tasksT);
-        logger.info(
-          { symbolKey, timeframe, from: prev.lastTradeState, to: levels.tradeState },
-          "Trending trade milestone alert dispatched",
-        );
-      }
-      stateMap.set(k, {
-        ...(prev ?? {}),
-        signal: levels.signal,
-        lastAlertAt: now,
-        lastAlertSignal: levels.signal,
-        lastTradeState: levels.tradeState ?? undefined,
-      });
-      return;
-    }
 
     if (transitioned && !cooldownActive) {
       // Filled-trade and direction-flip checks run FIRST — both exempt from
@@ -608,7 +517,7 @@ async function checkTrendingSymbol(
             { symbolKey, timeframe, signalType: levels.signalType },
             "Trending signal alert suppressed (only DAGGER/PATTERN_BREAKOUT allowed on trending coins)",
           );
-          stateMap.set(k, { ...(prev ?? {}), signal: levels.signal, lastAlertAt: prev?.lastAlertAt ?? 0, lastTradeState: levels.tradeState ?? undefined });
+          stateMap.set(k, { ...(prev ?? {}), signal: levels.signal, lastAlertAt: prev?.lastAlertAt ?? 0 });
           return;
         }
       }
@@ -632,7 +541,6 @@ async function checkTrendingSymbol(
             ...(prev ?? {}),
             signal: prev?.signal ?? "WAIT",
             lastAlertAt: prev?.lastAlertAt ?? 0,
-            lastTradeState: levels.tradeState ?? undefined,
           });
           return;
         }
@@ -663,10 +571,10 @@ async function checkTrendingSymbol(
         );
       }
       if (tasks.length > 0) await Promise.allSettled(tasks);
-      stateMap.set(k, { ...(prev ?? {}), signal: levels.signal, lastAlertAt: now, lastAlertSignal: levels.signal, lastTradeState: levels.tradeState ?? undefined });
+      stateMap.set(k, { ...(prev ?? {}), signal: levels.signal, lastAlertAt: now, lastAlertSignal: levels.signal });
       return;
     }
-    stateMap.set(k, { ...(prev ?? {}), signal: levels.signal, lastAlertAt: prev?.lastAlertAt ?? 0, lastAlertSignal: prev?.lastAlertSignal, lastTradeState: levels.tradeState ?? undefined });
+    stateMap.set(k, { ...(prev ?? {}), signal: levels.signal, lastAlertAt: prev?.lastAlertAt ?? 0, lastAlertSignal: prev?.lastAlertSignal });
   } catch (err) {
     logger.warn({ err, symbolKey, timeframe }, "Trending notifier check failed");
   }
