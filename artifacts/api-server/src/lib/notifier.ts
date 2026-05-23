@@ -1,4 +1,5 @@
 import { logger } from "./logger";
+import { getBtcMacroTrend, isBtcMacroGated } from "./btc-filter";
 import { SYMBOLS, makeRounder, type Symbol, ALL_SYMBOLS } from "./symbols";
 import {
   fetchCandlesForTimeframe,
@@ -344,6 +345,23 @@ async function checkSymbol(
         }
       }
 
+      // BTC macro gate: suppress BUY alerts on crypto altcoins when BTC daily
+      // is in confirmed DOWNTREND (EMA21 < EMA50 + ADX ≥ 25). Filled trades
+      // are exempt — the position is already open. Preserve prev signal so the
+      // transition re-fires the moment BTC trend recovers.
+      if (levels.signal === "BUY" && !isFilledTrade && isBtcMacroGated(symbol, SYMBOLS[symbol].category)) {
+        const btcTrend = await getBtcMacroTrend("1d");
+        if (btcTrend === "DOWNTREND") {
+          logger.info({ symbol, timeframe, btcTrend }, "BUY alert suppressed (BTC macro DOWNTREND)");
+          stateMap.set(k, {
+            ...(prev ?? {}),
+            signal: prev?.signal ?? "WAIT",
+            lastAlertAt: prev?.lastAlertAt ?? 0,
+          });
+          return;
+        }
+      }
+
       const tfLabel = TIMEFRAME_LABEL[timeframe];
       const link = buildAppLink(symbol, timeframe);
       const ctx = buildAlertContext(symbol, SYMBOLS[symbol], timeframe, tfLabel, levels, link);
@@ -537,6 +555,20 @@ async function checkTrendingSymbol(
             { symbolKey, timeframe, signal: levels.signal, higherTf, higherSignal: higherResult.signal },
             "Trending signal alert suppressed (higher TF gate disagrees)",
           );
+          stateMap.set(k, {
+            ...(prev ?? {}),
+            signal: prev?.signal ?? "WAIT",
+            lastAlertAt: prev?.lastAlertAt ?? 0,
+          });
+          return;
+        }
+      }
+
+      // BTC macro gate: trending coins are always crypto altcoins.
+      if (levels.signal === "BUY" && !isFilledTrade) {
+        const btcTrend = await getBtcMacroTrend("1d");
+        if (btcTrend === "DOWNTREND") {
+          logger.info({ symbolKey, timeframe, btcTrend }, "BUY alert suppressed (BTC macro DOWNTREND — trending coin)");
           stateMap.set(k, {
             ...(prev ?? {}),
             signal: prev?.signal ?? "WAIT",
