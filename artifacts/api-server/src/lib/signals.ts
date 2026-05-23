@@ -1314,8 +1314,8 @@ export function computeLevels(
   // Without RSI confirmation, a BUY fires whenever price touches S1 even in
   // a waterfall sell-off, and a SELL fires at R1 even during a strong rally.
   const rsi = calcRSI(closes);
-  const RSI_OVERSOLD  = 50; // below this → momentum confirms BUY zone bounce
-  const RSI_OVERBOUGHT = 55; // above this → momentum confirms SELL zone rejection
+  const RSI_OVERSOLD  = 40; // below this → momentum confirms BUY zone bounce (symmetric: 10 pts below midpoint)
+  const RSI_OVERBOUGHT = 60; // above this → momentum confirms SELL zone rejection (symmetric: 10 pts above midpoint)
 
   // MACD(12,26,9) histogram momentum gate. Only fade S1 when the histogram
   // has ticked UP over the prior completed bar (selling pressure cooling).
@@ -1580,6 +1580,7 @@ export function computeLevels(
   const sellAllowed = (isNaN(rsi) || rsi >= RSI_OVERBOUGHT)
     && !isLongOnly
     && ema200SellOk            // price below EMA200 = bear regime (symmetric with ema200BuyOk on buys)
+    && macdSellOk              // histogram ticking down = selling momentum confirmed (symmetric with macdBuyOk on buys)
     && trend !== "UPTREND"
     && closedBarBearish; // last completed bar must close bearish — no entry into a rising knife
 
@@ -1962,7 +1963,7 @@ export function computeLevels(
     stopLoss = round(buyZoneLow - atr * 0.5);
     takeProfit1 = round(floorTarget(entryPrice, stopLoss, pivots.pivot, MIN_RR_TP1, "BUY"));
     takeProfit2 = round(floorTarget(entryPrice, stopLoss, sellZoneLow, MIN_RR_TP2, "BUY"));
-    signalReason = `[${tfLabel}] Price is in the buy zone (${fmt(buyZoneLow)}–${fmt(buyZoneHigh)}) and all conditions are met, but entry is blocked by a confirmed bearish chart pattern.`;
+    signalReason = `[${tfLabel}] Price is in the buy zone (${fmt(buyZoneLow)}–${fmt(buyZoneHigh)}) and all conditions are met, but entry is blocked by a bearish reversal pattern (forming or confirmed).`;
   } else if (pivotBounceEnabled && inSellZone && sellAllowed && !patternBullish) {
     // Same logic as buy: only fire when price is ACTUALLY IN the sell zone.
     // Entry anchored at R1 (zone centre) — not currentPrice. Same rationale as BUY:
@@ -1984,7 +1985,7 @@ export function computeLevels(
     stopLoss = round(sellZoneHigh + atr * 0.5);
     takeProfit1 = round(floorTarget(entryPrice, stopLoss, pivots.pivot, MIN_RR_TP1, "SELL"));
     takeProfit2 = round(floorTarget(entryPrice, stopLoss, buyZoneHigh, MIN_RR_TP2, "SELL"));
-    signalReason = `[${tfLabel}] Price is in the sell zone (${fmt(sellZoneLow)}–${fmt(sellZoneHigh)}) and all conditions are met, but entry is blocked by a confirmed bullish chart pattern.`;
+    signalReason = `[${tfLabel}] Price is in the sell zone (${fmt(sellZoneLow)}–${fmt(sellZoneHigh)}) and all conditions are met, but entry is blocked by a bullish reversal pattern (forming or confirmed).`;
   } else if (inBuyZone && !buyAllowed) {
     signal = "WAIT";
     const blockNote =
