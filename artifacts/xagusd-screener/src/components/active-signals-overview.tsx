@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useGetActiveSignals, getGetActiveSignalsQueryKey, useGetBacktest } from "@workspace/api-client-react";
 import type { LevelsDataTradeState } from "@workspace/api-client-react";
-import { TrendingUp, TrendingDown, RefreshCw, AlertTriangle, Target, ChevronDown, ChevronRight } from "lucide-react";
+import { TrendingUp, TrendingDown, RefreshCw, AlertTriangle, Target, ChevronDown, ChevronRight, DollarSign } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getSymbolMeta, fmtPriceMeta } from "@/lib/symbols";
 import type { Timeframe } from "@/components/timeframe-selector";
@@ -52,12 +52,28 @@ function fmtUsd(n: number, sign = true): string {
   return n >= 0 ? `+$${s}` : `-$${s}`;
 }
 
+function calcLivePnl(
+  signal: "BUY" | "SELL",
+  currentPrice: number,
+  entryPrice: number,
+  stopLoss: number,
+  pnlAtSL: number | null,
+): number | null {
+  if (pnlAtSL === null || entryPrice === 0) return null;
+  const slDist = Math.abs(entryPrice - stopLoss);
+  if (slDist === 0) return null;
+  const dollarsPerPoint = Math.abs(pnlAtSL) / slDist;
+  const priceDelta = signal === "BUY" ? currentPrice - entryPrice : entryPrice - currentPrice;
+  return priceDelta * dollarsPerPoint;
+}
+
 interface RowProps {
   symbol: string;
   timeframe: Timeframe;
   signal: "BUY" | "SELL";
   signalType?: "PIVOT_BOUNCE" | "BREAKOUT" | "PATTERN_BREAKOUT" | "DAGGER";
   signalReason: string;
+  tradeState: LevelsDataTradeState;
   currentPrice: number;
   entryPrice: number;
   stopLoss: number;
@@ -142,6 +158,10 @@ function SignalRow(p: RowProps) {
   const Arrow = isBuy ? TrendingUp : TrendingDown;
   const sideColor = isBuy ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/40" : "bg-rose-500/15 text-rose-400 border-rose-500/40";
   const sideBar = isBuy ? "bg-emerald-500" : "bg-rose-500";
+  const isFilledTrade = isFilled(p.tradeState);
+  const livePnl = isFilledTrade
+    ? calcLivePnl(p.signal, p.currentPrice, p.entryPrice, p.stopLoss, p.pnlAtSL)
+    : null;
 
   const { data: btData } = useGetBacktest(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -223,6 +243,20 @@ function SignalRow(p: RowProps) {
           <div className="text-emerald-300 font-semibold">{fmtPriceMeta(meta, p.takeProfit1)}</div>
         </div>
       </div>
+
+      {/* Live unrealized P&L — only shown for filled (open) positions */}
+      {livePnl !== null && (
+        <div className={cn(
+          "flex items-center gap-1.5 pl-2 py-1 rounded text-[11px] font-mono font-bold",
+          livePnl >= 0
+            ? "text-emerald-300 bg-emerald-500/10 border border-emerald-500/20"
+            : "text-rose-300 bg-rose-500/10 border border-rose-500/20",
+        )}>
+          <DollarSign className="w-3 h-3 opacity-70" />
+          <span>Unrealized P&L</span>
+          <span className="ml-auto pr-2">{fmtUsd(livePnl)}</span>
+        </div>
+      )}
 
       {/* Per-venue $PnL projection — ground-truth dollar outcomes per leg.
           PHEMEX shows $col×lev, MT5 shows the lot size, PHEMEX_SPOT shows
@@ -446,6 +480,7 @@ export function ActiveSignalsOverview({
                             signal={s.levels.signal as "BUY" | "SELL"}
                             signalType={s.levels.signalType as "PIVOT_BOUNCE" | "BREAKOUT" | "PATTERN_BREAKOUT" | "DAGGER" | undefined}
                             signalReason={s.levels.signalReason}
+                            tradeState={s.levels.tradeState}
                             currentPrice={s.levels.currentPrice}
                             entryPrice={s.levels.entryPrice}
                             stopLoss={s.levels.stopLoss}
