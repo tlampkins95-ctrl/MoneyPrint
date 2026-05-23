@@ -1314,8 +1314,8 @@ export function computeLevels(
   // Without RSI confirmation, a BUY fires whenever price touches S1 even in
   // a waterfall sell-off, and a SELL fires at R1 even during a strong rally.
   const rsi = calcRSI(closes);
-  const RSI_OVERSOLD  = 40; // below this → momentum confirms BUY zone bounce (was 50 — too permissive, produced 23% WR on 1h)
-  const RSI_OVERBOUGHT = 60; // above this → momentum confirms SELL zone rejection (was 55 — tightened symmetrically)
+  const RSI_OVERSOLD  = 50; // below this → momentum confirms BUY zone bounce
+  const RSI_OVERBOUGHT = 55; // above this → momentum confirms SELL zone rejection
 
   // MACD(12,26,9) histogram momentum gate. Only fade S1 when the histogram
   // has ticked UP over the prior completed bar (selling pressure cooling).
@@ -1858,7 +1858,7 @@ export function computeLevels(
     const nearBuyZone  = currentPrice >= buyZoneLow  - atr * 1.5
                       && currentPrice <= buyZoneHigh + atr * 0.5;
 
-    if (trend === "DOWNTREND" && timeframe !== "1d" && macdFlippedRed && nearSellZone && !isLongOnly && !patternBullish) {
+    if (trend === "DOWNTREND" && macdFlippedRed && nearSellZone && !isLongOnly && !patternBullish) {
       const slPrice  = round(sellZoneHigh + atr * 0.5);
       // Entry anchored at R1 (the zone level the bounce is happening at), not currentPrice.
       // nearSellZone extends up to 1.5 ATR above sellZoneHigh, so currentPrice can be well
@@ -1873,7 +1873,7 @@ export function computeLevels(
       takeProfit1 = tp1Price;
       takeProfit2 = tp2Price;
       signalReason = `[${tfLabel}] TREND BOUNCE SELL: MACD flipped red (${histPrev2.toFixed(5)} → ${histPrev1.toFixed(5)}) near R1 resistance ${fmt(sellZoneLow)}–${fmt(sellZoneHigh)} in downtrend. Entry ${fmt(entryPrice)} (R1 zone), SL ${fmt(stopLoss)} (above resistance), TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)} (S1 support).`;
-    } else if (trend === "UPTREND" && timeframe !== "1d" && macdFlippedGreen && nearBuyZone && !patternBearish) {
+    } else if (trend === "UPTREND" && macdFlippedGreen && nearBuyZone && !patternBearish) {
       const slPrice  = round(buyZoneLow - atr * 0.5);
       // Entry anchored at S1 (the zone level the dip is touching), not currentPrice.
       const ep = round(pivots.s1);
