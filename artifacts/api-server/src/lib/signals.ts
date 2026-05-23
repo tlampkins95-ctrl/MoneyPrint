@@ -1499,15 +1499,20 @@ export function computeLevels(
   // `patternResult` drives UI display (chart pattern takes priority; falls back to
   // candlestick only when no chart pattern is detected).
   const patternResult: PatternResult | null = chartPattern ?? candlestickResult;
-  // Veto gate: only confirmed REVERSAL chart patterns suppress entries.
+  // Veto gate: confirmed reversal patterns suppress entries. Additionally,
+  // FORMING (unconfirmed) double tops and H&S suppress BUY entries — a second
+  // peak at the same level is already a warning sign even before the neckline
+  // breaks. Symmetric: forming double bottoms / IH&S suppress SELL entries.
+  const BEARISH_PENDING = new Set(["DOUBLE_TOP", "HEAD_AND_SHOULDERS"]);
+  const BULLISH_PENDING = new Set(["DOUBLE_BOTTOM", "INVERSE_HEAD_AND_SHOULDERS"]);
   const patternBearish =
-    chartPattern?.confirmed === true &&
-    chartPattern.direction  === "bearish" &&
-    chartPattern.category   === "reversal";
+    chartPattern?.direction === "bearish" &&
+    chartPattern.category   === "reversal" &&
+    (chartPattern.confirmed || BEARISH_PENDING.has(chartPattern.pattern));
   const patternBullish =
-    chartPattern?.confirmed === true &&
-    chartPattern.direction  === "bullish" &&
-    chartPattern.category   === "reversal";
+    chartPattern?.direction === "bullish" &&
+    chartPattern.category   === "reversal" &&
+    (chartPattern.confirmed || BULLISH_PENDING.has(chartPattern.pattern));
   const PATTERN_LABELS: Record<string, string> = {
     HEAD_AND_SHOULDERS:          "Head & Shoulders",
     INVERSE_HEAD_AND_SHOULDERS:  "Inv. Head & Shoulders",
@@ -1574,6 +1579,7 @@ export function computeLevels(
   // signals in UPTREND regime → 0% WR, -12R. The trend filter stops that.
   const sellAllowed = (isNaN(rsi) || rsi >= RSI_OVERBOUGHT)
     && !isLongOnly
+    && ema200SellOk            // price below EMA200 = bear regime (symmetric with ema200BuyOk on buys)
     && trend !== "UPTREND"
     && closedBarBearish; // last completed bar must close bearish — no entry into a rising knife
 
@@ -1637,6 +1643,44 @@ export function computeLevels(
       takeProfit1 = tp1Price;
       takeProfit2 = tp2Price;
       signalReason = `[${tfLabel}] DEATH CROSS: EMA50 (${fmt(last50)}) crossed below EMA200 (${fmt(lastEma200val)}) — bear regime confirmed. Entry ${fmt(entryPrice)}, SL ${fmt(stopLoss)} (above EMA200), TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)} (S1 support).`;
+    }
+  }
+
+  // ─── EMA200 PRICE CROSS ───────────────────────────────────────────────────────
+  // Fires when price (on a completed bar) crosses the 200 EMA — a regime-level
+  // event separate from the EMA50/200 golden-/death-cross above.
+  //   Price closes above EMA200 → BUY  (reclaiming institutional trend support)
+  //   Price closes below EMA200 → SELL (losing institutional trend support)
+  // Uses the last TWO completed bars so a live in-progress tick cannot trigger it.
+  if (signal === "WAIT" && ema200Warm) {
+    const prevPrevClose  = candles[candles.length - 3]?.close;
+    const prevPrevEma200 = ema200[ema200.length - 3];
+    if (Number.isFinite(prevPrevClose) && Number.isFinite(prevPrevEma200)) {
+      const priceCrossAbove = prevPrevClose < prevPrevEma200 && prev.close > prevEma200;
+      const priceCrossBelow = prevPrevClose > prevPrevEma200 && prev.close < prevEma200;
+      if (priceCrossAbove && !patternBearish) {
+        const slPrice  = round(prevEma200 - atr * 0.5);
+        const tp1Price = round(floorTarget(currentPrice, slPrice, currentPrice + (sellZoneLow - currentPrice) * 0.5, MIN_RR_TP1, "BUY"));
+        const tp2Price = round(floorTarget(currentPrice, slPrice, sellZoneLow, MIN_RR_TP2, "BUY"));
+        signal      = "BUY";
+        signalType  = "EMA_CROSS";
+        entryPrice  = round(currentPrice);
+        stopLoss    = slPrice;
+        takeProfit1 = tp1Price;
+        takeProfit2 = tp2Price;
+        signalReason = `[${tfLabel}] EMA200 RECLAIM: Price closed above EMA200 (${fmt(prevEma200)}) — bull regime reclaimed. Entry ${fmt(entryPrice)}, SL ${fmt(stopLoss)} (below EMA200), TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)}.`;
+      } else if (priceCrossBelow && !isLongOnly && !patternBullish) {
+        const slPrice  = round(prevEma200 + atr * 0.5);
+        const tp1Price = round(floorTarget(currentPrice, slPrice, currentPrice - (currentPrice - buyZoneHigh) * 0.5, MIN_RR_TP1, "SELL"));
+        const tp2Price = round(floorTarget(currentPrice, slPrice, buyZoneHigh, MIN_RR_TP2, "SELL"));
+        signal      = "SELL";
+        signalType  = "EMA_CROSS";
+        entryPrice  = round(currentPrice);
+        stopLoss    = slPrice;
+        takeProfit1 = tp1Price;
+        takeProfit2 = tp2Price;
+        signalReason = `[${tfLabel}] EMA200 BREAKDOWN: Price closed below EMA200 (${fmt(prevEma200)}) — bear regime. Entry ${fmt(entryPrice)}, SL ${fmt(stopLoss)} (above EMA200), TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)}.`;
+      }
     }
   }
 
@@ -2049,10 +2093,12 @@ export function computeLevels(
       const distToBuy = round(currentPrice - buyZoneHigh);
       const distToSell = round(sellZoneLow - currentPrice);
       signalReason = `[${tfLabel}] Price (${fmt(currentPrice)}) is in no-trade territory — ${fmt(distToBuy)} above the buy zone (${fmt(buyZoneLow)}–${fmt(buyZoneHigh)}) and ${fmt(distToSell)} below the sell zone (${fmt(sellZoneLow)}–${fmt(sellZoneHigh)}). Wait for price to reach a zone.`;
-      // Use buyAllowed (trend + RSI) rather than just trend to pick direction:
-      // in RANGING with oversold RSI a BUY will fire once price reaches the
-      // buy zone, so the pending setup should point there, not to the sell zone.
-      const dir: "BUY" | "SELL" = (trend === "UPTREND" || buyAllowed) ? "BUY" : "SELL";
+      // Direction is symmetric: established trend takes priority, then whichever
+      // momentum condition (buyAllowed / sellAllowed) is active. No built-in bias.
+      const dir: "BUY" | "SELL" =
+        trend === "UPTREND"   ? "BUY"  :
+        trend === "DOWNTREND" ? "SELL" :
+        sellAllowed           ? "SELL" : "BUY";
       entryPrice = round(dir === "BUY" ? pivots.s1 : pivots.r1);
       stopLoss = round(dir === "BUY" ? buyZoneLow - atr * 0.5 : sellZoneHigh + atr * 0.5);
       const structural1 = pivots.pivot;
