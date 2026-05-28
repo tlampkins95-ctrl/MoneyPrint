@@ -1653,7 +1653,7 @@ export function computeLevels(
     const goldenCross = prevEma50 <= prevEma200 && last50 > lastEma200val;
     const deathCross  = prevEma50 >= prevEma200 && last50 < lastEma200val;
 
-    if (goldenCross && !patternBearish) {
+    if (goldenCross && !patternBearish && currentPrice <= pivots.r1) {
       const slPrice  = round(lastEma200val - atr * 0.5);
       const tp1Price = round(floorTarget(currentPrice, slPrice, currentPrice + (sellZoneLow - currentPrice) * 0.5, MIN_RR_TP1, "BUY"));
       const tp2Price = round(floorTarget(currentPrice, slPrice, sellZoneLow, MIN_RR_TP2, "BUY"));
@@ -1664,7 +1664,7 @@ export function computeLevels(
       takeProfit1 = tp1Price;
       takeProfit2 = tp2Price;
       signalReason = `[${tfLabel}] GOLDEN CROSS: EMA50 (${fmt(last50)}) crossed above EMA200 (${fmt(lastEma200val)}) — bull regime confirmed. Entry ${fmt(entryPrice)}, SL ${fmt(stopLoss)} (below EMA200), TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)} (R1 resistance).`;
-    } else if (deathCross && !isLongOnly && !patternBullish) {
+    } else if (deathCross && !isLongOnly && !patternBullish && currentPrice >= pivots.s1) {
       const slPrice  = round(lastEma200val + atr * 0.5);
       const tp1Price = round(floorTarget(currentPrice, slPrice, currentPrice - (currentPrice - buyZoneHigh) * 0.5, MIN_RR_TP1, "SELL"));
       const tp2Price = round(floorTarget(currentPrice, slPrice, buyZoneHigh, MIN_RR_TP2, "SELL"));
@@ -1690,7 +1690,7 @@ export function computeLevels(
     if (Number.isFinite(prevPrevClose) && Number.isFinite(prevPrevEma200)) {
       const priceCrossAbove = prevPrevClose < prevPrevEma200 && prev.close > prevEma200;
       const priceCrossBelow = prevPrevClose > prevPrevEma200 && prev.close < prevEma200;
-      if (priceCrossAbove && !patternBearish) {
+      if (priceCrossAbove && !patternBearish && currentPrice <= pivots.r1) {
         const slPrice  = round(prevEma200 - atr * 0.5);
         const tp1Price = round(floorTarget(currentPrice, slPrice, currentPrice + (sellZoneLow - currentPrice) * 0.5, MIN_RR_TP1, "BUY"));
         const tp2Price = round(floorTarget(currentPrice, slPrice, sellZoneLow, MIN_RR_TP2, "BUY"));
@@ -1701,7 +1701,7 @@ export function computeLevels(
         takeProfit1 = tp1Price;
         takeProfit2 = tp2Price;
         signalReason = `[${tfLabel}] EMA200 RECLAIM: Price closed above EMA200 (${fmt(prevEma200)}) — bull regime reclaimed. Entry ${fmt(entryPrice)}, SL ${fmt(stopLoss)} (below EMA200), TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)}.`;
-      } else if (priceCrossBelow && !isLongOnly && !patternBullish) {
+      } else if (priceCrossBelow && !isLongOnly && !patternBullish && currentPrice >= pivots.s1) {
         const slPrice  = round(prevEma200 + atr * 0.5);
         const tp1Price = round(floorTarget(currentPrice, slPrice, currentPrice - (currentPrice - buyZoneHigh) * 0.5, MIN_RR_TP1, "SELL"));
         const tp2Price = round(floorTarget(currentPrice, slPrice, buyZoneHigh, MIN_RR_TP2, "SELL"));
@@ -1932,7 +1932,7 @@ export function computeLevels(
     const nearSellZone = currentPrice >= sellZoneLow - atr * 0.5
                       && currentPrice <= sellZoneHigh + atr * 1.5;
     const nearBuyZone  = currentPrice >= buyZoneLow  - atr * 1.5
-                      && currentPrice <= buyZoneHigh + atr * 0.5;
+                      && currentPrice <= Math.min(buyZoneHigh + atr * 0.5, pivots.r1);
 
     if (trend === "DOWNTREND" && macdFlippedRed && nearSellZone && !isLongOnly && !patternBullish) {
       const slPrice  = round(sellZoneHigh + atr * 0.5);
