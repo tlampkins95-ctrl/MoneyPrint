@@ -135,7 +135,7 @@ export function buildDynamicMeta(
 
 // Static list of coins to exclude (already in the static SYMBOLS map).
 const EXCLUDED_TICKERS = new Set([
-  "BTC", "ETH", "ZEC", "SKYAI",
+  "BTC", "ETH", "ZEC",
 ]);
 
 // How many trending coins to track (beyond the static list).

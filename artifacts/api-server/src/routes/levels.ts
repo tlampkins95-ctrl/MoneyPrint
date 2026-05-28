@@ -554,7 +554,6 @@ router.get("/trending-symbols", (_req: Request, res: Response) => {
 // GET /api/symbol-changes — 24h % change for watchlist symbols via CMC quotes.
 // Maps our internal symbol key → CMC ticker symbol.
 const CMC_WATCHLIST: Record<string, string> = {
-  SKYAIUSDT: "SKYAI",
   ZECUSD: "ZEC",
 };
 router.get("/symbol-changes", async (_req: Request, res: Response) => {
