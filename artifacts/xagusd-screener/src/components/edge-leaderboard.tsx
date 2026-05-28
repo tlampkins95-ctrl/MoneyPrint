@@ -4,12 +4,13 @@ import { ChevronDown, ChevronRight, Trophy, Loader2, AlertTriangle } from "lucid
 import { ALL_SYMBOLS, SYMBOLS, type Symbol } from "@/lib/symbols";
 import { cn } from "@/lib/utils";
 
-type Timeframe = "15m" | "30m" | "1h" | "1d";
-const ALL_TIMEFRAMES: Timeframe[] = ["15m", "30m", "1h", "1d"];
+type Timeframe = "15m" | "30m" | "1h" | "4h" | "1d";
+const ALL_TIMEFRAMES: Timeframe[] = ["15m", "30m", "1h", "4h", "1d"];
 const TF_LABEL: Record<Timeframe, string> = {
   "15m": "15m",
   "30m": "30m",
   "1h": "1h",
+  "4h": "4h",
   "1d": "1D",
 };
 

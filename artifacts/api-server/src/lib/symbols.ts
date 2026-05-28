@@ -49,6 +49,9 @@ export interface SymbolMeta {
   // Gate.io spot currency pair (e.g. "SKYAI_USDT"). Used as the candle source
   // for tokens not listed on OKX or Yahoo Finance.
   gateioSpot?: string;
+  // Twelve Data symbol (e.g. "EUR/USD"). Used as the 4h candle source for
+  // forex and metals — Yahoo Finance does not offer 4h bars natively.
+  twelveData?: string;
   venue?: string;
   // When true, only BUY signals are generated. SELL signals are suppressed
   // because the exchange only supports spot (no shorting).
@@ -94,6 +97,7 @@ export const SYMBOLS: Record<Symbol, SymbolMeta> = {
   },
   EURUSD: {
     yahoo: "EURUSD=X",
+    twelveData: "EUR/USD",
     tvSymbol: "OANDA:EURUSD",
     tvScrapePath: "/symbols/EURUSD/?exchange=OANDA",
     label: "EUR / USD",
@@ -103,6 +107,7 @@ export const SYMBOLS: Record<Symbol, SymbolMeta> = {
   },
   GBPUSD: {
     yahoo: "GBPUSD=X",
+    twelveData: "GBP/USD",
     tvSymbol: "OANDA:GBPUSD",
     tvScrapePath: "/symbols/GBPUSD/?exchange=OANDA",
     label: "GBP / USD",
@@ -112,6 +117,7 @@ export const SYMBOLS: Record<Symbol, SymbolMeta> = {
   },
   AUDUSD: {
     yahoo: "AUDUSD=X",
+    twelveData: "AUD/USD",
     tvSymbol: "OANDA:AUDUSD",
     tvScrapePath: "/symbols/AUDUSD/?exchange=OANDA",
     label: "AUD / USD",
@@ -155,6 +161,7 @@ export const SYMBOLS: Record<Symbol, SymbolMeta> = {
   },
   USDCHF: {
     yahoo: "USDCHF=X",
+    twelveData: "USD/CHF",
     tvSymbol: "OANDA:USDCHF",
     tvScrapePath: "/symbols/USDCHF/?exchange=OANDA",
     label: "USD / CHF",

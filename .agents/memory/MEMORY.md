@@ -1,1 +1,3 @@
 - [Pattern boundary invalidation](pattern-boundary-invalidation.md) — flag/pennant/wedge patterns must be voided when price escapes the wrong boundary; confirmed-only check is not enough
+- [4h timeframe data routing](4h-data-routing.md) — three-way routing: OKX perp → Twelve Data (forex) → Yahoo 1h aggregation (metals); metals not on Twelve Data free tier
+- [Timeframe Record exhaustiveness](timeframe-records.md) — every Record<Timeframe, …> across 5+ files must be updated when adding a new timeframe; grep for the pattern before marking done

@@ -13,5 +13,6 @@ export const GetLevelsTimeframe = {
   "15m": "15m",
   "30m": "30m",
   "1h": "1h",
+  "4h": "4h",
   "1d": "1d",
 } as const;

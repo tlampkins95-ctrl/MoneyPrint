@@ -35,6 +35,7 @@ const DYN_CACHE_TTL_MS: Record<Timeframe, number> = {
   "15m": 60 * 1000,
   "30m": 2 * 60 * 1000,
   "1h": 5 * 60 * 1000,
+  "4h": 15 * 60 * 1000,
   "1d": 5 * 60 * 1000,
 };
 

@@ -76,6 +76,7 @@ const MAX_HOLD_BARS: Record<Timeframe, number> = {
   "15m": 24,
   "30m": 16,
   "1h": 12,
+  "4h": 10,
   "1d": 10,
 };
 
@@ -85,6 +86,7 @@ const FIB_MAX_HOLD_BARS: Record<Timeframe, number> = {
   "15m": 72,   // 18 hours
   "30m": 48,   // 24 hours
   "1h":  36,   // 36 hours
+  "4h":  24,   // 4 days
   "1d":  20,   // 20 days
 };
 

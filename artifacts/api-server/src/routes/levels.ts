@@ -21,7 +21,7 @@ import {
 } from "../lib/trending-discovery";
 
 // Show active signals across all tracked entry timeframes.
-const OVERVIEW_TIMEFRAMES: Timeframe[] = ["30m", "1h", "1d"];
+const OVERVIEW_TIMEFRAMES: Timeframe[] = ["30m", "1h", "4h", "1d"];
 
 const router: IRouter = Router();
 
@@ -44,7 +44,11 @@ const TF_GATES: Partial<Record<Timeframe, TfGate[]>> = {
     { higherTf: "1d", mode: "block_oppose"  }, // daily must not oppose
   ],
   "1h": [
+    { higherTf: "4h", mode: "block_oppose"  }, // 4h must not oppose 1h signal
     { higherTf: "1d", mode: "block_oppose"  }, // daily must not oppose 1h signal
+  ],
+  "4h": [
+    { higherTf: "1d", mode: "block_oppose"  }, // daily must not oppose 4h signal
   ],
   // "1d": no gates — daily is the highest tracked TF
 };
@@ -54,7 +58,7 @@ router.get("/levels", async (req: Request, res: Response) => {
     // Symbol: accept both static enum and dynamic trending keys.
     const rawSymbol = typeof req.query.symbol === "string" ? req.query.symbol : "XAGUSD";
     const rawTf = typeof req.query.timeframe === "string" ? req.query.timeframe : "1d";
-    const VALID_TIMEFRAMES: Timeframe[] = ["15m", "30m", "1h", "1d"];
+    const VALID_TIMEFRAMES: Timeframe[] = ["15m", "30m", "1h", "4h", "1d"];
     if (!VALID_TIMEFRAMES.includes(rawTf as Timeframe)) {
       res.status(400).json({ error: `Invalid timeframe: ${rawTf}. Must be one of: ${VALID_TIMEFRAMES.join(", ")}` });
       return;
@@ -209,7 +213,7 @@ router.get("/price-history", async (req: Request, res: Response) => {
     // accepted. Timeframe and bars still go through the generated schema.
     const rawSymbol = typeof req.query.symbol === "string" ? req.query.symbol : "XAGUSD";
     const rawTf     = typeof req.query.timeframe === "string" ? req.query.timeframe : "1d";
-    const VALID_TIMEFRAMES: Timeframe[] = ["15m", "30m", "1h", "1d"];
+    const VALID_TIMEFRAMES: Timeframe[] = ["15m", "30m", "1h", "4h", "1d"];
     if (!VALID_TIMEFRAMES.includes(rawTf as Timeframe)) {
       res.status(400).json({ error: `Invalid timeframe: ${rawTf}` });
       return;

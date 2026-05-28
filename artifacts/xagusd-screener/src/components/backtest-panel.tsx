@@ -8,6 +8,7 @@ const TIMEFRAME_LABEL: Record<Timeframe, string> = {
   "15m": "15-minute",
   "30m": "30-minute",
   "1h": "1-hour",
+  "4h": "4-hour",
   "1d": "Daily",
 };
 

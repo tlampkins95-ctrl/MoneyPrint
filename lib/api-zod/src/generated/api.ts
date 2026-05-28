@@ -44,7 +44,7 @@ export const GetLevelsQueryParams = zod.object({
       "Trading instrument — static key (e.g. XAGUSD, BTCUSD) or a dynamic trending coin key (e.g. TONUSDT)",
     ),
   timeframe: zod
-    .enum(["15m", "30m", "1h", "1d"])
+    .enum(["15m", "30m", "1h", "4h", "1d"])
     .default(getLevelsQueryTimeframeDefault)
     .describe("Bar timeframe used to compute pivots and zones"),
   accountSize: zod.coerce
@@ -470,7 +470,7 @@ export const GetBacktestQueryParams = zod.object({
     .default(getBacktestQuerySymbolDefault)
     .describe("Trading instrument"),
   timeframe: zod
-    .enum(["15m", "30m", "1h", "1d"])
+    .enum(["15m", "30m", "1h", "4h", "1d"])
     .default(getBacktestQueryTimeframeDefault)
     .describe("Bar timeframe used for the backtest"),
   signalType: zod
@@ -1251,7 +1251,7 @@ export const GetPriceHistoryQueryParams = zod.object({
     .default(getPriceHistoryQuerySymbolDefault)
     .describe("Trading instrument"),
   timeframe: zod
-    .enum(["15m", "30m", "1h", "1d"])
+    .enum(["15m", "30m", "1h", "4h", "1d"])
     .default(getPriceHistoryQueryTimeframeDefault)
     .describe("Bar timeframe"),
   bars: zod.coerce
