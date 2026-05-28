@@ -595,7 +595,7 @@ export const GetActiveSignalsResponse = zod.object({
           symbol: zod
             .string()
             .describe("Symbol key (static or trending dynamic coin)"),
-          timeframe: zod.enum(["15m", "30m", "1h", "1d"]),
+          timeframe: zod.enum(["15m", "30m", "1h", "4h", "1d"]),
           levels: zod.object({
             symbol: zod.string(),
             currentPrice: zod.number(),
