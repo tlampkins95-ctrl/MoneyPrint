@@ -571,6 +571,20 @@ function calcMACDHist(closes: number[], fast = 12, slow = 26, sig = 9): number[]
   return out;
 }
 
+function calcBollingerBands(
+  closes: number[],
+  period = 20,
+  multiplier = 2,
+): { upper: number; middle: number; lower: number } | null {
+  if (closes.length < period) return null;
+  const slice = closes.slice(-period);
+  const mean = slice.reduce((a, b) => a + b, 0) / period;
+  const variance = slice.reduce((sum, v) => sum + (v - mean) ** 2, 0) / period;
+  const stdDev = Math.sqrt(variance);
+  if (stdDev === 0) return null;
+  return { upper: mean + multiplier * stdDev, middle: mean, lower: mean - multiplier * stdDev };
+}
+
 const TIMEFRAME_LABELS: Record<Timeframe, string> = {
   "15m": "15-minute",
   "30m": "30-minute",
@@ -1330,6 +1344,21 @@ export function computeLevels(
   const macdBuyOk  = !macdWarm || histPrev1 > histPrev2; // histogram ticking up
   const macdSellOk = !macdWarm || histPrev1 < histPrev2; // histogram ticking down
 
+  // ─── Bollinger Bands (20, 2) ──────────────────────────────────────────────
+  // Used as two gates:
+  //   bbBuyOk  — block BUY when price is near/above the upper band (overbought)
+  //   bbSellOk — block SELL when price is near/below the lower band (oversold)
+  // The threshold is 20% inside the band from each extreme. Falls open when
+  // the indicator isn't warm yet (fewer than 20 bars).
+  // Also surfaces bb.middle for use as a TP target when price is at an extreme
+  // (price tends to mean-revert to the middle band after touching the bands).
+  const bb = calcBollingerBands(closes, 20, 2);
+  const bbBandWidth = bb ? bb.upper - bb.lower : 0;
+  const bbBuyOk  = !bb || currentPrice < bb.upper - bbBandWidth * 0.2; // not near upper band
+  const bbSellOk = !bb || currentPrice > bb.lower + bbBandWidth * 0.2; // not near lower band
+  const bbAtLower = bb != null && currentPrice <= bb.lower + bbBandWidth * 0.25; // touching lower band
+  const bbAtUpper = bb != null && currentPrice >= bb.upper - bbBandWidth * 0.25; // touching upper band
+
   // Closed-bar reversal confirmation for PIVOT_BOUNCE entries.
   // Require the last COMPLETED bar (prev = candles[n-2]) to show a directional
   // body aligned with the signal direction before firing.
@@ -1572,7 +1601,8 @@ export function computeLevels(
   const buyAllowed  = (isNaN(rsi) || rsi <= RSI_OVERSOLD)
     && macdBuyOk
     && ema200BuyOk
-    && closedBarBullish; // last completed bar must close bullish — no entry into a falling knife
+    && closedBarBullish  // last completed bar must close bullish — no entry into a falling knife
+    && bbBuyOk;          // price not near/above upper BB band (overbought territory)
   // SELL gate: RSI overbought + trend is NOT an established uptrend.
   // Selling into a strong uptrend = fighting momentum. Mean-reversion shorts
   // only have edge in ranging or downtrending markets. Production data: SELL
@@ -1582,7 +1612,8 @@ export function computeLevels(
     && ema200SellOk            // price below EMA200 = bear regime (symmetric with ema200BuyOk on buys)
     && macdSellOk              // histogram ticking down = selling momentum confirmed (symmetric with macdBuyOk on buys)
     && trend !== "UPTREND"
-    && closedBarBearish; // last completed bar must close bearish — no entry into a rising knife
+    && closedBarBearish        // last completed bar must close bearish — no entry into a rising knife
+    && bbSellOk;               // price not near/below lower BB band (oversold territory)
 
   // ─── Golden-pocket inputs (computed here; FIB_BOUNCE fires last — see below) ──
   // FIB_BOUNCE is lowest priority: PIVOT_BOUNCE and BREAKOUT always get first
@@ -2025,8 +2056,17 @@ export function computeLevels(
     stopLoss = round(buyZoneLow - atr * 0.5);
     takeProfit1 = round(floorTarget(entryPrice, stopLoss, pivots.pivot, MIN_RR_TP1, "BUY"));
     takeProfit2 = round(floorTarget(entryPrice, stopLoss, sellZoneLow, MIN_RR_TP2, "BUY"));
+    // BB mean-reversion TP override: when price is at/near the lower band,
+    // the middle band (SMA20) is the natural first target — price reliably
+    // returns to the mean after touching the band.
+    const bbBuyTpNote = bbAtLower && bb
+      ? (() => {
+          takeProfit1 = round(floorTarget(entryPrice, stopLoss, bb.middle, MIN_RR_TP1, "BUY"));
+          return ` 📉 Price at lower BB (lower ${fmt(bb.lower)} · mid ${fmt(bb.middle)} · upper ${fmt(bb.upper)}) — TP1 set to BB middle (mean reversion target).`;
+        })()
+      : bb ? ` BB: ${fmt(bb.lower)} / ${fmt(bb.middle)} / ${fmt(bb.upper)}.` : "";
     const pivotRegimeTag = `ADX ${adxWarm ? adx.toFixed(1) : "—"} · CI ${Number.isFinite(choppiness) ? choppiness.toFixed(1) : "—"}`;
-    signalReason = `[${tfLabel}] PIVOT BUY (RANGING): Price (${fmt(currentPrice)}) at S1 support zone ${fmt(buyZoneLow)}–${fmt(buyZoneHigh)}. Market is ranging — mean-reversion setup (${pivotRegimeTag}). Bullish reversal bar confirmed on last close. Entry ${fmt(entryPrice)} (S1 zone), SL ${fmt(stopLoss)}, TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)}.`;
+    signalReason = `[${tfLabel}] PIVOT BUY (RANGING): Price (${fmt(currentPrice)}) at S1 support zone ${fmt(buyZoneLow)}–${fmt(buyZoneHigh)}. Market is ranging — mean-reversion setup (${pivotRegimeTag}). Bullish reversal bar confirmed on last close. Entry ${fmt(entryPrice)} (S1 zone), SL ${fmt(stopLoss)}, TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)}.${bbBuyTpNote}`;
   } else if (pivotBounceEnabled && inBuyZone && buyAllowed && patternBearish) {
     // All zone + indicator conditions are met but a confirmed bearish chart pattern
     // specifically blocks this BUY. Mark `patternVetoed` so the annotation correctly
@@ -2048,8 +2088,16 @@ export function computeLevels(
     stopLoss = round(sellZoneHigh + atr * 0.5);
     takeProfit1 = round(floorTarget(entryPrice, stopLoss, pivots.pivot, MIN_RR_TP1, "SELL"));
     takeProfit2 = round(floorTarget(entryPrice, stopLoss, buyZoneHigh, MIN_RR_TP2, "SELL"));
+    // BB mean-reversion TP override: when price is at/near the upper band,
+    // the middle band (SMA20) is the natural first target.
+    const bbSellTpNote = bbAtUpper && bb
+      ? (() => {
+          takeProfit1 = round(floorTarget(entryPrice, stopLoss, bb.middle, MIN_RR_TP1, "SELL"));
+          return ` 📈 Price at upper BB (lower ${fmt(bb.lower)} · mid ${fmt(bb.middle)} · upper ${fmt(bb.upper)}) — TP1 set to BB middle (mean reversion target).`;
+        })()
+      : bb ? ` BB: ${fmt(bb.lower)} / ${fmt(bb.middle)} / ${fmt(bb.upper)}.` : "";
     const pivotRegimeTagSell = `ADX ${adxWarm ? adx.toFixed(1) : "—"} · CI ${Number.isFinite(choppiness) ? choppiness.toFixed(1) : "—"}`;
-    signalReason = `[${tfLabel}] PIVOT SELL (RANGING): Price (${fmt(currentPrice)}) at R1 resistance zone ${fmt(sellZoneLow)}–${fmt(sellZoneHigh)}. Market is ranging — mean-reversion setup (${pivotRegimeTagSell}). Bearish rejection bar confirmed on last close. Entry ${fmt(entryPrice)} (R1 zone), SL ${fmt(stopLoss)}, TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)}.`;
+    signalReason = `[${tfLabel}] PIVOT SELL (RANGING): Price (${fmt(currentPrice)}) at R1 resistance zone ${fmt(sellZoneLow)}–${fmt(sellZoneHigh)}. Market is ranging — mean-reversion setup (${pivotRegimeTagSell}). Bearish rejection bar confirmed on last close. Entry ${fmt(entryPrice)} (R1 zone), SL ${fmt(stopLoss)}, TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)}.${bbSellTpNote}`;
   } else if (pivotBounceEnabled && inSellZone && sellAllowed && patternBullish) {
     // All zone + indicator conditions are met but a confirmed bullish chart pattern
     // specifically blocks this SELL.
