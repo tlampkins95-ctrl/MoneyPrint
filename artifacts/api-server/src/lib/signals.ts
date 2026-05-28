@@ -1899,8 +1899,8 @@ export function computeLevels(
     const macdFlippedRed   = histPrev2 >= 0 && histPrev1 < 0;
     const macdFlippedGreen = histPrev2 <= 0 && histPrev1 > 0;
     const nearSellZone = currentPrice >= sellZoneLow - atr * 0.5
-                      && currentPrice <= sellZoneHigh + atr * 0.3;
-    const nearBuyZone  = currentPrice >= buyZoneLow  - atr * 0.3
+                      && currentPrice <= sellZoneHigh + atr * 1.5;
+    const nearBuyZone  = currentPrice >= buyZoneLow  - atr * 1.5
                       && currentPrice <= buyZoneHigh + atr * 0.5;
 
     if (trend === "DOWNTREND" && macdFlippedRed && nearSellZone && !isLongOnly && !patternBullish) {
