@@ -79,6 +79,25 @@ async function sendTelegramMessage(text: string, photoUrl?: string): Promise<voi
   }
 }
 
+export async function sendTelegramTest(): Promise<{ ok: boolean; error?: string }> {
+  const token = process.env["TELEGRAM_BOT_TOKEN"];
+  const chatId = process.env["TELEGRAM_CHAT_ID"];
+  if (!token || !chatId) return { ok: false, error: "TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID not set" };
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, text: "✅ <b>Money.Print test message</b> — Telegram alerts are working!", parse_mode: "HTML" }),
+      signal: AbortSignal.timeout(8000),
+    });
+    const body = await res.json() as { ok: boolean; description?: string };
+    if (!res.ok || !body.ok) return { ok: false, error: body.description ?? `HTTP ${res.status}` };
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}
+
 export async function sendTelegramAlert(ctx: AlertContext): Promise<void> {
   const { symbolKey, meta, tfLabel, levels, link } = ctx;
   const sideEmoji = levels.signal === "BUY" ? "🟢" : "🔴";

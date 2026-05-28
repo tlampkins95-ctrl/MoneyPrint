@@ -298,7 +298,8 @@ async function checkSymbol(
           levels.signalType === "PIVOT_BOUNCE" ||
           levels.signalType === "PATTERN_BREAKOUT" ||
           levels.signalType === "TREND_BOUNCE" ||
-          levels.signalType === "EMA_CROSS";
+          levels.signalType === "EMA_CROSS" ||
+          levels.signalType === "FIB_BREAK";
         if (!signalTypeAllowed) {
           logger.info(
             { symbol, timeframe, signalType: levels.signalType },
