@@ -524,6 +524,9 @@ function detectWedges(candles: CandleRaw[]): PatternResult | null {
           }
           const broke = brkBar <= cur;
           if (broke && cur - brkBar > BREAKOUT_STALE_BARS) return null;
+          // Invalidate if live bar (n-1) closed BELOW the lower rail — the pattern
+          // broke in the wrong direction (bearish, not bullish continuation).
+          if (candles[n - 1].close < evalB(n - 1)) return null;
           return {
             pattern: "FALLING_WEDGE", direction: "bullish", category: "continuation",
             confirmed: broke,
@@ -569,6 +572,9 @@ function detectWedges(candles: CandleRaw[]): PatternResult | null {
           }
           const broke = brkBar <= cur;
           if (broke && cur - brkBar > BREAKOUT_STALE_BARS) return null;
+          // Invalidate if live bar (n-1) closed ABOVE the upper rail — the pattern
+          // broke in the wrong direction (bullish, not bearish continuation).
+          if (candles[n - 1].close > evalT(n - 1)) return null;
           return {
             pattern: "RISING_WEDGE", direction: "bearish", category: "continuation",
             confirmed: broke,
@@ -669,7 +675,18 @@ function detectFlagsPennants(candles: CandleRaw[]): PatternResult | null {
       const botStart  = botReg.intercept;
       const botEnd    = botReg.intercept + botReg.slope * lastIdx;
 
+      // consolSlice covers indices 0…(consolLen-1). Bar n-2 sits at regression
+      // index consolLen; bar n-1 (live, potentially incomplete) at consolLen+1.
+      const liveClose     = candles[n - 1].close;
+      const topAtLive     = topReg.intercept + topReg.slope * (consolLen + 1);
+      const botAtLive     = botReg.intercept + botReg.slope * (consolLen + 1);
+
       if (isBullPole) {
+        // Invalidate if last completed bar already broke BELOW the channel —
+        // the pullback became a reversal, not a bull continuation.
+        if (lastClose < minL) continue;
+        // Invalidate if the live bar is below the extrapolated lower rail.
+        if (liveClose < botAtLive) continue;
         return {
           pattern: isPennant ? "BULL_PENNANT" : "BULL_FLAG",
           direction: "bullish", category: "continuation",
@@ -682,6 +699,11 @@ function detectFlagsPennants(candles: CandleRaw[]): PatternResult | null {
           patternEndDate:       consolSlice[lastIdx].date,
         };
       } else {
+        // Invalidate if last completed bar already broke ABOVE the channel —
+        // price escaped upward; this is no longer a bear flag/pennant.
+        if (lastClose > maxH) continue;
+        // Invalidate if the live bar is above the extrapolated upper rail.
+        if (liveClose > topAtLive) continue;
         return {
           pattern: isPennant ? "BEAR_PENNANT" : "BEAR_FLAG",
           direction: "bearish", category: "continuation",

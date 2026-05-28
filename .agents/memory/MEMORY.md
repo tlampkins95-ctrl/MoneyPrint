@@ -1,0 +1,1 @@
+- [Pattern boundary invalidation](pattern-boundary-invalidation.md) — flag/pennant/wedge patterns must be voided when price escapes the wrong boundary; confirmed-only check is not enough
