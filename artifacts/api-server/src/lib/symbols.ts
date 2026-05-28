@@ -6,7 +6,7 @@ export type Symbol =
   | "AUDUSD"
   | "BTCUSD"
   | "ETHUSD"
-  | "SKYAIUSDT"
+  | "USDCHF"
   | "ZECUSD";
 
 export interface SymbolMeta {

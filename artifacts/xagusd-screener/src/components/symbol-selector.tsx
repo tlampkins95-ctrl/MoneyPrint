@@ -40,7 +40,7 @@ function useSymbolChanges(): Record<string, number | null> {
   return changes;
 }
 
-const WATCHLIST_SYMBOLS = new Set(["SKYAIUSDT", "ZECUSD"]);
+const WATCHLIST_SYMBOLS = new Set(["USDCHF", "ZECUSD"]);
 
 function SectionHeader({ label }: { label: string }) {
   return (
