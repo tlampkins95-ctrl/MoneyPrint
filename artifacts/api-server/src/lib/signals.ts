@@ -1536,7 +1536,7 @@ export function computeLevels(
   const fibBounceAllowed   = false; // -9.98R production  — no edge at any timeframe
 
   let signal: "BUY" | "SELL" | "WAIT" = "WAIT";
-  let signalType: "PIVOT_BOUNCE" | "BREAKOUT" | "FIB_BOUNCE" | "DAGGER" | "PATTERN_BREAKOUT" | "TREND_BOUNCE" | "EMA_CROSS" = "PIVOT_BOUNCE";
+  let signalType: "PIVOT_BOUNCE" | "BREAKOUT" | "FIB_BOUNCE" | "FIB_BREAK" | "DAGGER" | "PATTERN_BREAKOUT" | "TREND_BOUNCE" | "EMA_CROSS" = "PIVOT_BOUNCE";
   let signalReason = "";
   let entryPrice = currentPrice;
   let stopLoss = currentPrice;
@@ -1934,6 +1934,80 @@ export function computeLevels(
     }
   }
 
+  // ─── FIB_BREAK ────────────────────────────────────────────────────────────────
+  // Fires when price recently closed through a key Fibonacci level (acting as S/R).
+  //   Break below .236 → SELL  (former support broken, target .382 / .500)
+  //   Break below .382 → SELL  (deeper breakdown,      target .500 / .618)
+  //   Break above .786 → BUY   (deepest support reclaimed, target .618 / .500)
+  //   Break above .618 → BUY   (golden ratio reclaimed,    target .500 / .382)
+  //
+  // Scans up to FIB_BREAK_STALE completed bars backward to find the crossover bar,
+  // so the signal fires even if evaluation runs one bar after the actual break.
+  // currentPrice must still be on the break side (stale signal auto-expires).
+  if (signal === "WAIT") {
+    const FIB_BREAK_STALE = 5;
+    const nc = candles.length;
+
+    const recentBrokeDown = (level: number): boolean => {
+      if (currentPrice >= level) return false;
+      for (let i = nc - 2; i >= Math.max(1, nc - 2 - FIB_BREAK_STALE); i--) {
+        if (candles[i].close < level && candles[i - 1].close >= level) return true;
+      }
+      return false;
+    };
+
+    const recentBrokeUp = (level: number): boolean => {
+      if (currentPrice <= level) return false;
+      for (let i = nc - 2; i >= Math.max(1, nc - 2 - FIB_BREAK_STALE); i--) {
+        if (candles[i].close > level && candles[i - 1].close <= level) return true;
+      }
+      return false;
+    };
+
+    const macdDeclining = !macdWarm || histPrev1 < histPrev2;
+    const macdRising    = !macdWarm || histPrev1 > histPrev2;
+
+    if (!isLongOnly && closedBarBearish && macdDeclining && trend !== "UPTREND") {
+      const broke236 = recentBrokeDown(fibs.fib236);
+      const broke382 = !broke236 && recentBrokeDown(fibs.fib382);
+      if (broke236 || broke382) {
+        const brokenLevel = broke236 ? fibs.fib236 : fibs.fib382;
+        const tp1Fib      = broke236 ? fibs.fib382  : fibs.fib500;
+        const tp2Fib      = broke236 ? fibs.fib500  : fibs.fib618;
+        const fibLabel    = broke236 ? "23.6%" : "38.2%";
+        const tp1Label    = broke236 ? "38.2%" : "50.0%";
+        const tp2Label    = broke236 ? "50.0%" : "61.8%";
+        signal      = "SELL";
+        signalType  = "FIB_BREAK";
+        entryPrice  = round(currentPrice);
+        stopLoss    = round(brokenLevel + atr * 0.5);
+        takeProfit1 = round(floorTarget(entryPrice, stopLoss, tp1Fib, MIN_RR_TP1, "SELL"));
+        takeProfit2 = round(floorTarget(entryPrice, stopLoss, tp2Fib, MIN_RR_TP2, "SELL"));
+        signalReason = `[${tfLabel}] FIB BREAK SELL: Price (${fmt(currentPrice)}) closed below the ${fibLabel} Fibonacci level (${fmt(brokenLevel)}) — former support broken. Entry ${fmt(entryPrice)}, SL ${fmt(stopLoss)} (above broken fib), TP1 ${fmt(takeProfit1)} (${tp1Label} fib), TP2 ${fmt(takeProfit2)} (${tp2Label} fib).`;
+      }
+    }
+
+    if (signal === "WAIT" && closedBarBullish && macdRising && trend !== "DOWNTREND") {
+      const broke786 = recentBrokeUp(fibs.fib786);
+      const broke618 = !broke786 && recentBrokeUp(fibs.fib618);
+      if (broke786 || broke618) {
+        const brokenLevel = broke786 ? fibs.fib786 : fibs.fib618;
+        const tp1Fib      = broke786 ? fibs.fib618  : fibs.fib500;
+        const tp2Fib      = broke786 ? fibs.fib500  : fibs.fib382;
+        const fibLabel    = broke786 ? "78.6%" : "61.8%";
+        const tp1Label    = broke786 ? "61.8%" : "50.0%";
+        const tp2Label    = broke786 ? "50.0%" : "38.2%";
+        signal      = "BUY";
+        signalType  = "FIB_BREAK";
+        entryPrice  = round(currentPrice);
+        stopLoss    = round(brokenLevel - atr * 0.5);
+        takeProfit1 = round(floorTarget(entryPrice, stopLoss, tp1Fib, MIN_RR_TP1, "BUY"));
+        takeProfit2 = round(floorTarget(entryPrice, stopLoss, tp2Fib, MIN_RR_TP2, "BUY"));
+        signalReason = `[${tfLabel}] FIB BREAK BUY: Price (${fmt(currentPrice)}) closed above the ${fibLabel} Fibonacci level (${fmt(brokenLevel)}) — former resistance reclaimed. Entry ${fmt(entryPrice)}, SL ${fmt(stopLoss)} (below reclaimed fib), TP1 ${fmt(takeProfit1)} (${tp1Label} fib), TP2 ${fmt(takeProfit2)} (${tp2Label} fib).`;
+      }
+    }
+  }
+
   // ─── PIVOT_BOUNCE + BREAKOUT ─────────────────────────────────────────────────
   // Only runs when DAGGER and PATTERN_BREAKOUT didn't fire. PIVOT_BOUNCE checks
   // S1/R1 zone touches; BREAKOUT checks R2/S2 momentum breaks. FIB_BOUNCE follows.
@@ -2290,7 +2364,7 @@ type Levels = ReturnType<typeof computeLevels>;
 
 interface ActiveTrade {
   signal: "BUY" | "SELL";
-  signalType?: "PIVOT_BOUNCE" | "BREAKOUT" | "FIB_BOUNCE" | "DAGGER" | "PATTERN_BREAKOUT" | "TREND_BOUNCE" | "EMA_CROSS";
+  signalType?: "PIVOT_BOUNCE" | "BREAKOUT" | "FIB_BOUNCE" | "FIB_BREAK" | "DAGGER" | "PATTERN_BREAKOUT" | "TREND_BOUNCE" | "EMA_CROSS";
   signalReason: string;
   entryPrice: number;
   stopLoss: number;

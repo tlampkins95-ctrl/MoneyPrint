@@ -21,6 +21,7 @@ const TYPE_LABELS: Record<string, string> = {
   EMA_CROSS:       "EMA",
   BREAKOUT:        "BKO",
   FIB_BOUNCE:      "FIB",
+  FIB_BREAK:       "F↗↙",
 };
 
 type Outcome = "SL" | "BE_TRAIL" | "TP2" | "REVERSED" | "MISSED";
