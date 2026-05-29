@@ -1630,10 +1630,17 @@ export function computeLevels(
   // Selling into a strong uptrend = fighting momentum. Mean-reversion shorts
   // only have edge in ranging or downtrending markets. Production data: SELL
   // signals in UPTREND regime → 0% WR, -12R. The trend filter stops that.
+  // SELL gate intentionally omits ema200SellOk and macdSellOk.
+  // See the design note above: when price pumps into the sell zone the close is
+  // almost always ABOVE EMA200 (the pump is why), so gating on close ≤ EMA200
+  // kills every mean-reversion short at the top of an upswing — the exact setup
+  // we want. Similarly, at a genuine top the MACD histogram is still rising;
+  // waiting for a tick-down adds 1–2 bars of lag and moves entry past best price.
+  // RSI exhaustion + trend filter + zone-test + bearish body are the right gates
+  // for a zone-fade short. ema200SellOk / macdSellOk are kept for BREAKOUT and
+  // TREND_BOUNCE (momentum breaks) which have their own gate blocks.
   const sellAllowed = (isNaN(rsi) || rsi >= RSI_OVERBOUGHT)
     && !isLongOnly
-    && ema200SellOk            // price below EMA200 = bear regime (symmetric with ema200BuyOk on buys)
-    && macdSellOk              // histogram ticking down = selling momentum confirmed (symmetric with macdBuyOk on buys)
     && trend !== "UPTREND"
     && strongCloseBearish      // meaningful bearish body (≥ 0.15 ATR) — dojis blocked
     && zoneTestedSell          // last completed bar tested and held the sell zone
@@ -2766,7 +2773,8 @@ async function syncFromDb(): Promise<void> {
         ...(v as ActiveTrade),
         signalType:
           v.signalType === "PIVOT_BOUNCE" || v.signalType === "BREAKOUT" || v.signalType === "DAGGER" ||
-          v.signalType === "PATTERN_BREAKOUT" || v.signalType === "TREND_BOUNCE" || v.signalType === "EMA_CROSS"
+          v.signalType === "PATTERN_BREAKOUT" || v.signalType === "TREND_BOUNCE" || v.signalType === "EMA_CROSS" ||
+          v.signalType === "FIB_BREAK" || v.signalType === "FIB_BOUNCE"
             ? v.signalType
             : "PIVOT_BOUNCE",
         triggered: typeof v.triggered === "boolean" ? v.triggered : false,
@@ -2824,7 +2832,8 @@ function loadActiveTradesFromDisk(): void {
         ...(v as ActiveTrade),
         signalType:
           v.signalType === "PIVOT_BOUNCE" || v.signalType === "BREAKOUT" || v.signalType === "DAGGER" ||
-          v.signalType === "PATTERN_BREAKOUT" || v.signalType === "TREND_BOUNCE" || v.signalType === "EMA_CROSS"
+          v.signalType === "PATTERN_BREAKOUT" || v.signalType === "TREND_BOUNCE" || v.signalType === "EMA_CROSS" ||
+          v.signalType === "FIB_BREAK" || v.signalType === "FIB_BOUNCE"
             ? v.signalType
             : "PIVOT_BOUNCE",
         triggered: typeof v.triggered === "boolean" ? v.triggered : false,
@@ -3469,7 +3478,8 @@ export function seedActiveTrades(raw: Record<string, unknown>): number {
       ...(p as ActiveTrade),
       signalType:
         p.signalType === "PIVOT_BOUNCE" || p.signalType === "BREAKOUT" || p.signalType === "DAGGER" ||
-        p.signalType === "PATTERN_BREAKOUT" || p.signalType === "TREND_BOUNCE" || p.signalType === "EMA_CROSS"
+        p.signalType === "PATTERN_BREAKOUT" || p.signalType === "TREND_BOUNCE" || p.signalType === "EMA_CROSS" ||
+        p.signalType === "FIB_BREAK" || p.signalType === "FIB_BOUNCE"
           ? p.signalType
           : "PIVOT_BOUNCE",
       triggered: typeof p.triggered === "boolean" ? p.triggered : false,

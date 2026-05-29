@@ -584,6 +584,14 @@ async function checkTrendingSymbol(
 
     const k = key(symbolKey, timeframe);
     const prev = stateMap.get(k);
+
+    // Snapshot the active trade BEFORE calling computeLevelsStable.
+    // Mirrors the same pattern as checkSymbol: computeLevelsStable writes a
+    // new ActiveTrade the moment a fresh BUY/SELL fires, so reading after the
+    // call always finds a trade in the new direction — causing
+    // alreadyInSameDirection to fire and eat every non-seed alert.
+    const activeTradeBeforeCompute = getActiveTrade(symbolKey, timeframe);
+
     const levels = computeLevelsStable(candles, spot, timeframe, symbolKey, tMeta);
     const now = Date.now();
 
@@ -619,6 +627,22 @@ async function checkTrendingSymbol(
       now - prev.lastAlertAt < effectiveCooldownMsT &&
       prev.lastAlertSignal === levels.signal;
 
+    // De-dup against the active-trade store (same logic as checkSymbol).
+    // When a trending coin's signal oscillates BUY→WAIT→BUY while the original
+    // trade is still open, suppress the second alert — the user is already
+    // positioned. Only suppress when we actually sent an alert for this trade;
+    // if the trade was opened via a page-load before the notifier ran, the
+    // user has never received an alert and should get one.
+    const tradeAlreadyAlertedT =
+      prev != null &&
+      prev.lastAlertAt > 0 &&
+      (activeTradeBeforeCompute?.openedAt ?? 0) <= prev.lastAlertAt;
+    const alreadyInSameDirection =
+      !isSeedSnapshot &&
+      activeTradeBeforeCompute?.signal === levels.signal &&
+      (levels.signal === "BUY" || levels.signal === "SELL") &&
+      tradeAlreadyAlertedT;
+
     // PATTERN_BREAKOUT fingerprint dedup (same logic as checkSymbol).
     if (
       (levels.signal === "BUY" || levels.signal === "SELL") &&
@@ -635,7 +659,7 @@ async function checkTrendingSymbol(
       }
     }
 
-    if (transitioned && !cooldownActive) {
+    if (transitioned && !cooldownActive && !alreadyInSameDirection) {
       // Filled-trade and direction-flip checks run FIRST — both exempt from
       // the type filter and the higher-TF gate below.
       const isFilledTrade =
@@ -787,6 +811,21 @@ async function checkTrendingSymbol(
       stateMap.set(k, { ...(prev ?? {}), signal: levels.signal, lastAlertAt: now, lastAlertSignal: levels.signal, lastPatternKey: newPatternKeyT });
       return;
     }
+
+    if (transitioned && alreadyInSameDirection) {
+      logger.info(
+        {
+          symbolKey,
+          timeframe,
+          from: prev?.signal ?? "(seed)",
+          to: levels.signal,
+          activeEntry: activeTradeBeforeCompute?.entryPrice,
+          activeOpenedAt: activeTradeBeforeCompute?.openedAt,
+        },
+        "Trending signal alert suppressed (already in active trade same direction)",
+      );
+    }
+
     stateMap.set(k, {
       ...(prev ?? {}),
       signal: levels.signal,

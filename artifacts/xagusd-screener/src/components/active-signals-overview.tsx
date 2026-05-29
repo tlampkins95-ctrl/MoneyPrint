@@ -79,7 +79,7 @@ interface RowProps {
   symbol: string;
   timeframe: Timeframe;
   signal: "BUY" | "SELL";
-  signalType?: "PIVOT_BOUNCE" | "BREAKOUT" | "PATTERN_BREAKOUT" | "DAGGER" | "FIB_BREAK";
+  signalType?: "PIVOT_BOUNCE" | "BREAKOUT" | "PATTERN_BREAKOUT" | "DAGGER" | "FIB_BREAK" | "FIB_BOUNCE" | "TREND_BOUNCE" | "EMA_CROSS";
   signalReason: string;
   tradeState: LevelsDataTradeState;
   currentPrice: number;
