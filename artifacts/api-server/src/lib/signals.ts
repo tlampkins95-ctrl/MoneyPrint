@@ -1947,16 +1947,21 @@ export function computeLevels(
   if (signal === "WAIT" && macdWarm) {
     const macdFlippedRed   = histPrev2 >= 0 && histPrev1 < 0;
     const macdFlippedGreen = histPrev2 <= 0 && histPrev1 > 0;
+    // Zone proximity tightened to ±0.5 ATR (was +1.5 ATR above sell zone for sells,
+    // −1.5 ATR below buy zone for buys). The old window let TREND_BOUNCE fire when
+    // price was 1.5 ATR PAST resistance/support — firing into empty air, not at the zone.
     const nearSellZone = currentPrice >= sellZoneLow - atr * 0.5
-                      && currentPrice <= sellZoneHigh + atr * 1.5;
-    const nearBuyZone  = currentPrice >= buyZoneLow  - atr * 1.5
+                      && currentPrice <= sellZoneHigh + atr * 0.5;
+    const nearBuyZone  = currentPrice >= buyZoneLow  - atr * 0.5
                       && currentPrice <= Math.min(buyZoneHigh + atr * 0.5, pivots.r1);
 
-    if (trend === "DOWNTREND" && macdFlippedRed && nearSellZone && !isLongOnly && !patternBullish) {
+    if (trend === "DOWNTREND" && macdFlippedRed && nearSellZone
+        && !isLongOnly && !patternBullish
+        && zoneTestedSell          // last completed bar tested and held the sell zone
+        && closedBarBearish        // confirmed bearish close — no entry on doji/green bar
+        && (isNaN(rsi) || rsi >= 45)) { // RSI not already deeply oversold — don't short the bottom
       const slPrice  = round(sellZoneHigh + atr * 0.5);
       // Entry anchored at R1 (the zone level the bounce is happening at), not currentPrice.
-      // nearSellZone extends up to 1.5 ATR above sellZoneHigh, so currentPrice can be well
-      // above R1 when the MACD flip fires — entering there puts the trade immediately offside.
       const ep = round(pivots.r1);
       const tp1Price = round(floorTarget(ep, slPrice, ep - (ep - buyZoneHigh) * 0.5, MIN_RR_TP1, "SELL"));
       const tp2Price = round(floorTarget(ep, slPrice, buyZoneHigh, MIN_RR_TP2, "SELL"));
@@ -1967,7 +1972,10 @@ export function computeLevels(
       takeProfit1 = tp1Price;
       takeProfit2 = tp2Price;
       signalReason = `[${tfLabel}] TREND BOUNCE SELL: MACD flipped red (${histPrev2.toFixed(5)} → ${histPrev1.toFixed(5)}) near R1 resistance ${fmt(sellZoneLow)}–${fmt(sellZoneHigh)} in downtrend. Entry ${fmt(entryPrice)} (R1 zone), SL ${fmt(stopLoss)} (above resistance), TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)} (S1 support).`;
-    } else if (trend === "UPTREND" && macdFlippedGreen && nearBuyZone && !patternBearish) {
+    } else if (trend === "UPTREND" && macdFlippedGreen && nearBuyZone && !patternBearish
+               && zoneTestedBuy          // last completed bar tested and held the buy zone
+               && closedBarBullish       // confirmed bullish close — no doji/red-bar entries
+               && (isNaN(rsi) || rsi <= 55)) { // RSI not already overbought — don't buy the top
       const slPrice  = round(buyZoneLow - atr * 0.5);
       // Entry anchored at S1 (the zone level the dip is touching), not currentPrice.
       const ep = round(pivots.s1);
