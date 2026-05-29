@@ -1804,7 +1804,12 @@ export function computeLevels(
     // A bull DAGGER in a confirmed downtrend is a counter-trend fade — blocked.
     // A bear DAGGER in a confirmed uptrend is the same — blocked.
     // When ranging (ADX < 25) both sides are allowed; wave structure is its own filter.
-    if (signal === "WAIT" && bullTrigger && macdBreakoutBuyOk && trend !== "DOWNTREND") {
+    // DAGGER uses macdBuyOk (histogram ticking up, any sign) NOT macdBreakoutBuyOk
+    // (histogram must be positive). Wave 3 launches while MACD is still negative
+    // from the wave 2 pullback — requiring positive histogram means catching wave 3
+    // late, after the low-risk zone has already passed. The A-B-C wave structure is
+    // the primary quality gate; MACD direction confirms momentum turning, not sign.
+    if (signal === "WAIT" && bullTrigger && macdBuyOk && trend !== "DOWNTREND") {
       const ds = findDaggerBullSetup(candles, n - 1, atr);
       // Entry bar must not have violated the wave 2 low (C still intact),
       // must be within 1.5 ATR of C (not already run far above the pullback),
@@ -1832,7 +1837,10 @@ export function computeLevels(
       }
     }
 
-    if (signal === "WAIT" && !patternVetoed && bearTrigger && macdBreakoutSellOk && !isLongOnly && trend !== "UPTREND") {
+    // Bear DAGGER: same rationale — use macdSellOk (histogram ticking down, any sign)
+    // not macdBreakoutSellOk. Wave 3 drops while MACD histogram is still positive
+    // from the wave 2 bounce; the negative-crossing confirmation comes too late.
+    if (signal === "WAIT" && !patternVetoed && bearTrigger && macdSellOk && !isLongOnly && trend !== "UPTREND") {
       const ds = findDaggerBearSetup(candles, n - 1, atr);
       // Same proximity gates as bull side: entry must be within 1.5 ATR of C
       // and trigger must fire within 8 bars of C being set.
