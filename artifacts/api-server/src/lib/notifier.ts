@@ -350,14 +350,13 @@ async function checkSymbol(
         return;
       }
 
-      // Hard type filter: DAGGER, PIVOT_BOUNCE, and PATTERN_BREAKOUT are allowed.
-      // BREAKOUT and FIB_BOUNCE remain permanently disabled at both layers.
+      // Hard type filter. PIVOT_BOUNCE is disabled — it produced -7.8R on 38 trades
+      // in the last 14 days (55% loss rate). DAGGER is the preferred entry signal.
       // Filled trades bypass this: a fill notification is always actionable
       // regardless of what signal type originally opened the position.
       if (!isFilledTrade) {
         const signalTypeAllowed =
           levels.signalType === "DAGGER" ||
-          levels.signalType === "PIVOT_BOUNCE" ||
           levels.signalType === "PATTERN_BREAKOUT" ||
           levels.signalType === "TREND_BOUNCE" ||
           levels.signalType === "EMA_CROSS" ||
@@ -390,10 +389,17 @@ async function checkSymbol(
             ? applyFuturesBasis(higherCandles, spot, adjRound)
             : higherCandles;
         const higherResult = computeLevelsStable(adjHigher, spot, higherTf, symbol, SYMBOLS[symbol]);
-        if (higherResult.signal !== levels.signal) {
+        // Gate: block only when higher TF is ACTIVELY OPPOSITE (BUY vs SELL, SELL vs BUY).
+        // Old behaviour blocked when higher TF was WAIT, which killed DAGGER alerts during
+        // wave 2 pullbacks — the 1h temporarily reads WAIT while price retraces, then DAGGER
+        // fires the wave 3 entry. WAIT means "no clear signal", not "wrong direction".
+        const higherTfOpposed =
+          (higherResult.signal === "BUY" && levels.signal === "SELL") ||
+          (higherResult.signal === "SELL" && levels.signal === "BUY");
+        if (higherTfOpposed) {
           logger.info(
             { symbol, timeframe, signal: levels.signal, higherTf, higherSignal: higherResult.signal },
-            "Signal alert suppressed (higher TF gate disagrees)",
+            "Signal alert suppressed (higher TF actively opposed)",
           );
           // Keep the PREVIOUS signal in stateMap — not the new one. If we
           // record levels.signal here (e.g. BUY), the next tick sees BUY→BUY
@@ -687,10 +693,13 @@ async function checkTrendingSymbol(
         higherCandles.length >= 2
       ) {
         const higherResult = computeLevelsStable(higherCandles, spot, higherTf, symbolKey, tMeta);
-        if (higherResult.signal !== levels.signal) {
+        const higherTfOpposedT =
+          (higherResult.signal === "BUY" && levels.signal === "SELL") ||
+          (higherResult.signal === "SELL" && levels.signal === "BUY");
+        if (higherTfOpposedT) {
           logger.info(
             { symbolKey, timeframe, signal: levels.signal, higherTf, higherSignal: higherResult.signal },
-            "Trending signal alert suppressed (higher TF gate disagrees)",
+            "Trending signal alert suppressed (higher TF actively opposed)",
           );
           stateMap.set(k, {
             ...(prev ?? {}),
