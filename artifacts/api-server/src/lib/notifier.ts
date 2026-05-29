@@ -122,6 +122,19 @@ const COOLDOWN_BY_TIMEFRAME: Record<Timeframe, number> = {
   "1d": 24 * 60 * 60_000,
 };
 
+// Minimum time that must pass before a direction flip (BUY→SELL or SELL→BUY)
+// can alert, even though flips normally bypass the same-direction cooldown.
+// Daily candles are incomplete intraday — without this guard, a $50 Gold move
+// during US session hours produces a SELL → BUY flip within minutes on the 1d,
+// which is noise from the live candle, not a genuine daily structure change.
+const MIN_FLIP_COOLDOWN_MS: Record<Timeframe, number> = {
+  "15m": 0,
+  "30m": 0,
+  "1h": 0,
+  "4h": 60 * 60_000,   // 1h min between 4h flips
+  "1d": 4 * 60 * 60_000, // 4h min between daily flips
+};
+
 // Minimum re-entry delay after an SL: one full candle period.
 // This is the hard floor on effectiveCooldownMs — even with streak=0,
 // a re-entry cannot happen in the same polling tick that closed the prior trade.
@@ -291,6 +304,28 @@ async function checkSymbol(
         !!prev &&
         ((prev.signal === "BUY" && levels.signal === "SELL") ||
           (prev.signal === "SELL" && levels.signal === "BUY"));
+
+      // Minimum flip cooldown: prevent intraday oscillations on longer TFs.
+      // Daily candles are incomplete during the session — a $50 Gold move can
+      // flip the 1d signal SELL→BUY within minutes, which is noise from the
+      // live candle, not a structural change worth alerting. Filled trades are
+      // always exempt: if you're filled, you need to know regardless.
+      const minFlipMs = MIN_FLIP_COOLDOWN_MS[timeframe];
+      const flipTooFast =
+        isDirectionFlip &&
+        !isFilledTrade &&
+        minFlipMs > 0 &&
+        !!prev &&
+        prev.lastAlertAt > 0 &&
+        now - prev.lastAlertAt < minFlipMs;
+      if (flipTooFast) {
+        logger.info(
+          { symbol, timeframe, from: prev!.signal, to: levels.signal, remainingMs: minFlipMs - (now - prev!.lastAlertAt) },
+          "Direction flip suppressed (min flip cooldown — incomplete candle noise)",
+        );
+        stateMap.set(k, { ...(prev ?? {}), signal: levels.signal, lastAlertAt: prev?.lastAlertAt ?? 0 });
+        return;
+      }
 
       // Hard type filter: DAGGER, PIVOT_BOUNCE, and PATTERN_BREAKOUT are allowed.
       // BREAKOUT and FIB_BOUNCE remain permanently disabled at both layers.
@@ -524,6 +559,24 @@ async function checkTrendingSymbol(
         !!prev &&
         ((prev.signal === "BUY" && levels.signal === "SELL") ||
           (prev.signal === "SELL" && levels.signal === "BUY"));
+
+      // Same min-flip cooldown as checkSymbol — trending coins run 4h/1d too.
+      const minFlipMsT = MIN_FLIP_COOLDOWN_MS[timeframe];
+      const flipTooFastT =
+        isDirectionFlip &&
+        !isFilledTrade &&
+        minFlipMsT > 0 &&
+        !!prev &&
+        prev.lastAlertAt > 0 &&
+        now - prev.lastAlertAt < minFlipMsT;
+      if (flipTooFastT) {
+        logger.info(
+          { symbolKey, timeframe, from: prev!.signal, to: levels.signal, remainingMs: minFlipMsT - (now - prev!.lastAlertAt) },
+          "Trending direction flip suppressed (min flip cooldown — incomplete candle noise)",
+        );
+        stateMap.set(k, { ...(prev ?? {}), signal: levels.signal, lastAlertAt: prev?.lastAlertAt ?? 0 });
+        return;
+      }
 
       // Signal-type guard for trending coins. PIVOT_BOUNCE and BREAKOUT on
       // trending symbols showed 0% WR across every coin in production.

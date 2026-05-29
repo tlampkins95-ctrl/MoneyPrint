@@ -1,3 +1,3 @@
-- [Pattern boundary invalidation](pattern-boundary-invalidation.md) — flag/pennant/wedge patterns must be voided when price escapes the wrong boundary; confirmed-only check is not enough
-- [4h timeframe data routing](4h-data-routing.md) — three-way routing: OKX perp → Twelve Data (forex) → Yahoo 1h aggregation (metals); metals not on Twelve Data free tier
-- [Timeframe Record exhaustiveness](timeframe-records.md) — every Record<Timeframe, …> across 5+ files must be updated when adding a new timeframe; grep for the pattern before marking done
+- [OpenAPI enum completeness](openapi-enum-completeness.md) — ActiveSignalsEntry has a 4th enum location with different YAML structure; replace_all misses it; always verify all 4 after codegen.
+- [Response parse hardening](response-parse-hardening.md) — use safeParse not parse for server-own-output validation; hard parse crashes the entire route on schema lag.
+- [Daily flip cooldown](daily-flip-cooldown.md) — 1d candles are live/incomplete intraday; direction-flip bypass must have a per-TF minimum or a $50 Gold move sends SELL→BUY within minutes.

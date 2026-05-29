@@ -844,10 +844,22 @@ function aggregate(trades: Trade[], candles: CandleRaw[], symbol: Symbol) {
 
 router.get("/backtest", async (req: Request, res: Response) => {
   try {
-    const query = GetBacktestQueryParams.parse(req.query);
-    const symbol = (query.symbol ?? "XAGUSD") as Symbol;
-    const timeframe = (query.timeframe ?? "1d") as Timeframe;
-    const signalType: "PIVOT_BOUNCE" | "BREAKOUT" | "FIB_BOUNCE" = (query.signalType as "PIVOT_BOUNCE" | "BREAKOUT" | "FIB_BOUNCE") ?? "PIVOT_BOUNCE";
+    const queryParsed = GetBacktestQueryParams.safeParse(req.query);
+    // Use raw query strings as fallback so dynamic/trending symbols don't crash.
+    const rawSymbol = (req.query["symbol"] as string | undefined) ?? "XAGUSD";
+    const rawTimeframe = (req.query["timeframe"] as string | undefined) ?? "1d";
+    const rawSignalType = (req.query["signalType"] as string | undefined) ?? "PIVOT_BOUNCE";
+    const query = queryParsed.success ? queryParsed.data : null;
+    const symbol = (query?.symbol ?? rawSymbol) as Symbol;
+    const timeframe = (query?.timeframe ?? rawTimeframe) as Timeframe;
+    const signalType: "PIVOT_BOUNCE" | "BREAKOUT" | "FIB_BOUNCE" = (query?.signalType ?? rawSignalType) as "PIVOT_BOUNCE" | "BREAKOUT" | "FIB_BOUNCE";
+
+    // Dynamic/trending symbols are not supported by the backtest engine — return empty.
+    const KNOWN_SYMBOLS = new Set<string>(["XAGUSD","XAUUSD","EURUSD","GBPUSD","AUDUSD","USDCHF","BTCUSD","ETHUSD","SKYAIUSDT","ZECUSD"]);
+    if (!KNOWN_SYMBOLS.has(symbol)) {
+      res.json(aggregate([], [], symbol));
+      return;
+    }
     const now = Date.now();
     const key = cacheKey(symbol, timeframe, signalType);
     const cached = cache.get(key);
@@ -868,7 +880,9 @@ router.get("/backtest", async (req: Request, res: Response) => {
       (signalType === "FIB_BOUNCE"   && symbol === "AUDUSD") ||                       // fib -6 to -12R across all TFs
       (signalType === "FIB_BOUNCE"   && symbol === "XAUUSD" && timeframe !== "1h");   // XAUUSD fib only viable on 1h
     if (isDisabled) {
-      const empty = GetBacktestResponse.parse(aggregate([], [], symbol));
+      const emptyPayload = aggregate([], [], symbol);
+      const emptyParsed = GetBacktestResponse.safeParse(emptyPayload);
+      const empty = emptyParsed.success ? emptyParsed.data : emptyPayload;
       cache.set(key, { data: empty, timestamp: now });
       res.json(empty);
       return;
@@ -884,7 +898,9 @@ router.get("/backtest", async (req: Request, res: Response) => {
       : signalType === "FIB_BOUNCE"
       ? runFibBacktest(candles, timeframe, symbol)
       : runBacktest(candles, timeframe, symbol);
-    const result = GetBacktestResponse.parse(aggregate(trades, candles, symbol));
+    const resultPayload = aggregate(trades, candles, symbol);
+    const resultParsed = GetBacktestResponse.safeParse(resultPayload);
+    const result = resultParsed.success ? resultParsed.data : resultPayload;
     cache.set(key, { data: result, timestamp: now });
     res.json(result);
   } catch (err) {
