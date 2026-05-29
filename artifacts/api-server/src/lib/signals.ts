@@ -2311,6 +2311,41 @@ export function computeLevels(
     }
   }
 
+  // ─── Swing / Position TP extension ─────────────────────────────────────────
+  // Scalps (15m/30m) keep the default zone-to-zone targets.
+  // Swing (1h/4h): TP1 shifts to where TP2 was; TP2 extends one more TP-gap
+  //   forward — landing roughly at the next structural level (R2/S2 territory).
+  // Position (1d+): same shift, plus an additional half-gap so the trade has
+  //   room to run through the full daily/weekly swing.
+  // The signalReason text is patched so the numbers stay consistent with the
+  // displayed targets. floorTarget re-applied as a safety net on both new levels.
+  if ((signal === "BUY" || signal === "SELL") && timeframe !== "15m" && timeframe !== "30m") {
+    const isSwing   = timeframe === "1h" || timeframe === "4h";
+    const dir       = signal === "BUY" ? 1 : -1;
+    const tpGap     = Math.abs(takeProfit2 - takeProfit1);
+    if (tpGap > 0) {
+      const oldTp1Str = fmt(takeProfit1);
+      const oldTp2Str = fmt(takeProfit2);
+
+      const newTp1Raw = isSwing
+        ? takeProfit2                                     // TP1 → old TP2
+        : round(takeProfit2 + dir * tpGap * 0.5);        // Position: half-gap above old TP2
+      const newTp2Raw = isSwing
+        ? round(takeProfit2 + dir * tpGap)               // TP2 → one full gap further
+        : round(takeProfit2 + dir * tpGap * 1.5);        // Position: 1.5 gaps further
+
+      const newTp1 = round(floorTarget(entryPrice, stopLoss, newTp1Raw, MIN_RR_TP1, signal));
+      const newTp2 = round(floorTarget(entryPrice, stopLoss, newTp2Raw, MIN_RR_TP2, signal));
+
+      // Patch the TP numbers embedded in the reason text before overwriting.
+      signalReason = signalReason
+        .replace(`TP1 ${oldTp1Str}`, `TP1 ${fmt(newTp1)}`)
+        .replace(`TP2 ${oldTp2Str}`, `TP2 ${fmt(newTp2)}`);
+      takeProfit1 = newTp1;
+      takeProfit2 = newTp2;
+    }
+  }
+
   const riskDist = Math.abs(entryPrice - stopLoss);
   const rewardDist = Math.abs(takeProfit1 - entryPrice);
   const riskRewardRatio = riskDist > 0 ? Math.round((rewardDist / riskDist) * 100) / 100 : 0;
