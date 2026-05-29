@@ -1494,6 +1494,21 @@ export function computeLevels(
   const approachingBuy = !inBuyZone && currentPrice > buyZoneHigh && (currentPrice - buyZoneHigh) < atr * 0.5;
   const approachingSell = !inSellZone && currentPrice < sellZoneLow && (sellZoneLow - currentPrice) < atr * 0.5;
 
+  // Zone-test confirmation: the last COMPLETED bar must have actually reached
+  // into the pivot zone (low ≤ buyZoneHigh for BUY; high ≥ sellZoneLow for SELL)
+  // AND closed holding the zone boundary (close ≥ buyZoneLow for BUY; ≤ sellZoneHigh).
+  // Without this, a signal can fire the moment live price ticks into the zone
+  // during a still-forming bearish candle — no completed bar ever confirmed the
+  // level was tested. That's the most common cause of immediate stop-outs.
+  const zoneTestedBuy  = prev.low  <= buyZoneHigh  && prev.close >= buyZoneLow;
+  const zoneTestedSell = prev.high >= sellZoneLow  && prev.close <= sellZoneHigh;
+
+  // Strong-close filter: a meaningful candle body is required (≥ 0.15 ATR).
+  // A doji or near-doji has a tiny body — it signals indecision, not reversal.
+  // Entering on a doji is the single easiest way to be stopped out on the next bar.
+  const strongCloseBullish = closedBarBullish && (prev.close - prev.open) >= atr * 0.15;
+  const strongCloseBearish = closedBarBearish && (prev.open - prev.close) >= atr * 0.15;
+
   // Strategy selection uses three independent regime filters before PIVOT_BOUNCE fires:
   //
   //   1. ADX < 25 (trend === "RANGING"): no meaningful directional energy in the market.
@@ -1602,8 +1617,9 @@ export function computeLevels(
   const buyAllowed  = (isNaN(rsi) || rsi <= RSI_OVERSOLD)
     && macdBuyOk
     && ema200BuyOk
-    && closedBarBullish  // last completed bar must close bullish — no entry into a falling knife
-    && bbBuyOk;          // price not near/above upper BB band (overbought territory)
+    && strongCloseBullish  // meaningful bullish body (≥ 0.15 ATR) — dojis are indecision, not reversal
+    && zoneTestedBuy       // last completed bar tested and held the buy zone
+    && bbBuyOk;            // price not near/above upper BB band (overbought territory)
   // SELL gate: RSI overbought + trend is NOT an established uptrend.
   // Selling into a strong uptrend = fighting momentum. Mean-reversion shorts
   // only have edge in ranging or downtrending markets. Production data: SELL
@@ -1613,7 +1629,8 @@ export function computeLevels(
     && ema200SellOk            // price below EMA200 = bear regime (symmetric with ema200BuyOk on buys)
     && macdSellOk              // histogram ticking down = selling momentum confirmed (symmetric with macdBuyOk on buys)
     && trend !== "UPTREND"
-    && closedBarBearish        // last completed bar must close bearish — no entry into a rising knife
+    && strongCloseBearish      // meaningful bearish body (≥ 0.15 ATR) — dojis blocked
+    && zoneTestedSell          // last completed bar tested and held the sell zone
     && bbSellOk;               // price not near/below lower BB band (oversold territory)
 
   // ─── Golden-pocket inputs (computed here; FIB_BOUNCE fires last — see below) ──
@@ -2305,7 +2322,7 @@ export function computeLevels(
   // zone was. Prevents sub-1-pip stops on tight forex pairs (e.g. AUDUSD 30m
   // where 0.5 ATR = 2 pips — easily clipped by a normal wick).
   if (signal !== "WAIT" && entryPrice > 0 && stopLoss > 0 && atr > 0) {
-    const minSlDist = atr * 1.0;
+    const minSlDist = atr * 1.5;
     if (Math.abs(entryPrice - stopLoss) < minSlDist) {
       stopLoss = round(signal === "BUY" ? entryPrice - minSlDist : entryPrice + minSlDist);
     }
