@@ -5,7 +5,7 @@ import {
   fetchCandlesForTimeframe,
   type Timeframe,
 } from "./yahoo-fetch";
-import { computeLevelsStable, fetchSpotPrice, getActiveTrade, applyFuturesBasis, registerOnTradeClosedCallback, type ClosedOutcome } from "./signals";
+import { computeLevelsStable, fetchSpotPrice, getActiveTrade, applyFuturesBasis, registerOnTradeClosedCallback, calcMACDHist, type ClosedOutcome } from "./signals";
 import {
   buildAlertContext,
   sendTelegramAlert,
@@ -385,6 +385,40 @@ async function checkSymbol(
         }
       }
 
+      // 1h MACD sign gate: for 30m signals, the 1h MACD histogram must be on
+      // the same side of zero as the signal direction. Reuses already-fetched
+      // higherCandles — no extra network call. Filled trades and direction
+      // flips are exempt. Fail-open if histogram is NaN (insufficient bars).
+      if (
+        timeframe === "30m" &&
+        !isFilledTrade &&
+        !isDirectionFlip &&
+        (levels.signal === "BUY" || levels.signal === "SELL") &&
+        higherCandles.length >= 40
+      ) {
+        const closes1h = higherCandles.map((c) => c.close);
+        const hist1h = calcMACDHist(closes1h);
+        const lastHist = hist1h[closes1h.length - 2]; // last completed bar
+        if (!isNaN(lastHist)) {
+          const histPositive = lastHist >= 0;
+          const macdOpposes =
+            (levels.signal === "BUY" && !histPositive) ||
+            (levels.signal === "SELL" && histPositive);
+          if (macdOpposes) {
+            logger.info(
+              { symbol, timeframe, signal: levels.signal, hist1h: lastHist.toFixed(5) },
+              "Signal alert suppressed (1h MACD histogram on wrong side of zero)",
+            );
+            stateMap.set(k, {
+              ...(prev ?? {}),
+              signal: prev?.signal ?? "WAIT",
+              lastAlertAt: prev?.lastAlertAt ?? 0,
+            });
+            return;
+          }
+        }
+      }
+
       // BTC macro gate: suppress BUY alerts on crypto altcoins when BTC daily
       // is in confirmed DOWNTREND (EMA21 < EMA50 + ADX ≥ 25). Filled trades
       // are exempt — the position is already open. Preserve prev signal so the
@@ -619,6 +653,37 @@ async function checkTrendingSymbol(
             lastAlertAt: prev?.lastAlertAt ?? 0,
           });
           return;
+        }
+      }
+
+      // 1h MACD sign gate for trending coins (same logic as checkSymbol).
+      if (
+        timeframe === "30m" &&
+        !isFilledTrade &&
+        !isDirectionFlip &&
+        (levels.signal === "BUY" || levels.signal === "SELL") &&
+        higherCandles.length >= 40
+      ) {
+        const closes1h = higherCandles.map((c) => c.close);
+        const hist1h = calcMACDHist(closes1h);
+        const lastHist = hist1h[closes1h.length - 2];
+        if (!isNaN(lastHist)) {
+          const histPositive = lastHist >= 0;
+          const macdOpposes =
+            (levels.signal === "BUY" && !histPositive) ||
+            (levels.signal === "SELL" && histPositive);
+          if (macdOpposes) {
+            logger.info(
+              { symbolKey, timeframe, signal: levels.signal, hist1h: lastHist.toFixed(5) },
+              "Trending signal alert suppressed (1h MACD histogram on wrong side of zero)",
+            );
+            stateMap.set(k, {
+              ...(prev ?? {}),
+              signal: prev?.signal ?? "WAIT",
+              lastAlertAt: prev?.lastAlertAt ?? 0,
+            });
+            return;
+          }
         }
       }
 

@@ -547,7 +547,7 @@ function calcSwingRhythm(
 // Used as momentum-turn confirmation: only fade S1 when histogram is ticking UP
 // (selling pressure cooling), only fade R1 when ticking DOWN (buying pressure
 // cooling). Falls open (NaN) when not enough bars are available.
-function calcMACDHist(closes: number[], fast = 12, slow = 26, sig = 9): number[] {
+export function calcMACDHist(closes: number[], fast = 12, slow = 26, sig = 9): number[] {
   const out: number[] = new Array(closes.length).fill(NaN);
   if (closes.length < slow + sig) return out;
   const fastEma = calcEMA(closes, fast);

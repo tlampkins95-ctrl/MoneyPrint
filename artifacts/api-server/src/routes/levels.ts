@@ -11,7 +11,7 @@ import {
   type Timeframe,
 } from "../lib/yahoo-fetch";
 import { SYMBOLS, makeRounder, ALL_SYMBOLS, type Symbol } from "../lib/symbols";
-import { computeLevelsStable, fetchSpotPrice, applyFuturesBasis, seedActiveTrades, clearActiveTrade } from "../lib/signals";
+import { computeLevelsStable, fetchSpotPrice, applyFuturesBasis, seedActiveTrades, clearActiveTrade, calcMACDHist } from "../lib/signals";
 import { getBtcMacroTrend, isBtcMacroGated } from "../lib/btc-filter";
 import { getNotifierStatus } from "../lib/notifier";
 import {
@@ -538,6 +538,43 @@ router.get("/active-signals", async (req: Request, res: Response) => {
               }
             }
 
+            // 1h MACD sign gate: for 30m signals, the 1h MACD histogram must be
+            // on the same side of zero as the signal direction. Prevents entries
+            // where the 30m MACD flips but the 1h MACD is still in the opposing
+            // zone (e.g. "30m SELL while 1h MACD still positive = bullish bias").
+            // Fail-open: gate is skipped if 1h data or histogram is unavailable.
+            if (!isFilledTrade && timeframe === "30m" && (levels.signal === "BUY" || levels.signal === "SELL")) {
+              try {
+                const raw1h = await fetchCandlesForTimeframe(symbol, "1h");
+                if (raw1h.length >= 40) {
+                  const closes1h = raw1h.map((c) => c.close);
+                  const hist1h = calcMACDHist(closes1h);
+                  const lastHist = hist1h[closes1h.length - 2]; // last completed bar
+                  if (!isNaN(lastHist)) {
+                    const histPositive = lastHist >= 0;
+                    const macdOpposes =
+                      (levels.signal === "BUY" && !histPositive) ||
+                      (levels.signal === "SELL" && histPositive);
+                    if (macdOpposes) {
+                      return {
+                        ok: true,
+                        symbolKey,
+                        timeframe,
+                        levels: {
+                          ...levels,
+                          signal: "WAIT" as const,
+                          tradeState: "WAIT" as const,
+                          signalReason: `[${timeframe}] ${levels.signal} suppressed — 1h MACD histogram ${histPositive ? "positive (bullish)" : "negative (bearish)"}. Wait for 1h MACD to flip and confirm direction.`,
+                        },
+                      };
+                    }
+                  }
+                }
+              } catch {
+                // fail-open: gate skipped if 1h data unavailable
+              }
+            }
+
             return { ok: true, symbolKey, timeframe, levels };
           } else {
             // Dynamic trending coin — same gate logic as static.
@@ -610,6 +647,39 @@ router.get("/active-signals", async (req: Request, res: Response) => {
                     signalReason: `[${timeframe}] BUY suppressed — BTC daily DOWNTREND. Wait for BTC macro to improve.`,
                   },
                 };
+              }
+            }
+
+            // 1h MACD sign gate for dynamic coins (same logic as static, fail-open).
+            if (!dynFilledTrade && timeframe === "30m" && (levels.signal === "BUY" || levels.signal === "SELL")) {
+              try {
+                const raw1h = await fetchCandlesForDynamic(tMeta.okxPerp!, "1h");
+                if (raw1h.length >= 40) {
+                  const closes1h = raw1h.map((c) => c.close);
+                  const hist1h = calcMACDHist(closes1h);
+                  const lastHist = hist1h[closes1h.length - 2];
+                  if (!isNaN(lastHist)) {
+                    const histPositive = lastHist >= 0;
+                    const macdOpposes =
+                      (levels.signal === "BUY" && !histPositive) ||
+                      (levels.signal === "SELL" && histPositive);
+                    if (macdOpposes) {
+                      return {
+                        ok: true,
+                        symbolKey,
+                        timeframe,
+                        levels: {
+                          ...levels,
+                          signal: "WAIT" as const,
+                          tradeState: levels.tradeState === "WAIT" ? "WAIT" as const : levels.tradeState,
+                          signalReason: `[${timeframe}] ${levels.signal} suppressed — 1h MACD histogram ${histPositive ? "positive (bullish)" : "negative (bearish)"}. Wait for 1h MACD to flip and confirm direction.`,
+                        },
+                      };
+                    }
+                  }
+                }
+              } catch {
+                // fail-open
               }
             }
 
