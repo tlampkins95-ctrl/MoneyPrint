@@ -33,6 +33,11 @@ interface TrackedState {
   // Direction of the run of SLs being counted. If the next SL is in the
   // opposite direction, the streak resets to 1 rather than continuing.
   lastSlSignal?: SignalKind;
+  // PATTERN_BREAKOUT dedup fingerprint: "<signal>|<entryPrice>" of the last
+  // alerted pattern. Prevents the same confirmed pattern from re-firing every
+  // poll cycle when a trade closes quickly (BE_TRAIL/TP) while the pattern
+  // confirmation window (2 bars) is still active. Cleared when signal → WAIT.
+  lastPatternKey?: string;
 }
 
 export interface NotifierSymbolStatus {
@@ -295,6 +300,24 @@ async function checkSymbol(
       (levels.signal === "BUY" || levels.signal === "SELL") &&
       tradeAlreadyAlerted;
 
+    // PATTERN_BREAKOUT fingerprint dedup: same neckline + same direction =
+    // same pattern still in its confirmation window. Suppress even if cooldown
+    // was cleared by a prior BE_TRAIL/TP close. Cleared when signal returns to WAIT.
+    if (
+      (levels.signal === "BUY" || levels.signal === "SELL") &&
+      levels.signalType === "PATTERN_BREAKOUT"
+    ) {
+      const patternKey = `${levels.signal}|${levels.entryPrice}`;
+      if (patternKey === prev?.lastPatternKey) {
+        logger.info(
+          { symbol, timeframe, patternKey },
+          "PATTERN_BREAKOUT alert suppressed (same pattern fingerprint already alerted)",
+        );
+        stateMap.set(k, { ...(prev ?? {}), signal: levels.signal, lastAlertAt: prev?.lastAlertAt ?? 0 });
+        return;
+      }
+    }
+
     if (transitioned && !cooldownActive && !alreadyInSameDirection) {
       // Filled-trade and direction-flip checks run FIRST — both exempt from
       // the type filter and the higher-TF gate below.
@@ -487,7 +510,11 @@ async function checkSymbol(
           "Signal alert dispatched",
         );
       }
-      stateMap.set(k, { ...(prev ?? {}), signal: levels.signal, lastAlertAt: now, lastAlertSignal: levels.signal });
+      const newPatternKey =
+        levels.signalType === "PATTERN_BREAKOUT" && (levels.signal === "BUY" || levels.signal === "SELL")
+          ? `${levels.signal}|${levels.entryPrice}`
+          : prev?.lastPatternKey;
+      stateMap.set(k, { ...(prev ?? {}), signal: levels.signal, lastAlertAt: now, lastAlertSignal: levels.signal, lastPatternKey: newPatternKey });
       return;
     }
 
@@ -521,10 +548,12 @@ async function checkSymbol(
     }
 
     // Track new signal but preserve lastAlertAt and streak so cooldown still ticks.
+    // Clear lastPatternKey when signal returns to WAIT — the pattern is gone.
     stateMap.set(k, {
       ...(prev ?? {}),
       signal: levels.signal,
       lastAlertAt: prev?.lastAlertAt ?? 0,
+      lastPatternKey: levels.signal === "WAIT" ? undefined : prev?.lastPatternKey,
     });
   } catch (err) {
     logger.warn({ err, symbol, timeframe }, "Notifier check failed");
@@ -583,6 +612,22 @@ async function checkTrendingSymbol(
       !!prev &&
       now - prev.lastAlertAt < effectiveCooldownMsT &&
       prev.lastAlertSignal === levels.signal;
+
+    // PATTERN_BREAKOUT fingerprint dedup (same logic as checkSymbol).
+    if (
+      (levels.signal === "BUY" || levels.signal === "SELL") &&
+      levels.signalType === "PATTERN_BREAKOUT"
+    ) {
+      const patternKey = `${levels.signal}|${levels.entryPrice}`;
+      if (patternKey === prev?.lastPatternKey) {
+        logger.info(
+          { symbolKey, timeframe, patternKey },
+          "Trending PATTERN_BREAKOUT alert suppressed (same pattern fingerprint already alerted)",
+        );
+        stateMap.set(k, { ...(prev ?? {}), signal: levels.signal, lastAlertAt: prev?.lastAlertAt ?? 0 });
+        return;
+      }
+    }
 
     if (transitioned && !cooldownActive) {
       // Filled-trade and direction-flip checks run FIRST — both exempt from
@@ -726,10 +771,20 @@ async function checkTrendingSymbol(
         );
       }
       if (tasks.length > 0) await Promise.allSettled(tasks);
-      stateMap.set(k, { ...(prev ?? {}), signal: levels.signal, lastAlertAt: now, lastAlertSignal: levels.signal });
+      const newPatternKeyT =
+        levels.signalType === "PATTERN_BREAKOUT" && (levels.signal === "BUY" || levels.signal === "SELL")
+          ? `${levels.signal}|${levels.entryPrice}`
+          : prev?.lastPatternKey;
+      stateMap.set(k, { ...(prev ?? {}), signal: levels.signal, lastAlertAt: now, lastAlertSignal: levels.signal, lastPatternKey: newPatternKeyT });
       return;
     }
-    stateMap.set(k, { ...(prev ?? {}), signal: levels.signal, lastAlertAt: prev?.lastAlertAt ?? 0, lastAlertSignal: prev?.lastAlertSignal });
+    stateMap.set(k, {
+      ...(prev ?? {}),
+      signal: levels.signal,
+      lastAlertAt: prev?.lastAlertAt ?? 0,
+      lastAlertSignal: prev?.lastAlertSignal,
+      lastPatternKey: levels.signal === "WAIT" ? undefined : prev?.lastPatternKey,
+    });
   } catch (err) {
     logger.warn({ err, symbolKey, timeframe }, "Trending notifier check failed");
   }
