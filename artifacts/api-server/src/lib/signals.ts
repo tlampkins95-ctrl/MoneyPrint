@@ -1342,8 +1342,11 @@ export function computeLevels(
   const histPrev1 = macdHist[closes.length - 2]; // last completed bar
   const histPrev2 = macdHist[closes.length - 3]; // bar before that
   const macdWarm = Number.isFinite(histPrev1) && Number.isFinite(histPrev2);
-  const macdBuyOk  = !macdWarm || histPrev1 > histPrev2; // histogram ticking up
-  const macdSellOk = !macdWarm || histPrev1 < histPrev2; // histogram ticking down
+  // Fail-CLOSED: if MACD is not warm (insufficient history), the gate rejects.
+  // The old fail-open (!macdWarm || ...) silently let all signals through on symbols
+  // without enough candle history — no momentum confirmation whatsoever.
+  const macdBuyOk  = macdWarm && histPrev1 > histPrev2; // histogram ticking up
+  const macdSellOk = macdWarm && histPrev1 < histPrev2; // histogram ticking down
 
   // ─── Bollinger Bands (20, 2) ──────────────────────────────────────────────
   // Used as two gates:
@@ -1429,8 +1432,11 @@ export function computeLevels(
   const ema5050WarmBreakout = closes.length >= 50 && !isNaN(last21) && !isNaN(last50);
   const trendBullishBreakout = !ema5050WarmBreakout || last21 > last50;
   const trendBearishBreakout = !ema5050WarmBreakout || last21 < last50;
-  const macdBreakoutBuyOk  = !macdWarm || (histPrev1 > 0 && histPrev1 > histPrev2);
-  const macdBreakoutSellOk = !macdWarm || (histPrev1 < 0 && histPrev1 < histPrev2);
+  // Fail-CLOSED: MACD must be warm and histogram must be positive/ticking up for BUY,
+  // negative/ticking down for SELL. The old fail-open let DAGGER, EMA_CROSS, and
+  // PATTERN_BREAKOUT fire with zero momentum confirmation on short-history symbols.
+  const macdBreakoutBuyOk  = macdWarm && histPrev1 > 0 && histPrev1 > histPrev2;
+  const macdBreakoutSellOk = macdWarm && histPrev1 < 0 && histPrev1 < histPrev2;
 
   // Extension filter: suppress breakout entries when price has already run
   // more than 5×ATR away from EMA50. A breakout that fires after a large
@@ -2021,10 +2027,12 @@ export function computeLevels(
       return false;
     };
 
-    const macdDeclining = !macdWarm || histPrev1 < histPrev2;
-    const macdRising    = !macdWarm || histPrev1 > histPrev2;
+    // Fail-CLOSED: require MACD to be warm and actually confirming direction.
+    const macdDeclining = macdWarm && histPrev1 < histPrev2;
+    const macdRising    = macdWarm && histPrev1 > histPrev2;
 
-    if (!isLongOnly && closedBarBearish && macdDeclining && trend !== "UPTREND") {
+    if (!isLongOnly && strongCloseBearish && macdDeclining && trend !== "UPTREND"
+        && (isNaN(rsi) || rsi >= 45)) { // not already deeply oversold — don't short the bottom
       const broke236 = recentBrokeDown(fibs.fib236);
       const broke382 = !broke236 && recentBrokeDown(fibs.fib382);
       if (broke236 || broke382) {
@@ -2044,7 +2052,8 @@ export function computeLevels(
       }
     }
 
-    if (signal === "WAIT" && closedBarBullish && macdRising && trend !== "DOWNTREND") {
+    if (signal === "WAIT" && strongCloseBullish && macdRising && trend !== "DOWNTREND"
+        && (isNaN(rsi) || rsi <= 55)) { // not already overbought — don't buy the top
       const broke786 = recentBrokeUp(fibs.fib786);
       const broke618 = !broke786 && recentBrokeUp(fibs.fib618);
       if (broke786 || broke618) {
