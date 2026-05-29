@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useGetActiveSignals, getGetActiveSignalsQueryKey, useGetBacktest } from "@workspace/api-client-react";
-import type { LevelsDataTradeState } from "@workspace/api-client-react";
-import { TrendingUp, TrendingDown, RefreshCw, AlertTriangle, Target, ChevronDown, ChevronRight, DollarSign } from "lucide-react";
+import type { LevelsDataTradeState, SignalConfluence, ActiveSignalEntryCategory } from "@workspace/api-client-react";
+import { TrendingUp, TrendingDown, RefreshCw, AlertTriangle, Target, ChevronDown, ChevronRight, DollarSign, Layers } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getSymbolMeta, fmtPriceMeta } from "@/lib/symbols";
 import type { Timeframe } from "@/components/timeframe-selector";
@@ -69,6 +69,12 @@ function calcLivePnl(
   return priceDelta * dollarsPerPoint;
 }
 
+const CATEGORY_STYLE: Record<ActiveSignalEntryCategory, string> = {
+  SCALP:    "bg-amber-500/10 text-amber-300 border-amber-500/30",
+  SWING:    "bg-violet-500/10 text-violet-300 border-violet-500/30",
+  POSITION: "bg-sky-500/10 text-sky-300 border-sky-500/30",
+};
+
 interface RowProps {
   symbol: string;
   timeframe: Timeframe;
@@ -82,6 +88,8 @@ interface RowProps {
   takeProfit1: number;
   takeProfit2: number;
   riskRewardRatio: number;
+  category: ActiveSignalEntryCategory;
+  confluence?: SignalConfluence;
   // Venue-tagged P&L: pnls are sourced from the venue's projection block on
   // the server (achievable for PHEMEX, mt5 for MT5, spotToken for COINBASE_SPOT)
   // so the dollar figures here always match what the SignalPanel shows.
@@ -199,6 +207,9 @@ function SignalRow(p: RowProps) {
         <span className="ml-auto inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-bold border border-zinc-700 bg-zinc-900 text-zinc-300">
           {TF_LABEL[p.timeframe]}
         </span>
+        <span className={cn("inline-flex items-center px-1.5 py-0.5 rounded border text-[9px] font-bold tracking-widest", CATEGORY_STYLE[p.category])}>
+          {p.category}
+        </span>
         <span className={cn("inline-flex items-center gap-1 px-2 py-0.5 rounded border text-[10px] font-mono font-bold", sideColor)}>
           <Arrow className="w-3 h-3" />
           {p.signal}
@@ -289,6 +300,25 @@ function SignalRow(p: RowProps) {
           <span className="text-zinc-600">·</span>
           <span className="text-emerald-400">TP2 {fmtUsd(p.pnlAtTP2)}</span>
           <span className="ml-auto text-zinc-500">R:R {p.riskRewardRatio.toFixed(2)}</span>
+        </div>
+      )}
+
+      {/* Confluence strip — only shown when a level overlap is detected */}
+      {p.confluence && (
+        <div
+          className={cn(
+            "flex items-center gap-1.5 pl-2 py-1.5 rounded text-[10px] font-mono font-semibold",
+            p.confluence.type === "ENTRY_ZONE_OVERLAP"
+              ? "text-sky-300 bg-sky-500/10 border border-sky-500/25"
+              : "text-amber-300 bg-amber-500/10 border border-amber-500/30",
+          )}
+          title={`${p.confluence.myLevel} @ ${p.confluence.myPrice} — ${p.confluence.theirLevel} of ${p.confluence.withTimeframe} ${p.confluence.withSignal} @ ${p.confluence.theirPrice} (${p.confluence.overlapPct.toFixed(2)}% apart)`}
+        >
+          <Layers className="w-3 h-3 shrink-0 opacity-80" />
+          <span className="uppercase tracking-widest text-[9px] opacity-70 pr-0.5">
+            {p.confluence.type === "ENTRY_ZONE_OVERLAP" ? "ZONE" : "LAYERED"}
+          </span>
+          <span className="truncate">{p.confluence.label}</span>
         </div>
       )}
     </button>
@@ -489,6 +519,8 @@ export function ActiveSignalsOverview({
                             takeProfit1={s.levels.takeProfit1}
                             takeProfit2={s.levels.takeProfit2}
                             riskRewardRatio={s.levels.riskRewardRatio}
+                            category={s.category}
+                            confluence={s.confluence}
                             {...toRowSizing(s.levels.positionSizing)}
                             onClick={() => onSelect(s.symbol, s.timeframe as Timeframe)}
                             highlighted={s.symbol === selectedSymbol && s.timeframe === selectedTimeframe}

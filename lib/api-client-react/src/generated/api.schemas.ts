@@ -397,6 +397,61 @@ export interface TrendingSymbolsResponse {
   lastUpdated: string;
 }
 
+/**
+ * TP1_AT_ENTRY: this signal's TP1 lands at another signal's entry. TP2_AT_ENTRY: TP2 lands at the other entry. ENTRY_ZONE_OVERLAP: both entries are confluent (same direction).
+ */
+export type SignalConfluenceType =
+  (typeof SignalConfluenceType)[keyof typeof SignalConfluenceType];
+
+export const SignalConfluenceType = {
+  TP1_AT_ENTRY: "TP1_AT_ENTRY",
+  TP2_AT_ENTRY: "TP2_AT_ENTRY",
+  ENTRY_ZONE_OVERLAP: "ENTRY_ZONE_OVERLAP",
+} as const;
+
+export type SignalConfluenceWithSignal =
+  (typeof SignalConfluenceWithSignal)[keyof typeof SignalConfluenceWithSignal];
+
+export const SignalConfluenceWithSignal = {
+  BUY: "BUY",
+  SELL: "SELL",
+} as const;
+
+export type SignalConfluenceMyLevel =
+  (typeof SignalConfluenceMyLevel)[keyof typeof SignalConfluenceMyLevel];
+
+export const SignalConfluenceMyLevel = {
+  TP1: "TP1",
+  TP2: "TP2",
+  ENTRY: "ENTRY",
+} as const;
+
+export type SignalConfluenceTheirLevel =
+  (typeof SignalConfluenceTheirLevel)[keyof typeof SignalConfluenceTheirLevel];
+
+export const SignalConfluenceTheirLevel = {
+  ENTRY: "ENTRY",
+  TP1: "TP1",
+} as const;
+
+/**
+ * Level overlap detected with another active signal on the same symbol. Signals a layered-setup opportunity or a strong zone where multiple timeframes agree.
+ */
+export interface SignalConfluence {
+  /** TP1_AT_ENTRY: this signal's TP1 lands at another signal's entry. TP2_AT_ENTRY: TP2 lands at the other entry. ENTRY_ZONE_OVERLAP: both entries are confluent (same direction). */
+  type: SignalConfluenceType;
+  withTimeframe: string;
+  withSignal: SignalConfluenceWithSignal;
+  myLevel: SignalConfluenceMyLevel;
+  myPrice: number;
+  theirLevel: SignalConfluenceTheirLevel;
+  theirPrice: number;
+  /** Percentage price difference between the two levels (lower = tighter overlap) */
+  overlapPct: number;
+  /** Human-readable description of the overlap shown in the UI */
+  label: string;
+}
+
 export type ActiveSignalEntryTimeframe =
   (typeof ActiveSignalEntryTimeframe)[keyof typeof ActiveSignalEntryTimeframe];
 
@@ -409,6 +464,18 @@ export const ActiveSignalEntryTimeframe = {
 } as const;
 
 /**
+ * Trade duration category derived from timeframe: SCALP=15m/30m, SWING=1h/4h, POSITION=1d
+ */
+export type ActiveSignalEntryCategory =
+  (typeof ActiveSignalEntryCategory)[keyof typeof ActiveSignalEntryCategory];
+
+export const ActiveSignalEntryCategory = {
+  SCALP: "SCALP",
+  SWING: "SWING",
+  POSITION: "POSITION",
+} as const;
+
+/**
  * One active BUY/SELL signal in the overview. Wraps a LevelsData payload with the timeframe so the client can route on click.
  */
 export interface ActiveSignalEntry {
@@ -416,6 +483,9 @@ export interface ActiveSignalEntry {
   symbol: string;
   timeframe: ActiveSignalEntryTimeframe;
   levels: LevelsData;
+  /** Trade duration category derived from timeframe: SCALP=15m/30m, SWING=1h/4h, POSITION=1d */
+  category: ActiveSignalEntryCategory;
+  confluence?: SignalConfluence;
 }
 
 /**

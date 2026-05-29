@@ -20,6 +20,118 @@ import {
   fetchSpotForDynamic,
 } from "../lib/trending-discovery";
 
+// ──── Category & Confluence helpers ─────────────────────────────────────────
+
+function getCategory(timeframe: string): "SCALP" | "SWING" | "POSITION" {
+  if (timeframe === "15m" || timeframe === "30m") return "SCALP";
+  if (timeframe === "1h"  || timeframe === "4h")  return "SWING";
+  return "POSITION";
+}
+
+const CONFLUENCE_TOLERANCE = 0.003; // 0.3 % price difference — tight enough to be meaningful
+
+function pctDiff(a: number, b: number): number {
+  if (a === 0 || b === 0) return Infinity;
+  return Math.abs(a - b) / Math.max(a, b);
+}
+
+interface SignalConfluence {
+  type: "TP1_AT_ENTRY" | "TP2_AT_ENTRY" | "ENTRY_ZONE_OVERLAP";
+  withTimeframe: string;
+  withSignal: "BUY" | "SELL";
+  myLevel: "TP1" | "TP2" | "ENTRY";
+  myPrice: number;
+  theirLevel: "ENTRY" | "TP1";
+  theirPrice: number;
+  overlapPct: number;
+  label: string;
+}
+
+function detectConfluences(
+  signals: Array<{ symbol: string; timeframe: string; levels: { signal: string; entryPrice: number; takeProfit1: number; takeProfit2: number } }>,
+): Map<string, SignalConfluence> {
+  const result = new Map<string, SignalConfluence>();
+
+  const bySymbol = new Map<string, typeof signals>();
+  for (const s of signals) {
+    const arr = bySymbol.get(s.symbol) ?? [];
+    arr.push(s);
+    bySymbol.set(s.symbol, arr);
+  }
+
+  for (const group of bySymbol.values()) {
+    if (group.length < 2) continue;
+    for (const a of group) {
+      const key = `${a.symbol}::${a.timeframe}`;
+      if (result.has(key)) continue; // already found best confluence for this signal
+      for (const b of group) {
+        if (a.timeframe === b.timeframe) continue;
+
+        // Priority 1: TP1 of A lands at entry of B
+        const d1 = pctDiff(a.levels.takeProfit1, b.levels.entryPrice);
+        if (d1 < CONFLUENCE_TOLERANCE) {
+          const isLayered = a.levels.signal !== b.levels.signal;
+          result.set(key, {
+            type: "TP1_AT_ENTRY",
+            withTimeframe: b.timeframe,
+            withSignal: b.levels.signal as "BUY" | "SELL",
+            myLevel: "TP1",
+            myPrice: a.levels.takeProfit1,
+            theirLevel: "ENTRY",
+            theirPrice: b.levels.entryPrice,
+            overlapPct: Number((d1 * 100).toFixed(3)),
+            label: isLayered
+              ? `TP1 lands at ${b.timeframe} ${b.levels.signal} entry — layered setup`
+              : `TP1 confluent with ${b.timeframe} ${b.levels.signal} entry`,
+          });
+          break;
+        }
+
+        // Priority 2: TP2 of A lands at entry of B
+        const d2 = pctDiff(a.levels.takeProfit2, b.levels.entryPrice);
+        if (d2 < CONFLUENCE_TOLERANCE) {
+          const isLayered = a.levels.signal !== b.levels.signal;
+          result.set(key, {
+            type: "TP2_AT_ENTRY",
+            withTimeframe: b.timeframe,
+            withSignal: b.levels.signal as "BUY" | "SELL",
+            myLevel: "TP2",
+            myPrice: a.levels.takeProfit2,
+            theirLevel: "ENTRY",
+            theirPrice: b.levels.entryPrice,
+            overlapPct: Number((d2 * 100).toFixed(3)),
+            label: isLayered
+              ? `TP2 lands at ${b.timeframe} ${b.levels.signal} entry — layered setup`
+              : `TP2 confluent with ${b.timeframe} ${b.levels.signal} entry`,
+          });
+          break;
+        }
+
+        // Priority 3: Same-direction entry confluence (strong zone agreement)
+        if (a.levels.signal === b.levels.signal) {
+          const d3 = pctDiff(a.levels.entryPrice, b.levels.entryPrice);
+          if (d3 < CONFLUENCE_TOLERANCE) {
+            result.set(key, {
+              type: "ENTRY_ZONE_OVERLAP",
+              withTimeframe: b.timeframe,
+              withSignal: b.levels.signal as "BUY" | "SELL",
+              myLevel: "ENTRY",
+              myPrice: a.levels.entryPrice,
+              theirLevel: "ENTRY",
+              theirPrice: b.levels.entryPrice,
+              overlapPct: Number((d3 * 100).toFixed(3)),
+              label: `Entry confluent with ${b.timeframe} ${b.levels.signal} — strong zone`,
+            });
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  return result;
+}
+
 // Show active signals across all tracked entry timeframes.
 const OVERVIEW_TIMEFRAMES: Timeframe[] = ["30m", "1h", "4h", "1d"];
 
@@ -514,9 +626,17 @@ router.get("/active-signals", async (req: Request, res: Response) => {
     const failed = results.filter((r): r is Extract<ComboResult, { ok: false }> => !r.ok);
     const failedSymbols = Array.from(new Set(failed.map((r) => r.symbolKey)));
 
-    const signals = succeeded
+    const rawSignals = succeeded
       .filter((r) => r.levels.signal === "BUY" || r.levels.signal === "SELL")
       .map((r) => ({ symbol: r.symbolKey, timeframe: r.timeframe, levels: r.levels }));
+
+    const confluenceMap = detectConfluences(rawSignals);
+
+    const signals = rawSignals.map((s) => ({
+      ...s,
+      category: getCategory(s.timeframe),
+      confluence: confluenceMap.get(`${s.symbol}::${s.timeframe}`),
+    }));
 
     const payload = {
       signals,

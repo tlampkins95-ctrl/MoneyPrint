@@ -5,8 +5,10 @@
  * XAGUSD Screener API
  * OpenAPI spec version: 0.2.0
  */
+import type { ActiveSignalEntryCategory } from "./activeSignalEntryCategory";
 import type { ActiveSignalEntryTimeframe } from "./activeSignalEntryTimeframe";
 import type { LevelsData } from "./levelsData";
+import type { SignalConfluence } from "./signalConfluence";
 
 /**
  * One active BUY/SELL signal in the overview. Wraps a LevelsData payload with the timeframe so the client can route on click.
@@ -16,4 +18,7 @@ export interface ActiveSignalEntry {
   symbol: string;
   timeframe: ActiveSignalEntryTimeframe;
   levels: LevelsData;
+  /** Trade duration category derived from timeframe: SCALP=15m/30m, SWING=1h/4h, POSITION=1d */
+  category: ActiveSignalEntryCategory;
+  confluence?: SignalConfluence;
 }

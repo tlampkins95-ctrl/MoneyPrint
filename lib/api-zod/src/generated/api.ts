@@ -990,6 +990,39 @@ export const GetActiveSignalsResponse = zod.object({
                 "Suggested position size for the trader's account. The `venue` field decides which downstream block is authoritative — PHEMEX (crypto USDT-perps) renders `achievable`, MT5 (forex\/metals) renders `mt5`, PHEMEX_SPOT (spot tokens) renders `spotToken`.",
               ),
           }),
+          category: zod
+            .enum(["SCALP", "SWING", "POSITION"])
+            .describe(
+              "Trade duration category derived from timeframe: SCALP=15m\/30m, SWING=1h\/4h, POSITION=1d",
+            ),
+          confluence: zod
+            .object({
+              type: zod
+                .enum(["TP1_AT_ENTRY", "TP2_AT_ENTRY", "ENTRY_ZONE_OVERLAP"])
+                .describe(
+                  "TP1_AT_ENTRY: this signal's TP1 lands at another signal's entry. TP2_AT_ENTRY: TP2 lands at the other entry. ENTRY_ZONE_OVERLAP: both entries are confluent (same direction).",
+                ),
+              withTimeframe: zod.string(),
+              withSignal: zod.enum(["BUY", "SELL"]),
+              myLevel: zod.enum(["TP1", "TP2", "ENTRY"]),
+              myPrice: zod.number(),
+              theirLevel: zod.enum(["ENTRY", "TP1"]),
+              theirPrice: zod.number(),
+              overlapPct: zod
+                .number()
+                .describe(
+                  "Percentage price difference between the two levels (lower = tighter overlap)",
+                ),
+              label: zod
+                .string()
+                .describe(
+                  "Human-readable description of the overlap shown in the UI",
+                ),
+            })
+            .optional()
+            .describe(
+              "Level overlap detected with another active signal on the same symbol. Signals a layered-setup opportunity or a strong zone where multiple timeframes agree.",
+            ),
         })
         .describe(
           "One active BUY\/SELL signal in the overview. Wraps a LevelsData payload with the timeframe so the client can route on click.",

@@ -8,6 +8,7 @@
 
 export * from "./achievablePosition";
 export * from "./activeSignalEntry";
+export * from "./activeSignalEntryCategory";
 export * from "./activeSignalEntryTimeframe";
 export * from "./activeSignalsCoverage";
 export * from "./activeSignalsResponse";
@@ -52,6 +53,11 @@ export * from "./pushSubscribeResponse";
 export * from "./pushSubscriptionKeys";
 export * from "./pushSubscriptionPayload";
 export * from "./pushUnsubscribeRequest";
+export * from "./signalConfluence";
+export * from "./signalConfluenceMyLevel";
+export * from "./signalConfluenceTheirLevel";
+export * from "./signalConfluenceType";
+export * from "./signalConfluenceWithSignal";
 export * from "./signalLogEntry";
 export * from "./signalLogEntrySignal";
 export * from "./signalLogEntrySignalType";

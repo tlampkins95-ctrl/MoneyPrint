@@ -853,6 +853,37 @@ components:
           type: string
       required: [symbols, lastUpdated]
 
+    SignalConfluence:
+      type: object
+      description: Level overlap detected with another active signal on the same symbol. Signals a layered-setup opportunity or a strong zone where multiple timeframes agree.
+      properties:
+        type:
+          type: string
+          enum: ["TP1_AT_ENTRY", "TP2_AT_ENTRY", "ENTRY_ZONE_OVERLAP"]
+          description: "TP1_AT_ENTRY: this signal's TP1 lands at another signal's entry. TP2_AT_ENTRY: TP2 lands at the other entry. ENTRY_ZONE_OVERLAP: both entries are confluent (same direction)."
+        withTimeframe:
+          type: string
+        withSignal:
+          type: string
+          enum: ["BUY", "SELL"]
+        myLevel:
+          type: string
+          enum: ["TP1", "TP2", "ENTRY"]
+        myPrice:
+          type: number
+        theirLevel:
+          type: string
+          enum: ["ENTRY", "TP1"]
+        theirPrice:
+          type: number
+        overlapPct:
+          type: number
+          description: Percentage price difference between the two levels (lower = tighter overlap)
+        label:
+          type: string
+          description: Human-readable description of the overlap shown in the UI
+      required: [type, withTimeframe, withSignal, myLevel, myPrice, theirLevel, theirPrice, overlapPct, label]
+
     ActiveSignalEntry:
       type: object
       description: One active BUY/SELL signal in the overview. Wraps a LevelsData payload with the timeframe so the client can route on click.
@@ -865,7 +896,13 @@ components:
           enum: ["15m", "30m", "1h", "4h", "1d"]
         levels:
           $ref: "#/components/schemas/LevelsData"
-      required: [symbol, timeframe, levels]
+        category:
+          type: string
+          enum: ["SCALP", "SWING", "POSITION"]
+          description: "Trade duration category derived from timeframe: SCALP=15m/30m, SWING=1h/4h, POSITION=1d"
+        confluence:
+          $ref: "#/components/schemas/SignalConfluence"
+      required: [symbol, timeframe, levels, category]
 
     ActiveSignalsCoverage:
       type: object
