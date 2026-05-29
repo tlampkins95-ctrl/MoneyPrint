@@ -112,7 +112,7 @@ const TRACKED_TIMEFRAMES: Timeframe[] = ["30m", "1h", "4h", "1d"];
 // restart is a real operational gap.
 const SEED_TIMEFRAMES = new Set<Timeframe>(["30m"]);
 const ALERT_SEED_TIMEFRAMES = new Set<Timeframe>(["30m", "1h"]);
-const POLL_INTERVAL_MS = 60_000;
+const POLL_INTERVAL_MS = 20_000;
 
 const COOLDOWN_BY_TIMEFRAME: Record<Timeframe, number> = {
   "15m": 30 * 60_000,

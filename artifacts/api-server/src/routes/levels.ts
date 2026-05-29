@@ -518,7 +518,7 @@ router.get("/active-signals", async (req: Request, res: Response) => {
       .filter((r) => r.levels.signal === "BUY" || r.levels.signal === "SELL")
       .map((r) => ({ symbol: r.symbolKey, timeframe: r.timeframe, levels: r.levels }));
 
-    const data = GetActiveSignalsResponse.parse({
+    const payload = {
       signals,
       coverage: {
         total: combos.length,
@@ -527,8 +527,12 @@ router.get("/active-signals", async (req: Request, res: Response) => {
         failedSymbols,
       },
       lastUpdated: new Date().toISOString(),
-    });
-    res.json(data);
+    };
+    const parsed = GetActiveSignalsResponse.safeParse(payload);
+    if (!parsed.success) {
+      req.log.warn({ err: parsed.error }, "GetActiveSignalsResponse schema mismatch — returning raw data");
+    }
+    res.json(parsed.success ? parsed.data : payload);
   } catch (err) {
     req.log.error({ err }, "Failed to compute active signals");
     res.status(500).json({ error: "Failed to compute active signals" });
