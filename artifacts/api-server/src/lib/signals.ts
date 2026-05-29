@@ -1430,8 +1430,11 @@ export function computeLevels(
   // These only fire inside the WAIT else-branch so pivot-bounce setups always
   // take priority.
   const ema5050WarmBreakout = closes.length >= 50 && !isNaN(last21) && !isNaN(last50);
-  const trendBullishBreakout = !ema5050WarmBreakout || last21 > last50;
-  const trendBearishBreakout = !ema5050WarmBreakout || last21 < last50;
+  // Fail-CLOSED: if EMA21/50 aren't warm, trend direction rejects rather than passing.
+  // The old fail-open let DAGGER, EMA_CROSS, and PATTERN_BREAKOUT fire with no trend
+  // confirmation on symbols without enough history.
+  const trendBullishBreakout = ema5050WarmBreakout && last21 > last50;
+  const trendBearishBreakout = ema5050WarmBreakout && last21 < last50;
   // Fail-CLOSED: MACD must be warm and histogram must be positive/ticking up for BUY,
   // negative/ticking down for SELL. The old fail-open let DAGGER, EMA_CROSS, and
   // PATTERN_BREAKOUT fire with zero momentum confirmation on short-history symbols.
@@ -1439,12 +1442,9 @@ export function computeLevels(
   const macdBreakoutSellOk = macdWarm && histPrev1 < 0 && histPrev1 < histPrev2;
 
   // Extension filter: suppress breakout entries when price has already run
-  // more than 5×ATR away from EMA50. A breakout that fires after a large
-  // multi-day move is typically buying the tail, not the body, of the trend.
-  // Falls open when EMA50 isn't warm yet (same ema5050WarmBreakout guard).
-  // Synced with runBreakoutBacktest notOverExtendedBuy/Sell.
-  const notOverExtendedBuy  = !ema5050WarmBreakout || (last.close - last50) < 5 * atr;
-  const notOverExtendedSell = !ema5050WarmBreakout || (last50 - last.close) < 5 * atr;
+  // more than 5×ATR away from EMA50. Fail-CLOSED when EMA50 not warm.
+  const notOverExtendedBuy  = ema5050WarmBreakout && (last.close - last50) < 5 * atr;
+  const notOverExtendedSell = ema5050WarmBreakout && (last50 - last.close) < 5 * atr;
 
   // Candle-close quality gate — mirrors the backtest's strong-close check.
   // All breakout quality checks are evaluated on `last` (candles[length - 1]),
