@@ -743,8 +743,8 @@ function runFib50SwingBacktest(
               for (let j = i; j < Math.min(candles.length, i + maxHold + 1); j++) {
                 const bar = candles[j]; barsHeld = j - i + 1; exitIdx = j;
                 if (bar.low  <= sl)  { outcome = "SL";  exitPrice = sl;  exitDate = bar.date; break; }
-                if (bar.high >= tp2) { outcome = "TP2"; exitPrice = tp2; exitDate = bar.date; break; }
                 if (bar.high >= tp1) { outcome = "TP1"; exitPrice = tp1; exitDate = bar.date; break; }
+                if (bar.high >= tp2) { outcome = "TP2"; exitPrice = tp2; exitDate = bar.date; break; }
               }
               if (outcome === "EXPIRED") {
                 const last = candles[Math.min(candles.length - 1, i + maxHold)];
@@ -795,8 +795,8 @@ function runFib50SwingBacktest(
               for (let j = i; j < Math.min(candles.length, i + maxHold + 1); j++) {
                 const bar = candles[j]; barsHeld = j - i + 1; exitIdx = j;
                 if (bar.high >= sl)  { outcome = "SL";  exitPrice = sl;  exitDate = bar.date; break; }
-                if (bar.low  <= tp2) { outcome = "TP2"; exitPrice = tp2; exitDate = bar.date; break; }
                 if (bar.low  <= tp1) { outcome = "TP1"; exitPrice = tp1; exitDate = bar.date; break; }
+                if (bar.low  <= tp2) { outcome = "TP2"; exitPrice = tp2; exitDate = bar.date; break; }
               }
               if (outcome === "EXPIRED") {
                 const last = candles[Math.min(candles.length - 1, i + maxHold)];

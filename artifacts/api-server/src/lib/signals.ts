@@ -1531,11 +1531,11 @@ export function computeLevels(
   //
   // Entry:  50% fib of the A→B swing
   // SL:     full swing invalidation (below A for BUY, above A for SELL) + ATR buffer
-  // TP1:    B — floored at 1.5R
+  // TP1:    B — structural swing extreme (swing high for BUY, swing low for SELL), no R-floor override
   // TP2:    B projected by one full swing range (measured move) — floored at 2.5R
   //
   // Confirmation filters applied to both timeframes:
-  //   • Weekly macro trend (SMA-30 of weekly closes): BUY only if UP/NEUTRAL, SELL only if DOWN/NEUTRAL
+  //   • Weekly macro trend (SMA-30 of weekly closes): BUY only if UP, SELL only if DOWN (NEUTRAL = no trade)
   //   • Bollinger Bands (SMA-30 close, 2σ): BUY entry ≤ BB mid, SELL entry ≥ BB mid
   // ────────────────────────────────────────────────────────────────────────────
   // Lookback: 1D uses 60 completed bars; 1H uses 120 bars (≈ 5 trading days).
@@ -1565,6 +1565,12 @@ export function computeLevels(
     // Use only completed bars (exclude the still-forming current bar).
     const completed = candles.slice(0, candles.length - 1);
     const lookbackStart = Math.max(0, completed.length - SWING_LOOKBACK);
+
+    // ATR on completed bars only — mirrors the backtest which uses calcATR(candles, i-1).
+    // The global `atr` computed above includes the live bar; we recompute here to avoid
+    // the live bar inflating/deflating the tolerance zone and swing-size gate.
+    const completedAtr = calcATR(completed, 14);
+    const swingAtr = completedAtr > 0 ? completedAtr : atr; // fall back to global if < 14 bars
 
     // ── Weekly macro trend gate ───────────────────────────────────────────────
     // For 1D: synthesize weekly candles from the daily candles already available.
@@ -1600,14 +1606,14 @@ export function computeLevels(
       const buySwingRange = swingBHighIdx !== -1 ? swingBHigh - swingALow : 0;
       if (
         swingBHighIdx > swingALowIdx &&
-        buySwingRange >= MIN_SWING_ATR * atr &&
+        buySwingRange >= MIN_SWING_ATR * swingAtr &&
         currentPrice < swingBHigh
       ) {
         const fib50Buy = swingALow + 0.5 * buySwingRange;
         const bbOk = !bb30 || fib50Buy <= bb30.middle; // entry in lower half of BB channel
-        if (bbOk && Math.abs(currentPrice - fib50Buy) <= FIB50_TOLERANCE_ATR * atr) {
+        if (bbOk && Math.abs(currentPrice - fib50Buy) <= FIB50_TOLERANCE_ATR * swingAtr) {
           const ep  = round(fib50Buy);
-          const sl  = round(swingALow - SWING_SL_BUFFER_ATR * atr);
+          const sl  = round(swingALow - SWING_SL_BUFFER_ATR * swingAtr);
           const tp1 = round(swingBHigh);   // structural target: the swing high itself
           const tp2 = round(floorTarget(ep, sl, swingBHigh + buySwingRange, MIN_RR_TP2, "BUY"));
           signal       = "BUY";
@@ -1639,14 +1645,14 @@ export function computeLevels(
       const sellSwingRange = swingBLowIdx !== -1 ? swingAHigh - swingBLow : 0;
       if (
         swingBLowIdx > swingAHighIdx &&
-        sellSwingRange >= MIN_SWING_ATR * atr &&
+        sellSwingRange >= MIN_SWING_ATR * swingAtr &&
         currentPrice > swingBLow
       ) {
         const fib50Sell = swingAHigh - 0.5 * sellSwingRange;
         const bbOk = !bb30 || fib50Sell >= bb30.middle; // entry in upper half of BB channel
-        if (bbOk && Math.abs(currentPrice - fib50Sell) <= FIB50_TOLERANCE_ATR * atr) {
+        if (bbOk && Math.abs(currentPrice - fib50Sell) <= FIB50_TOLERANCE_ATR * swingAtr) {
           const ep  = round(fib50Sell);
-          const sl  = round(swingAHigh + SWING_SL_BUFFER_ATR * atr);
+          const sl  = round(swingAHigh + SWING_SL_BUFFER_ATR * swingAtr);
           const tp1 = round(swingBLow);    // structural target: the swing low itself
           const tp2 = round(floorTarget(ep, sl, swingBLow - sellSwingRange, MIN_RR_TP2, "SELL"));
           signal       = "SELL";
