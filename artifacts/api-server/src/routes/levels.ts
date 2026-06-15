@@ -196,14 +196,21 @@ router.get("/levels", async (req: Request, res: Response) => {
     let candles: Awaited<ReturnType<typeof fetchCandlesForTimeframe>>;
     let spotPrice: number | null;
 
+    // For 1H, also fetch daily candles so FIB50_SWING can synthesize weekly
+    // bars for the macro trend gate. Fetch in parallel with primary candles.
+    let dailyForWeekly: Awaited<ReturnType<typeof fetchCandlesForTimeframe>> | undefined;
+
     if (isStaticSymbol) {
       const symbol = rawSymbol as Symbol;
-      const [c, sp] = await Promise.all([
+      const fetches: Promise<unknown>[] = [
         fetchCandlesForTimeframe(symbol, timeframe),
         fetchSpotPrice(symbol),
-      ]);
-      candles = c;
-      spotPrice = sp;
+      ];
+      if (timeframe === "1h") fetches.push(fetchCandlesForTimeframe(symbol, "1d"));
+      const [c, sp, dc] = await Promise.all(fetches);
+      candles = c as typeof candles;
+      spotPrice = sp as typeof spotPrice;
+      if (dc) dailyForWeekly = dc as typeof candles;
     } else {
       // Dynamic trending coin — use OKX candles and spot price.
       [candles, spotPrice] = await Promise.all([
@@ -247,6 +254,7 @@ router.get("/levels", async (req: Request, res: Response) => {
       minCollateral,
       maxLeverage,
       mt5Lots,
+      dailyForWeekly,
     );
 
     // ── Multi-gate alignment check (applies to both static and dynamic symbols) ─
@@ -454,10 +462,15 @@ router.get("/active-signals", async (req: Request, res: Response) => {
         try {
           if (combo.kind === "static") {
             const symbol = combo.symbol;
-            const [candles, spot] = await Promise.all([
+            const fetches: Promise<unknown>[] = [
               fetchCandlesForTimeframe(symbol, timeframe),
               spotPromises.get(symbol)!,
-            ]);
+            ];
+            if (timeframe === "1h") fetches.push(fetchCandlesForTimeframe(symbol, "1d"));
+            const [candlesRaw, spotRaw, dcRaw] = await Promise.all(fetches);
+            const candles = candlesRaw as Awaited<ReturnType<typeof fetchCandlesForTimeframe>>;
+            const spot = spotRaw as number | null;
+            const dailyForWeekly = dcRaw ? (dcRaw as typeof candles) : undefined;
             if (candles.length < 2) return { ok: false, symbolKey, timeframe };
             const adjRound = makeRounder(SYMBOLS[symbol].decimals);
             const adjustedCandles =
@@ -475,6 +488,7 @@ router.get("/active-signals", async (req: Request, res: Response) => {
               minCollateral,
               maxLeverage,
               mt5Lots,
+              dailyForWeekly,
             );
 
             // Apply TF_GATES for this timeframe (filled trades bypass gates).

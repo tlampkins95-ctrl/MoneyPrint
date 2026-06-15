@@ -1327,6 +1327,7 @@ export function computeLevels(
   minCollateral: number = DEFAULT_MIN_COLLATERAL,
   maxLeverage: number = DEFAULT_MAX_LEVERAGE,
   mt5Lots: number = DEFAULT_MT5_LOTS,
+  dailyCandlesForWeekly?: CandleRaw[], // daily candles used to synthesize weekly macro trend (required for 1h signals)
 ) {
   const round = makeRounder(meta.decimals);
   const fmt = (n: number) => `${meta.prefix}${round(n).toFixed(meta.decimals)}`;
@@ -1524,7 +1525,7 @@ export function computeLevels(
 
 
   // ─── FIB50_SWING signal detection ──────────────────────────────────────────
-  // Daily-only swing fibonacci retracement entry.
+  // Swing fibonacci retracement entry on 1D and 1H timeframes.
   //   UPTREND  (BUY):  find swing low A → price makes new high B → enter at 50% fib of A→B
   //   DOWNTREND (SELL): find swing high A → price makes new low B → enter at 50% fib of A→B
   //
@@ -1532,11 +1533,17 @@ export function computeLevels(
   // SL:     full swing invalidation (below A for BUY, above A for SELL) + ATR buffer
   // TP1:    B — floored at 1.5R
   // TP2:    B projected by one full swing range (measured move) — floored at 2.5R
+  //
+  // Confirmation filters applied to both timeframes:
+  //   • Weekly macro trend (SMA-30 of weekly closes): BUY only if UP/NEUTRAL, SELL only if DOWN/NEUTRAL
+  //   • Bollinger Bands (SMA-30 close, 2σ): BUY entry ≤ BB mid, SELL entry ≥ BB mid
   // ────────────────────────────────────────────────────────────────────────────
-  const SWING_LOOKBACK       = 60;   // completed daily bars to scan for the swing
-  const MIN_SWING_ATR        = 2.5;  // swing height must be ≥ 2.5 × ATR to be meaningful
-  const FIB50_TOLERANCE_ATR  = 0.5;  // price must be within ±0.5 × ATR of the 50% fib
-  const SWING_SL_BUFFER_ATR  = 0.5;  // extra buffer below/above swing extreme for SL
+  // Lookback: 1D uses 60 completed bars; 1H uses 120 bars (≈ 5 trading days).
+  const SWING_LOOKBACK_BY_TF: Partial<Record<Timeframe, number>> = { "1d": 60, "1h": 120 };
+  const SWING_LOOKBACK      = SWING_LOOKBACK_BY_TF[timeframe] ?? 60;
+  const MIN_SWING_ATR       = 2.5;  // swing height must be ≥ 2.5 × ATR to be meaningful
+  const FIB50_TOLERANCE_ATR = 0.5;  // price must be within ±0.5 × ATR of the 50% fib
+  const SWING_SL_BUFFER_ATR = 0.5;  // extra buffer below/above swing extreme for SL
 
   let signal: "BUY" | "SELL" | "WAIT" = "WAIT";
   let signalType: "FIB50_SWING" = "FIB50_SWING";
@@ -1553,48 +1560,69 @@ export function computeLevels(
   let displaySwingLow  = fibs.swingLow;
   let displayFib50     = 0;
 
-  // Only fire on daily timeframe.
-  if (timeframe === "1d") {
+  // Fire on 1D and 1H only.
+  if (timeframe === "1d" || timeframe === "1h") {
     // Use only completed bars (exclude the still-forming current bar).
     const completed = candles.slice(0, candles.length - 1);
     const lookbackStart = Math.max(0, completed.length - SWING_LOOKBACK);
 
-    // ── BUY Setup: swing low A → new high B → retrace to 50% fib ────────────
-    let swingALow = Infinity, swingALowIdx = lookbackStart;
-    for (let i = lookbackStart; i < completed.length; i++) {
-      if (completed[i].low < swingALow) { swingALow = completed[i].low; swingALowIdx = i; }
-    }
-    let swingBHigh = -Infinity, swingBHighIdx = -1;
-    for (let i = swingALowIdx + 1; i < completed.length; i++) {
-      if (completed[i].high > swingBHigh) { swingBHigh = completed[i].high; swingBHighIdx = i; }
-    }
+    // ── Weekly macro trend gate ───────────────────────────────────────────────
+    // For 1D: synthesize weekly candles from the daily candles already available.
+    // For 1H: use the daily candles passed in by the caller (dailyCandlesForWeekly).
+    const dailySrcForWeekly = timeframe === "1d" ? completed : (dailyCandlesForWeekly ?? null);
+    const weeklyCandles = dailySrcForWeekly ? synthesizeWeeklyCandles(dailySrcForWeekly) : [];
+    const weeklyTrend = getWeeklyTrend(weeklyCandles);
+    // "NEUTRAL" = not enough weekly history → fail-open (allow both directions).
+    const weeklyAllowsBuy  = weeklyTrend !== "DOWN";
+    const weeklyAllowsSell = weeklyTrend !== "UP";
 
-    const buySwingRange = swingBHighIdx !== -1 ? swingBHigh - swingALow : 0;
-    if (
-      swingBHighIdx > swingALowIdx &&
-      buySwingRange >= MIN_SWING_ATR * atr &&
-      currentPrice < swingBHigh
-    ) {
-      const fib50Buy = swingALow + 0.5 * buySwingRange;
-      if (Math.abs(currentPrice - fib50Buy) <= FIB50_TOLERANCE_ATR * atr) {
-        const ep  = round(fib50Buy);
-        const sl  = round(swingALow - SWING_SL_BUFFER_ATR * atr);
-        const tp1 = round(floorTarget(ep, sl, swingBHigh, MIN_RR_TP1, "BUY"));
-        const tp2 = round(floorTarget(ep, sl, swingBHigh + buySwingRange, MIN_RR_TP2, "BUY"));
-        signal       = "BUY";
-        entryPrice   = ep;
-        stopLoss     = sl;
-        takeProfit1  = tp1;
-        takeProfit2  = tp2;
-        displaySwingHigh = swingBHigh;
-        displaySwingLow  = swingALow;
-        displayFib50     = ep;
-        signalReason = `[${tfLabel}] FIB50 SWING BUY: Swing low ${fmt(swingALow)} → new high ${fmt(swingBHigh)} (range ${fmt(buySwingRange)}). Entry at 50% fib ${fmt(ep)}, SL ${fmt(sl)} (below swing low), TP1 ${fmt(tp1)} (swing high), TP2 ${fmt(tp2)} (measured move).`;
+    // ── Bollinger Bands (SMA-30 close, 2σ) filter ────────────────────────────
+    // BUY: entry must be ≤ BB middle band (price in lower half of channel).
+    // SELL: entry must be ≥ BB middle band (price in upper half of channel).
+    // Fail-open when fewer than 30 bars are available.
+    const bb30 = calcBollingerBands(completed.map((c) => c.close), 30, 2);
+
+    // ── BUY Setup: swing low A → new high B → retrace to 50% fib ────────────
+    if (weeklyAllowsBuy) {
+      let swingALow = Infinity, swingALowIdx = lookbackStart;
+      for (let i = lookbackStart; i < completed.length; i++) {
+        if (completed[i].low < swingALow) { swingALow = completed[i].low; swingALowIdx = i; }
+      }
+      let swingBHigh = -Infinity, swingBHighIdx = -1;
+      for (let i = swingALowIdx + 1; i < completed.length; i++) {
+        if (completed[i].high > swingBHigh) { swingBHigh = completed[i].high; swingBHighIdx = i; }
+      }
+
+      const buySwingRange = swingBHighIdx !== -1 ? swingBHigh - swingALow : 0;
+      if (
+        swingBHighIdx > swingALowIdx &&
+        buySwingRange >= MIN_SWING_ATR * atr &&
+        currentPrice < swingBHigh
+      ) {
+        const fib50Buy = swingALow + 0.5 * buySwingRange;
+        const bbOk = !bb30 || fib50Buy <= bb30.middle; // entry in lower half of BB channel
+        if (bbOk && Math.abs(currentPrice - fib50Buy) <= FIB50_TOLERANCE_ATR * atr) {
+          const ep  = round(fib50Buy);
+          const sl  = round(swingALow - SWING_SL_BUFFER_ATR * atr);
+          const tp1 = round(floorTarget(ep, sl, swingBHigh, MIN_RR_TP1, "BUY"));
+          const tp2 = round(floorTarget(ep, sl, swingBHigh + buySwingRange, MIN_RR_TP2, "BUY"));
+          signal       = "BUY";
+          entryPrice   = ep;
+          stopLoss     = sl;
+          takeProfit1  = tp1;
+          takeProfit2  = tp2;
+          displaySwingHigh = swingBHigh;
+          displaySwingLow  = swingALow;
+          displayFib50     = ep;
+          const bbTag     = bb30 ? ` BB-mid ${fmt(bb30.middle)}` : "";
+          const weeklyTag = weeklyTrend !== "NEUTRAL" ? ` | Weekly ${weeklyTrend}` : "";
+          signalReason = `[${tfLabel}] FIB50 SWING BUY: Swing low ${fmt(swingALow)} → new high ${fmt(swingBHigh)} (range ${fmt(buySwingRange)}). Entry at 50% fib ${fmt(ep)}, SL ${fmt(sl)} (below swing low), TP1 ${fmt(tp1)} (swing high), TP2 ${fmt(tp2)} (measured move).${bbTag}${weeklyTag}`;
+        }
       }
     }
 
     // ── SELL Setup: swing high A → new low B → bounce to 50% fib ────────────
-    if (signal === "WAIT" && !isLongOnly) {
+    if (signal === "WAIT" && !isLongOnly && weeklyAllowsSell) {
       let swingAHigh = -Infinity, swingAHighIdx = lookbackStart;
       for (let i = lookbackStart; i < completed.length; i++) {
         if (completed[i].high > swingAHigh) { swingAHigh = completed[i].high; swingAHighIdx = i; }
@@ -1611,7 +1639,8 @@ export function computeLevels(
         currentPrice > swingBLow
       ) {
         const fib50Sell = swingAHigh - 0.5 * sellSwingRange;
-        if (Math.abs(currentPrice - fib50Sell) <= FIB50_TOLERANCE_ATR * atr) {
+        const bbOk = !bb30 || fib50Sell >= bb30.middle; // entry in upper half of BB channel
+        if (bbOk && Math.abs(currentPrice - fib50Sell) <= FIB50_TOLERANCE_ATR * atr) {
           const ep  = round(fib50Sell);
           const sl  = round(swingAHigh + SWING_SL_BUFFER_ATR * atr);
           const tp1 = round(floorTarget(ep, sl, swingBLow, MIN_RR_TP1, "SELL"));
@@ -1624,7 +1653,9 @@ export function computeLevels(
           displaySwingHigh = swingAHigh;
           displaySwingLow  = swingBLow;
           displayFib50     = ep;
-          signalReason = `[${tfLabel}] FIB50 SWING SELL: Swing high ${fmt(swingAHigh)} → new low ${fmt(swingBLow)} (range ${fmt(sellSwingRange)}). Entry at 50% fib ${fmt(ep)}, SL ${fmt(sl)} (above swing high), TP1 ${fmt(tp1)} (swing low), TP2 ${fmt(tp2)} (measured move).`;
+          const bbTag     = bb30 ? ` BB-mid ${fmt(bb30.middle)}` : "";
+          const weeklyTag = weeklyTrend !== "NEUTRAL" ? ` | Weekly ${weeklyTrend}` : "";
+          signalReason = `[${tfLabel}] FIB50 SWING SELL: Swing high ${fmt(swingAHigh)} → new low ${fmt(swingBLow)} (range ${fmt(sellSwingRange)}). Entry at 50% fib ${fmt(ep)}, SL ${fmt(sl)} (above swing high), TP1 ${fmt(tp1)} (swing low), TP2 ${fmt(tp2)} (measured move).${bbTag}${weeklyTag}`;
         }
       }
     }
@@ -2390,8 +2421,9 @@ export function computeLevelsStable(
   minCollateral: number = DEFAULT_MIN_COLLATERAL,
   maxLeverage: number = DEFAULT_MAX_LEVERAGE,
   mt5Lots: number = DEFAULT_MT5_LOTS,
+  dailyCandlesForWeekly?: CandleRaw[],
 ): Levels {
-  const fresh = computeLevels(candles, spotPrice, timeframe, symbolKey, meta, accountSize, riskPct, minCollateral, maxLeverage, mt5Lots);
+  const fresh = computeLevels(candles, spotPrice, timeframe, symbolKey, meta, accountSize, riskPct, minCollateral, maxLeverage, mt5Lots, dailyCandlesForWeekly);
   const k = tradeKey(symbolKey, timeframe);
   const existing = activeTrades.get(k);
 

@@ -5,7 +5,7 @@ import {
   fetchCandlesForTimeframe,
   type Timeframe,
 } from "./yahoo-fetch";
-import { computeLevelsStable, fetchSpotPrice, getActiveTrade, applyFuturesBasis, registerOnTradeClosedCallback, calcMACDHist, type ClosedOutcome } from "./signals";
+import { computeLevelsStable, fetchSpotPrice, getActiveTrade, applyFuturesBasis, registerOnTradeClosedCallback, calcMACDHist, DEFAULT_ACCOUNT_SIZE, DEFAULT_RISK_PCT, DEFAULT_MIN_COLLATERAL, DEFAULT_MAX_LEVERAGE, DEFAULT_MT5_LOTS, type ClosedOutcome } from "./signals";
 import {
   buildAlertContext,
   sendTelegramAlert,
@@ -109,8 +109,8 @@ export function getNotifierStatus(): NotifierStatus {
 // remains visible in the UI and the API — just no notifications.
 const ALERT_SYMBOLS: Symbol[] = ["XAGUSD", "EURUSD"];
 
-// FIB50_SWING fires only on daily — track only 1d.
-const TRACKED_TIMEFRAMES: Timeframe[] = ["1d"];
+// FIB50_SWING fires on 1H and 1D. 1H entries confirmed by weekly macro trend.
+const TRACKED_TIMEFRAMES: Timeframe[] = ["1h", "1d"];
 // Only seed-alert on 30m at startup/restart for trending/all symbols.
 // ALERT_SYMBOLS (XAGUSD, EURUSD) also seed on 1h — there are only 2 symbols
 // so the risk of a barrage is minimal, and missing a live 1h metal BUY on
@@ -194,10 +194,14 @@ async function checkSymbol(
 ): Promise<void> {
   try {
     const higherTf = HIGHER_TIMEFRAME[timeframe];
-    const [candles, spot, higherCandles] = await Promise.all([
+    // For 1H signals, also fetch daily candles so FIB50_SWING can synthesize
+    // weekly bars for the macro trend gate (weekly SMA-30 confirmation).
+    const needDailyForWeekly = timeframe === "1h";
+    const [candles, spot, higherCandles, rawDailyForWeekly] = await Promise.all([
       fetchCandlesForTimeframe(symbol, timeframe),
       fetchSpotPrice(symbol),
       higherTf ? fetchCandlesForTimeframe(symbol, higherTf) : Promise.resolve([]),
+      needDailyForWeekly ? fetchCandlesForTimeframe(symbol, "1d") : Promise.resolve([]),
     ]);
     if (candles.length < 2) return;
 
@@ -208,6 +212,8 @@ async function checkSymbol(
         ? applyFuturesBasis(candles, spot, makeRounder(SYMBOLS[symbol].decimals))
         : candles;
 
+    const dailyForWeekly = rawDailyForWeekly.length > 0 ? rawDailyForWeekly : undefined;
+
     // Snapshot the active trade BEFORE calling computeLevelsStable.
     // computeLevelsStable writes a new ActiveTrade entry the moment a fresh
     // BUY/SELL fires, so reading after the call always finds a trade in the
@@ -216,7 +222,11 @@ async function checkSymbol(
     // state: null on a genuine new signal, populated on an oscillation.
     const activeTradeBeforeCompute = getActiveTrade(symbol, timeframe);
 
-    const levels = computeLevelsStable(adjustedCandles, spot, timeframe, symbol, SYMBOLS[symbol]);
+    const levels = computeLevelsStable(
+      adjustedCandles, spot, timeframe, symbol, SYMBOLS[symbol],
+      DEFAULT_ACCOUNT_SIZE, DEFAULT_RISK_PCT, DEFAULT_MIN_COLLATERAL, DEFAULT_MAX_LEVERAGE, DEFAULT_MT5_LOTS,
+      dailyForWeekly,
+    );
     const k = key(symbol, timeframe);
     const prev = stateMap.get(k);
     const now = Date.now();
