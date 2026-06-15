@@ -733,7 +733,7 @@ function runFib50SwingBacktest(
             const sl   = round(swingA - SL_BUF * atr);
             const risk = Math.abs(ep - sl);
             if (risk > 0 && today.low <= ep && today.high >= ep) {
-              const tp1 = round(floorTarget(ep, sl, swingB,        MIN_RR_TP1, "BUY"));
+              const tp1 = round(swingB);                                           // structural: swing high
               const tp2 = round(floorTarget(ep, sl, swingB + range, MIN_RR_TP2, "BUY"));
 
               let exitDate = today.date, exitPrice = ep;
@@ -785,7 +785,7 @@ function runFib50SwingBacktest(
             const sl   = round(swingA + SL_BUF * atr);
             const risk = Math.abs(sl - ep);
             if (risk > 0 && today.high >= ep && today.low <= ep) {
-              const tp1 = round(floorTarget(ep, sl, swingB,        MIN_RR_TP1, "SELL"));
+              const tp1 = round(swingB);                                           // structural: swing low
               const tp2 = round(floorTarget(ep, sl, swingB - range, MIN_RR_TP2, "SELL"));
 
               let exitDate = today.date, exitPrice = ep;

@@ -1608,7 +1608,7 @@ export function computeLevels(
         if (bbOk && Math.abs(currentPrice - fib50Buy) <= FIB50_TOLERANCE_ATR * atr) {
           const ep  = round(fib50Buy);
           const sl  = round(swingALow - SWING_SL_BUFFER_ATR * atr);
-          const tp1 = round(floorTarget(ep, sl, swingBHigh, MIN_RR_TP1, "BUY"));
+          const tp1 = round(swingBHigh);   // structural target: the swing high itself
           const tp2 = round(floorTarget(ep, sl, swingBHigh + buySwingRange, MIN_RR_TP2, "BUY"));
           signal       = "BUY";
           entryPrice   = ep;
@@ -1647,7 +1647,7 @@ export function computeLevels(
         if (bbOk && Math.abs(currentPrice - fib50Sell) <= FIB50_TOLERANCE_ATR * atr) {
           const ep  = round(fib50Sell);
           const sl  = round(swingAHigh + SWING_SL_BUFFER_ATR * atr);
-          const tp1 = round(floorTarget(ep, sl, swingBLow, MIN_RR_TP1, "SELL"));
+          const tp1 = round(swingBLow);    // structural target: the swing low itself
           const tp2 = round(floorTarget(ep, sl, swingBLow - sellSwingRange, MIN_RR_TP2, "SELL"));
           signal       = "SELL";
           entryPrice   = ep;
