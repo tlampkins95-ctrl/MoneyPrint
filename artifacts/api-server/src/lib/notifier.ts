@@ -1,3 +1,5 @@
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { join, dirname } from "node:path";
 import { logger } from "./logger";
 import { getBtcMacroTrend, isBtcMacroGated } from "./btc-filter";
 import { SYMBOLS, makeRounder, type Symbol, ALL_SYMBOLS } from "./symbols";
@@ -160,6 +162,65 @@ const TIMEFRAME_LABEL: Record<Timeframe, string> = {
 };
 
 const stateMap = new Map<string, TrackedState>();
+
+// ─── Alert State Persistence ──────────────────────────────────────────────────
+// stateMap is in-memory only — a process restart wipes it and the seed logic
+// re-fires an alert for every still-pending signal on the first post-restart poll.
+// We persist lastAlertAt + lastAlertSignal to disk so the direction-aware cooldown
+// survives restarts and eliminates "same signal, 3 alerts in 20 minutes" spam.
+
+interface PersistedAlertEntry {
+  signal: SignalKind;
+  lastAlertAt: number;
+  lastAlertSignal: SignalKind;
+}
+
+const NOTIFIER_STATE_FILE =
+  process.env["NOTIFIER_STATE_FILE"] ??
+  join(process.cwd(), ".runtime", "notifier-alert-state.json");
+
+function loadPersistedAlertState(): void {
+  try {
+    if (!existsSync(NOTIFIER_STATE_FILE)) return;
+    const raw = JSON.parse(
+      readFileSync(NOTIFIER_STATE_FILE, "utf-8"),
+    ) as Record<string, PersistedAlertEntry>;
+    let loaded = 0;
+    for (const [k, entry] of Object.entries(raw)) {
+      if (!stateMap.has(k) && entry.lastAlertAt > 0) {
+        stateMap.set(k, {
+          signal: entry.signal,
+          lastAlertAt: entry.lastAlertAt,
+          lastAlertSignal: entry.lastAlertSignal,
+        });
+        loaded++;
+      }
+    }
+    if (loaded > 0) logger.info({ loaded }, "Notifier alert state restored from disk");
+  } catch (err) {
+    logger.warn({ err }, "Failed to load notifier alert state from disk");
+  }
+}
+
+function persistAlertEntry(k: string, signal: SignalKind, lastAlertAt: number): void {
+  try {
+    let existing: Record<string, PersistedAlertEntry> = {};
+    if (existsSync(NOTIFIER_STATE_FILE)) {
+      existing = JSON.parse(
+        readFileSync(NOTIFIER_STATE_FILE, "utf-8"),
+      ) as Record<string, PersistedAlertEntry>;
+    }
+    if (lastAlertAt === 0) {
+      delete existing[k];
+    } else {
+      existing[k] = { signal, lastAlertAt, lastAlertSignal: signal };
+    }
+    mkdirSync(dirname(NOTIFIER_STATE_FILE), { recursive: true });
+    writeFileSync(NOTIFIER_STATE_FILE, JSON.stringify(existing, null, 2));
+  } catch (err) {
+    logger.warn({ err, k }, "Failed to persist notifier alert entry");
+  }
+}
 
 function key(symbolKey: string, timeframe: Timeframe): string {
   return `${symbolKey}::${timeframe}`;
@@ -504,6 +565,7 @@ async function checkSymbol(
       }
       const newPatternKey = prev?.lastPatternKey;
       stateMap.set(k, { ...(prev ?? {}), signal: levels.signal, lastAlertAt: now, lastAlertSignal: levels.signal, lastPatternKey: newPatternKey });
+      persistAlertEntry(k, levels.signal as SignalKind, now);
       return;
     }
 
@@ -779,6 +841,7 @@ async function checkTrendingSymbol(
       if (tasks.length > 0) await Promise.allSettled(tasks);
       const newPatternKeyT = prev?.lastPatternKey;
       stateMap.set(k, { ...(prev ?? {}), signal: levels.signal, lastAlertAt: now, lastAlertSignal: levels.signal, lastPatternKey: newPatternKeyT });
+      persistAlertEntry(k, levels.signal as SignalKind, now);
       return;
     }
 
@@ -904,6 +967,7 @@ function onTradeClosed(
       consecutiveSls: 0,
       lastSlSignal: undefined,
     });
+    persistAlertEntry(k, "WAIT", 0);
   }
 }
 
@@ -925,6 +989,10 @@ export function startSignalNotifier(): void {
   // Wire up the trade-close hook so signals.ts can notify us when a trade
   // closes without creating a circular import.
   registerOnTradeClosedCallback(onTradeClosed);
+
+  // Pre-populate stateMap from disk so the direction-aware cooldown is intact
+  // even on a fresh restart — prevents repeat seed alerts for still-pending signals.
+  loadPersistedAlertState();
 
   logger.info(
     {

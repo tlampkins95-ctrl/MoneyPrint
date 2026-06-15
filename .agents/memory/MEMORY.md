@@ -3,3 +3,4 @@
 - [Daily flip cooldown](daily-flip-cooldown.md) — 1d candles are live/incomplete intraday; direction-flip bypass must have a per-TF minimum or a $50 Gold move sends SELL→BUY within minutes.
 - [Signal audit bugs](signal-audit-bugs.md) — 4 bugs from full code audit: sellAllowed/ema200+MACD, trending dedup guard, FIB type whitelist, RowProps union.
 - [FIB50_SWING backtest parity](fib50swing-backtest.md) — backtest signalType dispatch, daily candle fetch for weekly gate, and expected 1D sparsity explained.
+- [Duplicate seed alerts on restart](duplicate-seed-alerts.md) — stateMap is in-memory; restarts wipe it and seed re-fires for every pending 1H signal; fix is to persist lastAlertAt+lastAlertSignal to .runtime/notifier-alert-state.json.
