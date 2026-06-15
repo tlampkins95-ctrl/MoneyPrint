@@ -530,6 +530,294 @@ function runFibBacktest(candles: CandleRaw[], timeframe: Timeframe, symbol: Symb
   return trades;
 }
 
+// ─── FIB50_SWING helpers ─────────────────────────────────────────────────────
+
+/**
+ * Wilder's ADX as a bar-aligned series. out[i] = ADX value AT candle i.
+ * NaN until 2*period bars are available.
+ */
+function calcADXSeries(candles: CandleRaw[], period = 14): number[] {
+  const n = candles.length;
+  const out: number[] = new Array(n).fill(NaN);
+  if (n < period * 2 + 2) return out;
+
+  const trs: number[] = [], pDMs: number[] = [], nDMs: number[] = [];
+  for (let j = 1; j < n; j++) {
+    const c = candles[j], p = candles[j - 1];
+    trs.push(Math.max(c.high - c.low, Math.abs(c.high - p.close), Math.abs(c.low - p.close)));
+    const up = c.high - p.high, dn = p.low - c.low;
+    pDMs.push(up > dn && up > 0 ? up : 0);
+    nDMs.push(dn > up && dn > 0 ? dn : 0);
+  }
+
+  let sTR = 0, sPDM = 0, sNDM = 0;
+  for (let j = 0; j < period; j++) { sTR += trs[j]; sPDM += pDMs[j]; sNDM += nDMs[j]; }
+
+  const dxArr: number[] = [];
+  for (let j = period; j < trs.length; j++) {
+    sTR  = sTR  - sTR  / period + trs[j];
+    sPDM = sPDM - sPDM / period + pDMs[j];
+    sNDM = sNDM - sNDM / period + nDMs[j];
+    const pdi = sTR > 0 ? 100 * sPDM / sTR : 0;
+    const ndi = sTR > 0 ? 100 * sNDM / sTR : 0;
+    const s = pdi + ndi;
+    dxArr.push(s > 0 ? 100 * Math.abs(pdi - ndi) / s : 0);
+    // dxArr[k] where k = j-period → candle[period + k + 1]
+  }
+
+  if (dxArr.length < period) return out;
+  let adx = dxArr.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  out[2 * period] = adx;
+  for (let k = period; k < dxArr.length; k++) {
+    adx = (adx * (period - 1) + dxArr[k]) / period;
+    out[period + k + 1] = adx;
+  }
+  return out;
+}
+
+/**
+ * For each daily candle index i, returns the weekly trend (UP/DOWN/NEUTRAL)
+ * derived from SMA-30 of all fully-completed weekly closes up to that bar.
+ * Mirrors synthesizeWeeklyCandles + computeWeeklySMA30 in the live signal.
+ */
+function computeWeeklyTrendSeries(candles: CandleRaw[]): ("UP" | "DOWN" | "NEUTRAL")[] {
+  const n = candles.length;
+  const result: ("UP" | "DOWN" | "NEUTRAL")[] = new Array(n).fill("NEUTRAL");
+
+  const completedWeeklyCloses: number[] = [];
+  let currentWeekKey = "";
+  let currentWeekLastClose = NaN;
+
+  for (let i = 0; i < n; i++) {
+    const d = new Date(candles[i].date);
+    const dayOfWeek = (d.getUTCDay() + 6) % 7; // Mon=0
+    const monday = new Date(d);
+    monday.setUTCDate(d.getUTCDate() - dayOfWeek);
+    const wk = monday.toISOString().slice(0, 10);
+
+    if (wk !== currentWeekKey) {
+      if (currentWeekKey !== "" && !isNaN(currentWeekLastClose)) {
+        completedWeeklyCloses.push(currentWeekLastClose);
+      }
+      currentWeekKey = wk;
+    }
+    currentWeekLastClose = candles[i].close;
+
+    if (completedWeeklyCloses.length >= 30) {
+      const slice = completedWeeklyCloses.slice(-30);
+      const sma30 = slice.reduce((a, b) => a + b, 0) / 30;
+      const last = completedWeeklyCloses[completedWeeklyCloses.length - 1];
+      result[i] = last > sma30 ? "UP" : last < sma30 ? "DOWN" : "NEUTRAL";
+    }
+  }
+
+  return result;
+}
+
+/**
+ * FIB50_SWING backtest — mirrors the live signal logic exactly:
+ *   1. Weekly SMA-30 trend gate (UP = BUY side, DOWN = SELL side, NEUTRAL = no trade)
+ *   2. Local market structure: EMA21/50 cross + ADX ≥ 25 (RANGING blocks all)
+ *   3. BB(30, 2σ) midline filter (entry price must sit on correct side of midline)
+ *   4. 50% fib of dominant A→B swing within SWING_LOOKBACK bars
+ *
+ * For 1D timeframe: dailyCandles === candles.
+ * For 1H timeframe: dailyCandles is a separate 1D fetch used for weekly synthesis.
+ */
+function runFib50SwingBacktest(
+  candles: CandleRaw[],
+  dailyCandles: CandleRaw[],
+  timeframe: Timeframe,
+  symbol: Symbol,
+): Trade[] {
+  const meta = SYMBOLS[symbol];
+  const round = makeRounder(meta.decimals);
+  const trades: Trade[] = [];
+  const maxHold = FIB_MAX_HOLD_BARS[timeframe];
+  const SWING_LOOKBACK = timeframe === "1h" ? 120 : 60;
+  const ATR_TOL = 0.5;
+  const SL_BUF  = 0.5;
+  const MIN_SWING_ATR = 2.5;
+
+  const closes   = candles.map((c) => c.close);
+  const ema21Ser = calcEMASeries(closes, 21);
+  const ema50Ser = calcEMASeries(closes, 50);
+  const adxSer   = calcADXSeries(candles, 14);
+
+  // BB(30) middle band — SMA of last 30 closes.
+  const bbMid: (number | null)[] = new Array(candles.length).fill(null);
+  for (let i = 29; i < candles.length; i++) {
+    bbMid[i] = closes.slice(i - 29, i + 1).reduce((a, b) => a + b, 0) / 30;
+  }
+
+  // Weekly trend, computed from the daily candles array.
+  const weeklyTrendArr = computeWeeklyTrendSeries(dailyCandles);
+
+  // For 1H: binary-search the daily candles to find the weekly trend at each 1H bar.
+  function getWeeklyTrend(i: number): "UP" | "DOWN" | "NEUTRAL" {
+    if (timeframe === "1d") return weeklyTrendArr[i];
+    const barDate = candles[i].date.slice(0, 10);
+    let lo = 0, hi = dailyCandles.length - 1, best = 0;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (dailyCandles[mid].date <= barDate) { best = mid; lo = mid + 1; }
+      else hi = mid - 1;
+    }
+    return weeklyTrendArr[best];
+  }
+
+  let cooldownUntil = 0;
+  const startI = Math.max(50, SWING_LOOKBACK);
+
+  for (let i = startI; i < candles.length; i++) {
+    if (i < cooldownUntil) continue;
+
+    const atr = calcATR(candles, i - 1, 14);
+    if (atr <= 0) continue;
+
+    // Gate 1: weekly trend
+    const wTrend = getWeeklyTrend(i - 1);
+
+    // Gate 2: local market structure (EMA21/50 + ADX)
+    const e21 = ema21Ser[i - 1];
+    const e50 = ema50Ser[i - 1];
+    const adv = adxSer[i - 1];
+    const ema50Warm = i - 1 >= 50 && Number.isFinite(e21) && Number.isFinite(e50);
+    const adxWarm   = Number.isFinite(adv);
+
+    let localTrend: "UPTREND" | "DOWNTREND" | "RANGING" = "RANGING";
+    if (ema50Warm) {
+      if (!adxWarm) {
+        const e21prev = ema21Ser[i - 2];
+        const slopeUp = Number.isFinite(e21prev) && e21 > e21prev;
+        if (e21 > e50 && slopeUp)        localTrend = "UPTREND";
+        else if (e21 < e50 && !slopeUp)  localTrend = "DOWNTREND";
+      } else if (adv >= 25) {
+        if (e21 > e50)      localTrend = "UPTREND";
+        else if (e21 < e50) localTrend = "DOWNTREND";
+      }
+    }
+
+    const allowBuy  = wTrend === "UP"   && localTrend === "UPTREND";
+    const allowSell = wTrend === "DOWN" && localTrend === "DOWNTREND" && !meta.longOnly;
+    if (!allowBuy && !allowSell) continue;
+
+    // Gate 3: BB(30) midline
+    const midBand = bbMid[i - 1];
+
+    // Swing detection window: last SWING_LOOKBACK completed bars
+    const lookStart = Math.max(0, i - SWING_LOOKBACK);
+    const win = candles.slice(lookStart, i); // [lookStart..i-1]
+    const prevClose = candles[i - 1].close;
+    const today = candles[i];
+
+    if (allowBuy) {
+      // Find A (lowest low) then B (highest high after A)
+      let aIdx = 0;
+      for (let k = 1; k < win.length; k++) {
+        if (win[k].low < win[aIdx].low) aIdx = k;
+      }
+      let bIdx = -1;
+      for (let k = aIdx + 1; k < win.length; k++) {
+        if (bIdx === -1 || win[k].high > win[bIdx].high) bIdx = k;
+      }
+      if (bIdx > aIdx) {
+        const swingA = win[aIdx].low;
+        const swingB = win[bIdx].high;
+        const range  = swingB - swingA;
+        if (range >= MIN_SWING_ATR * atr && prevClose < swingB) {
+          const fib50 = swingA + 0.5 * range;
+          const bbOk  = !midBand || fib50 <= midBand;
+          if (bbOk && Math.abs(prevClose - fib50) <= ATR_TOL * atr) {
+            const ep   = round(fib50);
+            const sl   = round(swingA - SL_BUF * atr);
+            const risk = Math.abs(ep - sl);
+            if (risk > 0 && today.low <= ep && today.high >= ep) {
+              const tp1 = round(floorTarget(ep, sl, swingB,        MIN_RR_TP1, "BUY"));
+              const tp2 = round(floorTarget(ep, sl, swingB + range, MIN_RR_TP2, "BUY"));
+
+              let exitDate = today.date, exitPrice = ep;
+              let outcome: Trade["outcome"] = "EXPIRED";
+              let barsHeld = 0, exitIdx = i;
+
+              for (let j = i; j < Math.min(candles.length, i + maxHold + 1); j++) {
+                const bar = candles[j]; barsHeld = j - i + 1; exitIdx = j;
+                if (bar.low  <= sl)  { outcome = "SL";  exitPrice = sl;  exitDate = bar.date; break; }
+                if (bar.high >= tp2) { outcome = "TP2"; exitPrice = tp2; exitDate = bar.date; break; }
+                if (bar.high >= tp1) { outcome = "TP1"; exitPrice = tp1; exitDate = bar.date; break; }
+              }
+              if (outcome === "EXPIRED") {
+                const last = candles[Math.min(candles.length - 1, i + maxHold)];
+                exitPrice = last.close; exitDate = last.date;
+                exitIdx = Math.min(candles.length - 1, i + maxHold);
+              }
+
+              const pnl = exitPrice - ep;
+              trades.push({ entryDate: today.date, direction: "BUY", entry: ep, stopLoss: sl, takeProfit1: tp1, takeProfit2: tp2, exitDate, exitPrice: round(exitPrice), outcome, rMultiple: Math.round((pnl / risk) * 100) / 100, barsHeld });
+              if (outcome !== "TP2") cooldownUntil = exitIdx + 1 + Math.ceil(maxHold / 2);
+              i = exitIdx;
+              continue;
+            }
+          }
+        }
+      }
+    }
+
+    if (allowSell) {
+      // Find A (highest high) then B (lowest low after A)
+      let aIdx = 0;
+      for (let k = 1; k < win.length; k++) {
+        if (win[k].high > win[aIdx].high) aIdx = k;
+      }
+      let bIdx = -1;
+      for (let k = aIdx + 1; k < win.length; k++) {
+        if (bIdx === -1 || win[k].low < win[bIdx].low) bIdx = k;
+      }
+      if (bIdx > aIdx) {
+        const swingA = win[aIdx].high;
+        const swingB = win[bIdx].low;
+        const range  = swingA - swingB;
+        if (range >= MIN_SWING_ATR * atr && prevClose > swingB) {
+          const fib50 = swingA - 0.5 * range;
+          const bbOk  = !midBand || fib50 >= midBand;
+          if (bbOk && Math.abs(prevClose - fib50) <= ATR_TOL * atr) {
+            const ep   = round(fib50);
+            const sl   = round(swingA + SL_BUF * atr);
+            const risk = Math.abs(sl - ep);
+            if (risk > 0 && today.high >= ep && today.low <= ep) {
+              const tp1 = round(floorTarget(ep, sl, swingB,        MIN_RR_TP1, "SELL"));
+              const tp2 = round(floorTarget(ep, sl, swingB - range, MIN_RR_TP2, "SELL"));
+
+              let exitDate = today.date, exitPrice = ep;
+              let outcome: Trade["outcome"] = "EXPIRED";
+              let barsHeld = 0, exitIdx = i;
+
+              for (let j = i; j < Math.min(candles.length, i + maxHold + 1); j++) {
+                const bar = candles[j]; barsHeld = j - i + 1; exitIdx = j;
+                if (bar.high >= sl)  { outcome = "SL";  exitPrice = sl;  exitDate = bar.date; break; }
+                if (bar.low  <= tp2) { outcome = "TP2"; exitPrice = tp2; exitDate = bar.date; break; }
+                if (bar.low  <= tp1) { outcome = "TP1"; exitPrice = tp1; exitDate = bar.date; break; }
+              }
+              if (outcome === "EXPIRED") {
+                const last = candles[Math.min(candles.length - 1, i + maxHold)];
+                exitPrice = last.close; exitDate = last.date;
+                exitIdx = Math.min(candles.length - 1, i + maxHold);
+              }
+
+              const pnl = ep - exitPrice;
+              trades.push({ entryDate: today.date, direction: "SELL", entry: ep, stopLoss: sl, takeProfit1: tp1, takeProfit2: tp2, exitDate, exitPrice: round(exitPrice), outcome, rMultiple: Math.round((pnl / risk) * 100) / 100, barsHeld });
+              if (outcome !== "TP2") cooldownUntil = exitIdx + 1 + Math.ceil(maxHold / 2);
+              i = exitIdx;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return trades;
+}
+
 function runBacktest(candles: CandleRaw[], timeframe: Timeframe, symbol: Symbol): Trade[] {
   const meta = SYMBOLS[symbol];
   const longOnly = !!meta.longOnly;
@@ -848,11 +1136,11 @@ router.get("/backtest", async (req: Request, res: Response) => {
     // Use raw query strings as fallback so dynamic/trending symbols don't crash.
     const rawSymbol = (req.query["symbol"] as string | undefined) ?? "XAGUSD";
     const rawTimeframe = (req.query["timeframe"] as string | undefined) ?? "1d";
-    const rawSignalType = (req.query["signalType"] as string | undefined) ?? "PIVOT_BOUNCE";
+    const rawSignalType = (req.query["signalType"] as string | undefined) ?? "FIB50_SWING";
     const query = queryParsed.success ? queryParsed.data : null;
     const symbol = (query?.symbol ?? rawSymbol) as Symbol;
     const timeframe = (query?.timeframe ?? rawTimeframe) as Timeframe;
-    const signalType: "PIVOT_BOUNCE" | "BREAKOUT" | "FIB_BOUNCE" = (query?.signalType ?? rawSignalType) as "PIVOT_BOUNCE" | "BREAKOUT" | "FIB_BOUNCE";
+    const signalType: "PIVOT_BOUNCE" | "BREAKOUT" | "FIB_BOUNCE" | "FIB50_SWING" = (query?.signalType ?? rawSignalType) as "PIVOT_BOUNCE" | "BREAKOUT" | "FIB_BOUNCE" | "FIB50_SWING";
 
     // Dynamic/trending symbols are not supported by the backtest engine — return empty.
     const KNOWN_SYMBOLS = new Set<string>(["XAGUSD","XAUUSD","EURUSD","GBPUSD","AUDUSD","USDCHF","BTCUSD","ETHUSD","SKYAIUSDT","ZECUSD"]);
@@ -893,11 +1181,23 @@ router.get("/backtest", async (req: Request, res: Response) => {
       res.status(503).json({ error: "Insufficient data for backtest" });
       return;
     }
-    const trades = signalType === "BREAKOUT"
-      ? runBreakoutBacktest(candles, timeframe, symbol)
-      : signalType === "FIB_BOUNCE"
-      ? runFibBacktest(candles, timeframe, symbol)
-      : runBacktest(candles, timeframe, symbol);
+
+    let trades: Trade[];
+    if (signalType === "FIB50_SWING") {
+      // For 1H we need daily candles to synthesise the weekly trend gate.
+      // For 1D the candles themselves serve as the daily source.
+      const dailyCandles =
+        timeframe === "1h"
+          ? await fetchCandlesForTimeframe(symbol, "1d")
+          : candles;
+      trades = runFib50SwingBacktest(candles, dailyCandles, timeframe, symbol);
+    } else if (signalType === "BREAKOUT") {
+      trades = runBreakoutBacktest(candles, timeframe, symbol);
+    } else if (signalType === "FIB_BOUNCE") {
+      trades = runFibBacktest(candles, timeframe, symbol);
+    } else {
+      trades = runBacktest(candles, timeframe, symbol);
+    }
     const resultPayload = aggregate(trades, candles, symbol);
     const resultParsed = GetBacktestResponse.safeParse(resultPayload);
     const result = resultParsed.success ? resultParsed.data : resultPayload;

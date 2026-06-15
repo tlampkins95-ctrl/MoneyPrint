@@ -115,7 +115,7 @@ const TRACKED_TIMEFRAMES: Timeframe[] = ["1h", "1d"];
 // ALERT_SYMBOLS (XAGUSD, EURUSD) also seed on 1h — there are only 2 symbols
 // so the risk of a barrage is minimal, and missing a live 1h metal BUY on
 // restart is a real operational gap.
-const SEED_TIMEFRAMES = new Set<Timeframe>(["30m"]);
+const SEED_TIMEFRAMES = new Set<Timeframe>(["30m", "1h", "1d"]);
 const ALERT_SEED_TIMEFRAMES = new Set<Timeframe>(["30m", "1h"]);
 const POLL_INTERVAL_MS = 20_000;
 
@@ -558,12 +558,18 @@ async function checkTrendingSymbol(
     const tMeta = getTrendingSymbols().find((t) => t.symbolKey === symbolKey);
     if (!tMeta) return; // expired or not in cache
     const higherTf = HIGHER_TIMEFRAME[timeframe];
-    const [candles, spot, higherCandles] = await Promise.all([
+    const needDailyForWeekly = timeframe === "1h";
+    const [candles, spot, higherCandles, rawDailyForWeekly] = await Promise.all([
       fetchCandlesForDynamic(tMeta.okxPerp!, timeframe),
       fetchSpotForDynamic(tMeta.okxPerp!),
       higherTf ? fetchCandlesForDynamic(tMeta.okxPerp!, higherTf) : Promise.resolve([]),
+      needDailyForWeekly ? fetchCandlesForDynamic(tMeta.okxPerp!, "1d") : Promise.resolve([]),
     ]);
     if (candles.length < 2) return;
+
+    const dailyForWeekly = (rawDailyForWeekly as typeof candles).length > 0
+      ? (rawDailyForWeekly as typeof candles)
+      : undefined;
 
     const k = key(symbolKey, timeframe);
     const prev = stateMap.get(k);
@@ -575,7 +581,11 @@ async function checkTrendingSymbol(
     // alreadyInSameDirection to fire and eat every non-seed alert.
     const activeTradeBeforeCompute = getActiveTrade(symbolKey, timeframe);
 
-    const levels = computeLevelsStable(candles, spot, timeframe, symbolKey, tMeta);
+    const levels = computeLevelsStable(
+      candles, spot, timeframe, symbolKey, tMeta,
+      undefined, undefined, undefined, undefined, undefined,
+      dailyForWeekly,
+    );
     const now = Date.now();
 
     // Seed only for PENDING limit orders (not yet filled). Already-running

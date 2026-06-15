@@ -213,10 +213,16 @@ router.get("/levels", async (req: Request, res: Response) => {
       if (dc) dailyForWeekly = dc as typeof candles;
     } else {
       // Dynamic trending coin — use OKX candles and spot price.
-      [candles, spotPrice] = await Promise.all([
+      const needDailyForWeekly = timeframe === "1h";
+      const fetches: Promise<unknown>[] = [
         fetchCandlesForDynamic(trendingMeta!.okxPerp!, timeframe),
         fetchSpotForDynamic(trendingMeta!.okxPerp!),
-      ]);
+      ];
+      if (needDailyForWeekly) fetches.push(fetchCandlesForDynamic(trendingMeta!.okxPerp!, "1d"));
+      const [c, sp, dc] = await Promise.all(fetches);
+      candles = c as typeof candles;
+      spotPrice = sp as typeof spotPrice;
+      if (dc) dailyForWeekly = dc as typeof candles;
     }
 
     // Fetch higher-TF candles for gate checks — applies to both static and dynamic symbols.
