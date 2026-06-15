@@ -10,6 +10,5 @@ export type GetBacktestSignalType =
   (typeof GetBacktestSignalType)[keyof typeof GetBacktestSignalType];
 
 export const GetBacktestSignalType = {
-  PIVOT_BOUNCE: "PIVOT_BOUNCE",
-  BREAKOUT: "BREAKOUT",
+  FIB50_SWING: "FIB50_SWING",
 } as const;

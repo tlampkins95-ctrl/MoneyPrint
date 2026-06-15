@@ -29,7 +29,7 @@ interface CellStats {
 
 const STALE_TIME_MS = 5 * 60 * 1000;
 
-type SignalTypeMode = "PIVOT_BOUNCE" | "BREAKOUT";
+type SignalTypeMode = "FIB50_SWING";
 
 function useCell(symbol: Symbol, timeframe: Timeframe, enabled: boolean, signalType: SignalTypeMode): CellStats {
   const { data, isLoading, isError } = useGetBacktest(
@@ -105,7 +105,7 @@ export function EdgeLeaderboard({
 }) {
   const [open, setOpen] = useState(true);
   const [sortKey, setSortKey] = useState<SortKey>("winRate");
-  const [signalType, setSignalType] = useState<SignalTypeMode>("PIVOT_BOUNCE");
+  const [signalType] = useState<SignalTypeMode>("FIB50_SWING");
   const [cells, setCells] = useState<CellStats[]>([]);
 
   const ranked = useMemo(() => {
@@ -197,23 +197,9 @@ export function EdgeLeaderboard({
             ))}
             <span className="ml-auto flex items-center gap-1">
               <span className="text-muted-foreground hidden sm:inline">MODE:</span>
-              {(["PIVOT_BOUNCE", "BREAKOUT"] as SignalTypeMode[]).map((m) => (
-                <button
-                  key={m}
-                  type="button"
-                  onClick={() => setSignalType(m)}
-                  className={cn(
-                    "px-2 py-0.5 rounded border transition-colors",
-                    signalType === m
-                      ? m === "BREAKOUT"
-                        ? "border-cyan-500/60 bg-cyan-500/10 text-cyan-300"
-                        : "border-primary/60 bg-primary/10 text-primary"
-                      : "border-border/40 text-muted-foreground hover:text-foreground hover:border-border",
-                  )}
-                >
-                  {m === "PIVOT_BOUNCE" ? "Pivot" : "◈ Breakout"}
-                </button>
-              ))}
+              <span className="px-2 py-0.5 rounded border border-amber-500/60 bg-amber-500/10 text-amber-300">
+                ◈ FIB50 Swing
+              </span>
             </span>
           </div>
 

@@ -7,18 +7,11 @@
  */
 
 /**
- * Which signal mode generated this signal. PIVOT_BOUNCE = price at S1/R1 zone bounce in a ranging market. BREAKOUT = momentum break above R2/below S2. FIB_BOUNCE = golden pocket 61.8% retracement. FIB_BREAK = price closes through key fib level (.236/.382 down or .618/.786 up) with MACD confirmation. DAGGER = 50% pullback on wave 1 (A→B impulse, 40–65% retracement to C, entry on first tick back in trend direction). PATTERN_BREAKOUT = confirmed continuation chart pattern (triangle, wedge, flag, pennant) with price closing through the pattern boundary in the expected direction. TREND_BOUNCE = MACD histogram crossover (flip red/green) at the R1/S1 zone in a confirmed trend. EMA_CROSS = EMA50 crosses EMA200 — Golden Cross (BUY) or Death Cross (SELL), highest-priority structural regime-change signal.
+ * Which signal mode generated this signal. FIB50_SWING = daily-timeframe swing fibonacci retracement entry: swing low A → new high B → enter at 50% fib of A→B (BUY), or swing high A → new low B → enter at 50% fib of A→B (SELL). SL below/above swing extreme, TP1 at B, TP2 at measured move.
  */
 export type LevelsDataSignalType =
   (typeof LevelsDataSignalType)[keyof typeof LevelsDataSignalType];
 
 export const LevelsDataSignalType = {
-  PIVOT_BOUNCE: "PIVOT_BOUNCE",
-  BREAKOUT: "BREAKOUT",
-  FIB_BOUNCE: "FIB_BOUNCE",
-  FIB_BREAK: "FIB_BREAK",
-  DAGGER: "DAGGER",
-  PATTERN_BREAKOUT: "PATTERN_BREAKOUT",
-  TREND_BOUNCE: "TREND_BOUNCE",
-  EMA_CROSS: "EMA_CROSS",
+  FIB50_SWING: "FIB50_SWING",
 } as const;

@@ -1477,117 +1477,24 @@ export function computeLevels(
     notOverExtendedBuy &&
     (!useEma200Gate || last.close > prevEma200);
 
-  const breakdownSellOk =
-    last.close < pivots.s2 - 0.25 * atr &&
-    !isNaN(rsi) && rsi >= 22 && rsi <= 45 &&
-    trendBearishBreakout &&
-    last.close < last21 &&
-    macdBreakoutSellOk &&
-    last.close < breakoutBarSellCeil &&
-    notOverExtendedSell &&
-    (!useEma200Gate || last.close < prevEma200) &&
-    !isLongOnly;
 
-  const zoneGap = pivots.r1 - pivots.s1;
-  const halfWidth = round(zoneGap * 0.2);
-  const buyZoneLow = round(pivots.s1 - halfWidth);
-  const buyZoneHigh = round(pivots.s1 + halfWidth);
-  const sellZoneLow = round(pivots.r1 - halfWidth);
-  const sellZoneHigh = round(pivots.r1 + halfWidth);
-
-  const inBuyZone = currentPrice >= buyZoneLow && currentPrice <= buyZoneHigh;
-  const inSellZone = currentPrice >= sellZoneLow && currentPrice <= sellZoneHigh;
-  const approachingBuy = !inBuyZone && currentPrice > buyZoneHigh && (currentPrice - buyZoneHigh) < atr * 0.5;
-  const approachingSell = !inSellZone && currentPrice < sellZoneLow && (sellZoneLow - currentPrice) < atr * 0.5;
-
-  // Zone-test confirmation: the last COMPLETED bar must have actually reached
-  // into the pivot zone (low ≤ buyZoneHigh for BUY; high ≥ sellZoneLow for SELL)
-  // AND closed holding the zone boundary (close ≥ buyZoneLow for BUY; ≤ sellZoneHigh).
-  // Without this, a signal can fire the moment live price ticks into the zone
-  // during a still-forming bearish candle — no completed bar ever confirmed the
-  // level was tested. That's the most common cause of immediate stop-outs.
-  const zoneTestedBuy  = prev.low  <= buyZoneHigh  && prev.close >= buyZoneLow;
-  const zoneTestedSell = prev.high >= sellZoneLow  && prev.close <= sellZoneHigh;
-
-  // Strong-close filter: a meaningful candle body is required (≥ 0.15 ATR).
-  // A doji or near-doji has a tiny body — it signals indecision, not reversal.
-  // Entering on a doji is the single easiest way to be stopped out on the next bar.
-  const strongCloseBullish = closedBarBullish && (prev.close - prev.open) >= atr * 0.15;
-  const strongCloseBearish = closedBarBearish && (prev.open - prev.close) >= atr * 0.15;
-
-  // Strategy selection uses three independent regime filters before PIVOT_BOUNCE fires:
+  // ─── FIB50_SWING signal detection ──────────────────────────────────────────
+  // Daily-only swing fibonacci retracement entry.
+  //   UPTREND  (BUY):  find swing low A → price makes new high B → enter at 50% fib of A→B
+  //   DOWNTREND (SELL): find swing high A → price makes new low B → enter at 50% fib of A→B
   //
-  //   1. ADX < 25 (trend === "RANGING"): no meaningful directional energy in the market.
-  //      Computed from EMA21 vs EMA50 as fallback when ADX hasn't warmed yet.
-  //
-  //   2. Choppiness Index > 55: price is spending more time oscillating than trending.
-  //      CI 38.2 = strongly directional, CI 61.8 = strongly choppy (Fibonacci thresholds).
-  //      55 is the permissive midpoint — avoids blocking valid setups while the market
-  //      is still transitioning. Falls open when CI hasn't warmed (< period+1 bars).
-  //
-  //   Both filters must agree before a pivot fade is taken. A market can look "ranging"
-  //   by EMA alone while CI reveals it's still eating through a one-sided directional
-  //   move — those are exactly the stop-out setups we want to eliminate.
-  //
-  // Production failure post-mortem (320 trades, -101.67R): PIVOT_BOUNCE fired in trending
-  // markets. ADX gate fixed the primary issue; CI adds a second independent layer.
-  // BREAKOUT (-74.79R, 4% WR) and FIB_BOUNCE (-9.98R, 4% WR) remain off permanently.
-  const choppinessOk = !Number.isFinite(choppiness) || choppiness > 55;
-  const pivotBounceEnabled = trend === "RANGING" && choppinessOk;
-
-  // ─── Chart-pattern recognition gate ─────────────────────────────────────────
-  // Two independent detections run in parallel:
-  //   chartPattern  — multi-bar patterns (H&S, triangles, wedges, flags, pennants).
-  //                   Used for the UI `detectedPattern` field and the reversal veto gate.
-  //   candlestickResult — final-bar candlestick patterns (engulfing, hammer, etc.).
-  //                   Always evaluated independently; never silently skipped.
-  //                   Appended to signalReason as a confirmation/mismatch note.
-  //
-  // Only CONFIRMED REVERSAL chart patterns (H&S, Double Top/Bottom) veto signal entries.
-  // Continuation and candlestick patterns reinforce direction — add conviction, never block.
-  const chartPattern: PatternResult | null = detectChartPattern(candles);
-  const candlestickResult: PatternResult | null = detectCandlestickSignal(candles);
-  // `patternResult` drives UI display (chart pattern takes priority; falls back to
-  // candlestick only when no chart pattern is detected).
-  const patternResult: PatternResult | null = chartPattern ?? candlestickResult;
-  // Veto gate: confirmed reversal patterns suppress entries. Additionally,
-  // FORMING (unconfirmed) double tops and H&S suppress BUY entries — a second
-  // peak at the same level is already a warning sign even before the neckline
-  // breaks. Symmetric: forming double bottoms / IH&S suppress SELL entries.
-  const BEARISH_PENDING = new Set(["DOUBLE_TOP", "HEAD_AND_SHOULDERS"]);
-  const BULLISH_PENDING = new Set(["DOUBLE_BOTTOM", "INVERSE_HEAD_AND_SHOULDERS"]);
-  const patternBearish =
-    chartPattern?.direction === "bearish" &&
-    chartPattern.category   === "reversal" &&
-    (chartPattern.confirmed || BEARISH_PENDING.has(chartPattern.pattern));
-  const patternBullish =
-    chartPattern?.direction === "bullish" &&
-    chartPattern.category   === "reversal" &&
-    (chartPattern.confirmed || BULLISH_PENDING.has(chartPattern.pattern));
-  const PATTERN_LABELS: Record<string, string> = {
-    HEAD_AND_SHOULDERS:          "Head & Shoulders",
-    INVERSE_HEAD_AND_SHOULDERS:  "Inv. Head & Shoulders",
-    DOUBLE_TOP:                  "Double Top",
-    DOUBLE_BOTTOM:               "Double Bottom",
-    ASCENDING_TRIANGLE:          "Ascending Triangle",
-    DESCENDING_TRIANGLE:         "Descending Triangle",
-    SYMMETRICAL_TRIANGLE:        "Symmetrical Triangle",
-    RISING_WEDGE:                "Rising Wedge",
-    FALLING_WEDGE:               "Falling Wedge",
-    BULL_FLAG:                   "Bull Flag",
-    BEAR_FLAG:                   "Bear Flag",
-    BULL_PENNANT:                "Bull Pennant",
-    BEAR_PENNANT:                "Bear Pennant",
-    BULLISH_ENGULFING:           "Bullish Engulfing",
-    BEARISH_ENGULFING:           "Bearish Engulfing",
-    HAMMER:                      "Hammer",
-    SHOOTING_STAR:               "Shooting Star",
-  };
-  const breakoutEnabled    = false; // -74.79R production — no edge at any timeframe
-  const fibBounceAllowed   = false; // -9.98R production  — no edge at any timeframe
+  // Entry:  50% fib of the A→B swing
+  // SL:     full swing invalidation (below A for BUY, above A for SELL) + ATR buffer
+  // TP1:    B — floored at 1.5R
+  // TP2:    B projected by one full swing range (measured move) — floored at 2.5R
+  // ────────────────────────────────────────────────────────────────────────────
+  const SWING_LOOKBACK       = 60;   // completed daily bars to scan for the swing
+  const MIN_SWING_ATR        = 2.5;  // swing height must be ≥ 2.5 × ATR to be meaningful
+  const FIB50_TOLERANCE_ATR  = 0.5;  // price must be within ±0.5 × ATR of the 50% fib
+  const SWING_SL_BUFFER_ATR  = 0.5;  // extra buffer below/above swing extreme for SL
 
   let signal: "BUY" | "SELL" | "WAIT" = "WAIT";
-  let signalType: "PIVOT_BOUNCE" | "BREAKOUT" | "FIB_BOUNCE" | "FIB_BREAK" | "DAGGER" | "PATTERN_BREAKOUT" | "TREND_BOUNCE" | "EMA_CROSS" = "PIVOT_BOUNCE";
+  let signalType: "FIB50_SWING" = "FIB50_SWING";
   let signalReason = "";
   let entryPrice = currentPrice;
   let stopLoss = currentPrice;
@@ -1596,804 +1503,95 @@ export function computeLevels(
 
   const tfLabel = TIMEFRAME_LABELS[timeframe];
 
-  // Entry gates for PIVOT_BOUNCE direction.
-  //
-  // BUY zone: RSI ≤ 50 (selling exhausting) + MACD ticking up + EMA200 bull
-  // regime. These are appropriate because a bounce from support needs
-  // momentum to be visibly cooling before fading into the move.
-  //
-  // SELL zone: RSI ≥ 55 (buying exhausting) only. MACD and EMA200 are
-  // intentionally excluded here:
-  //   • EMA200: when price pumps into the sell zone the close is almost
-  //     always above EMA200 (the pump IS why EMA21 > EMA200). Gating on
-  //     close ≤ EMA200 would suppress every mean-reversion short at the top
-  //     of an upswing — the exact setup we want. The correct read is the
-  //     opposite: price extended above EMA200 AND in sell zone = prime fade.
-  //   • MACD: at a genuine top the histogram is still rising when price
-  //     enters the sell zone. Waiting for a tick-down adds 1–2 bars of lag
-  //     and moves entry past the best price. RSI exhaustion alone is the
-  //     right gate for a zone-fade short.
-  // Breakdown SELLs (BREAKOUT path) keep their own independent gates
-  // including MACD and EMA200 — those are appropriate for momentum breaks.
-  // Intrinsic buy/sell readiness — pattern gate NOT included here.
-  // Pattern veto is applied inline at each signal branch so causality is trackable:
-  // `patternVetoed` is only set when the pattern is specifically the blocking factor
-  // (all other conditions met). Without tracking, the annotation would fire even
-  // when the WAIT is caused by price being out of zone entirely.
-  const buyAllowed  = (isNaN(rsi) || rsi <= RSI_OVERSOLD)
-    && macdBuyOk
-    && ema200BuyOk
-    && strongCloseBullish  // meaningful bullish body (≥ 0.15 ATR) — dojis are indecision, not reversal
-    && zoneTestedBuy       // last completed bar tested and held the buy zone
-    && bbBuyOk;            // price not near/above upper BB band (overbought territory)
-  // SELL gate: RSI overbought + trend is NOT an established uptrend.
-  // Selling into a strong uptrend = fighting momentum. Mean-reversion shorts
-  // only have edge in ranging or downtrending markets. Production data: SELL
-  // signals in UPTREND regime → 0% WR, -12R. The trend filter stops that.
-  // SELL gate intentionally omits ema200SellOk and macdSellOk.
-  // See the design note above: when price pumps into the sell zone the close is
-  // almost always ABOVE EMA200 (the pump is why), so gating on close ≤ EMA200
-  // kills every mean-reversion short at the top of an upswing — the exact setup
-  // we want. Similarly, at a genuine top the MACD histogram is still rising;
-  // waiting for a tick-down adds 1–2 bars of lag and moves entry past best price.
-  // RSI exhaustion + trend filter + zone-test + bearish body are the right gates
-  // for a zone-fade short. ema200SellOk / macdSellOk are kept for BREAKOUT and
-  // TREND_BOUNCE (momentum breaks) which have their own gate blocks.
-  const sellAllowed = (isNaN(rsi) || rsi >= RSI_OVERBOUGHT)
-    && !isLongOnly
-    && trend !== "UPTREND"
-    && strongCloseBearish      // meaningful bearish body (≥ 0.15 ATR) — dojis blocked
-    && zoneTestedSell          // last completed bar tested and held the sell zone
-    && bbSellOk;               // price not near/below lower BB band (oversold territory)
+  // Swing display values — populated by detection, used in the levels array.
+  let displaySwingHigh = fibs.swingHigh;
+  let displaySwingLow  = fibs.swingLow;
+  let displayFib50     = 0;
 
-  // ─── Golden-pocket inputs (computed here; FIB_BOUNCE fires last — see below) ──
-  // FIB_BOUNCE is lowest priority: PIVOT_BOUNCE and BREAKOUT always get first
-  // pick. FIB only fires when both leave signal = WAIT.
-  const impulse = findImpulseSwing(candles, 100);
-  const goldenPocket = impulse ? calcGoldenPocket(impulse.swingHigh, impulse.swingLow, round) : null;
-  const gpValid = goldenPocket !== null && impulse !== null &&
-    (goldenPocket.high - goldenPocket.low) >= atr * 0.1 &&
-    impulse.swingHigh > currentPrice;
-  const inGoldenPocket = gpValid && currentPrice >= goldenPocket!.low && currentPrice <= goldenPocket!.high;
-  const approachingGoldenPocket = gpValid && !inGoldenPocket &&
-    currentPrice > goldenPocket!.high && (currentPrice - goldenPocket!.high) < atr * 0.5;
-  const fibBounceEnabled = fibBounceAllowed && pivotBounceEnabled && gpValid;
+  // Only fire on daily timeframe.
+  if (timeframe === "1d") {
+    // Use only completed bars (exclude the still-forming current bar).
+    const completed = candles.slice(0, candles.length - 1);
+    const lookbackStart = Math.max(0, completed.length - SWING_LOOKBACK);
 
-  // ─── EMA CROSS ────────────────────────────────────────────────────────────────
-  // Fires on the bar where EMA50 crosses EMA200 — the highest-conviction structural
-  // trend-change signal. Requires EMA200 to be warm (≥210 bars of history).
-  //
-  //   Golden Cross — EMA50 crosses ABOVE EMA200 → BUY.
-  //     Previous bar: EMA50 < EMA200. Current bar: EMA50 > EMA200.
-  //     Marks the transition from a bear-to-bull structure. EMA200 becomes
-  //     the support floor; SL just below it.
-  //
-  //   Death Cross  — EMA50 crosses BELOW EMA200 → SELL.
-  //     Previous bar: EMA50 > EMA200. Current bar: EMA50 < EMA200.
-  //     Marks the transition from a bull-to-bear structure. EMA200 becomes
-  //     the resistance ceiling; SL just above it.
-  //
-  // Priority: fires FIRST — before all other signal types. A genuine EMA50/200
-  // cross is a structural regime shift and should never be suppressed by a
-  // shorter-term pattern or zone signal.
-  //
-  // Reversal patterns (patternBullish / patternBearish) are still respected:
-  // a confirmed IHS blocking a Death Cross entry is correct — the reversal wins.
-  if (signal === "WAIT" && ema200Warm && Number.isFinite(prevEma50)) {
-    const lastEma200val = !isNaN(lastEma200) ? lastEma200 : prevEma200;
-    const goldenCross = prevEma50 <= prevEma200 && last50 > lastEma200val;
-    const deathCross  = prevEma50 >= prevEma200 && last50 < lastEma200val;
-
-    if (goldenCross && !patternBearish && currentPrice <= pivots.r1) {
-      const slPrice  = round(lastEma200val - atr * 0.5);
-      const tp1Price = round(floorTarget(currentPrice, slPrice, currentPrice + (sellZoneLow - currentPrice) * 0.5, MIN_RR_TP1, "BUY"));
-      const tp2Price = round(floorTarget(currentPrice, slPrice, sellZoneLow, MIN_RR_TP2, "BUY"));
-      signal     = "BUY";
-      signalType = "EMA_CROSS";
-      entryPrice  = round(currentPrice);
-      stopLoss    = slPrice;
-      takeProfit1 = tp1Price;
-      takeProfit2 = tp2Price;
-      signalReason = `[${tfLabel}] GOLDEN CROSS: EMA50 (${fmt(last50)}) crossed above EMA200 (${fmt(lastEma200val)}) — bull regime confirmed. Entry ${fmt(entryPrice)}, SL ${fmt(stopLoss)} (below EMA200), TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)} (R1 resistance).`;
-    } else if (deathCross && !isLongOnly && !patternBullish && currentPrice >= pivots.s1) {
-      const slPrice  = round(lastEma200val + atr * 0.5);
-      const tp1Price = round(floorTarget(currentPrice, slPrice, currentPrice - (currentPrice - buyZoneHigh) * 0.5, MIN_RR_TP1, "SELL"));
-      const tp2Price = round(floorTarget(currentPrice, slPrice, buyZoneHigh, MIN_RR_TP2, "SELL"));
-      signal     = "SELL";
-      signalType = "EMA_CROSS";
-      entryPrice  = round(currentPrice);
-      stopLoss    = slPrice;
-      takeProfit1 = tp1Price;
-      takeProfit2 = tp2Price;
-      signalReason = `[${tfLabel}] DEATH CROSS: EMA50 (${fmt(last50)}) crossed below EMA200 (${fmt(lastEma200val)}) — bear regime confirmed. Entry ${fmt(entryPrice)}, SL ${fmt(stopLoss)} (above EMA200), TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)} (S1 support).`;
+    // ── BUY Setup: swing low A → new high B → retrace to 50% fib ────────────
+    let swingALow = Infinity, swingALowIdx = lookbackStart;
+    for (let i = lookbackStart; i < completed.length; i++) {
+      if (completed[i].low < swingALow) { swingALow = completed[i].low; swingALowIdx = i; }
     }
-  }
-
-  // ─── EMA200 PRICE CROSS ───────────────────────────────────────────────────────
-  // Fires when price (on a completed bar) crosses the 200 EMA — a regime-level
-  // event separate from the EMA50/200 golden-/death-cross above.
-  //   Price closes above EMA200 → BUY  (reclaiming institutional trend support)
-  //   Price closes below EMA200 → SELL (losing institutional trend support)
-  // Uses the last TWO completed bars so a live in-progress tick cannot trigger it.
-  if (signal === "WAIT" && ema200Warm) {
-    const prevPrevClose  = candles[candles.length - 3]?.close;
-    const prevPrevEma200 = ema200[ema200.length - 3];
-    if (Number.isFinite(prevPrevClose) && Number.isFinite(prevPrevEma200)) {
-      const priceCrossAbove = prevPrevClose < prevPrevEma200 && prev.close > prevEma200;
-      const priceCrossBelow = prevPrevClose > prevPrevEma200 && prev.close < prevEma200;
-      if (priceCrossAbove && !patternBearish && currentPrice <= pivots.r1) {
-        const slPrice  = round(prevEma200 - atr * 0.5);
-        const tp1Price = round(floorTarget(currentPrice, slPrice, currentPrice + (sellZoneLow - currentPrice) * 0.5, MIN_RR_TP1, "BUY"));
-        const tp2Price = round(floorTarget(currentPrice, slPrice, sellZoneLow, MIN_RR_TP2, "BUY"));
-        signal      = "BUY";
-        signalType  = "EMA_CROSS";
-        entryPrice  = round(currentPrice);
-        stopLoss    = slPrice;
-        takeProfit1 = tp1Price;
-        takeProfit2 = tp2Price;
-        signalReason = `[${tfLabel}] EMA200 RECLAIM: Price closed above EMA200 (${fmt(prevEma200)}) — bull regime reclaimed. Entry ${fmt(entryPrice)}, SL ${fmt(stopLoss)} (below EMA200), TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)}.`;
-      } else if (priceCrossBelow && !isLongOnly && !patternBullish && currentPrice >= pivots.s1) {
-        const slPrice  = round(prevEma200 + atr * 0.5);
-        const tp1Price = round(floorTarget(currentPrice, slPrice, currentPrice - (currentPrice - buyZoneHigh) * 0.5, MIN_RR_TP1, "SELL"));
-        const tp2Price = round(floorTarget(currentPrice, slPrice, buyZoneHigh, MIN_RR_TP2, "SELL"));
-        signal      = "SELL";
-        signalType  = "EMA_CROSS";
-        entryPrice  = round(currentPrice);
-        stopLoss    = slPrice;
-        takeProfit1 = tp1Price;
-        takeProfit2 = tp2Price;
-        signalReason = `[${tfLabel}] EMA200 BREAKDOWN: Price closed below EMA200 (${fmt(prevEma200)}) — bear regime. Entry ${fmt(entryPrice)}, SL ${fmt(stopLoss)} (above EMA200), TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)}.`;
-      }
+    let swingBHigh = -Infinity, swingBHighIdx = -1;
+    for (let i = swingALowIdx + 1; i < completed.length; i++) {
+      if (completed[i].high > swingBHigh) { swingBHigh = completed[i].high; swingBHighIdx = i; }
     }
-  }
 
-  // ─── REVERSAL PATTERN BREAKOUT ───────────────────────────────────────────────
-  // Fires on the first bar where a confirmed reversal pattern's neckline has been
-  // closed through. IH&S → BUY at neckline break, SL just below neckline, TP at
-  // the classic measured-move target (stored in chartPattern.upperBound).
-  // H&S → SELL at neckline breakdown, SL just above neckline, TP = 2*neckline - head.
-  //
-  // This fires BEFORE DAGGER so the clean neckline-break entry is never delayed
-  // by waiting for a secondary wave-2 pullback setup.
-  if (signal === "WAIT" && chartPattern?.confirmed && chartPattern.category === "reversal") {
-    const cp = chartPattern;
-    const patLabel = PATTERN_LABELS[cp.pattern] ?? cp.pattern;
-
-    if (cp.direction === "bullish" && cp.upperBound != null && last.close > cp.necklinePrice && macdBreakoutBuyOk) {
-      // IH&S neckline breakout BUY — limit entry at the neckline retest (former resistance → support).
-      // Do NOT enter at the breakout candle close; wait for price to pull back to the broken
-      // neckline and confirm it as new support. Same mechanic as DAGGER anchoring at ds.cPrice.
-      const entryRef  = cp.necklinePrice;
-      const slPrice   = round(entryRef - atr * 0.5);
-      const tp2Price  = round(floorTarget(entryRef, slPrice, cp.upperBound,                               MIN_RR_TP2, "BUY"));
-      const tp1Price  = round(floorTarget(entryRef, slPrice, entryRef + (cp.upperBound - entryRef) * 0.6, MIN_RR_TP1, "BUY"));
-      signal     = "BUY";
-      signalType = "PATTERN_BREAKOUT";
-      entryPrice  = round(entryRef);
-      stopLoss    = slPrice;
-      takeProfit1 = tp1Price;
-      takeProfit2 = tp2Price;
-      signalReason = `[${tfLabel}] ${patLabel} breakout BUY — limit at neckline retest ${fmt(entryRef)}: price closed through neckline, waiting for pullback to confirm support. SL ${fmt(stopLoss)} (below neckline), TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)} (measured-move target).`;
-    } else if (cp.direction === "bearish" && cp.upperBound != null && last.close < cp.necklinePrice && !isLongOnly && macdBreakoutSellOk) {
-      // H&S neckline breakdown SELL — limit entry at neckline retest (former support → resistance).
-      const entryRef  = cp.necklinePrice;
-      const hsTarget  = 2 * entryRef - cp.upperBound;
-      const slPrice   = round(entryRef + atr * 0.5);
-      const tp2Price  = round(floorTarget(entryRef, slPrice, hsTarget,                              MIN_RR_TP2, "SELL"));
-      const tp1Price  = round(floorTarget(entryRef, slPrice, entryRef - (entryRef - hsTarget) * 0.6, MIN_RR_TP1, "SELL"));
-      signal     = "SELL";
-      signalType = "PATTERN_BREAKOUT";
-      entryPrice  = round(entryRef);
-      stopLoss    = slPrice;
-      takeProfit1 = tp1Price;
-      takeProfit2 = tp2Price;
-      signalReason = `[${tfLabel}] ${patLabel} breakdown SELL — limit at neckline retest ${fmt(entryRef)}: price closed through neckline, waiting for pullback to confirm resistance. SL ${fmt(stopLoss)} (above neckline), TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)} (measured-move target).`;
-    }
-  }
-
-  // ─── DAGGER: 50% pullback on wave 1 ──────────────────────────────────────────
-  // Fires when: valid A→B→C structure (wave 1 impulse, wave 2 retrace 40–65%),
-  // the current bar's high/low has ticked back in trend direction (wave 3 launch),
-  // and MACD histogram is confirming momentum. Bull and bear both implemented;
-  // longOnly symbols suppress the bear side.
-  // Runs AFTER reversal pattern breakout so the neckline-break entry always fires
-  // first; DAGGER handles the wave-2-pullback entry if no pattern fired.
-  //
-  // `patternVetoed` is true only when the DAGGER setup WAS found but the confirmed
-  // pattern gate specifically suppressed it. Used for annotation causality.
-  let patternVetoed = false;
-  {
-    const n   = candles.length;
-    const bullTrigger = last.high > prev.high;
-    const bearTrigger = last.low  < prev.low;
-
-    // Trend-alignment gate: only trade DAGGER WITH the regime.
-    // A bull DAGGER in a confirmed downtrend is a counter-trend fade — blocked.
-    // A bear DAGGER in a confirmed uptrend is the same — blocked.
-    // When ranging (ADX < 25) both sides are allowed; wave structure is its own filter.
-    // DAGGER uses macdBuyOk (histogram ticking up, any sign) NOT macdBreakoutBuyOk
-    // (histogram must be positive). Wave 3 launches while MACD is still negative
-    // from the wave 2 pullback — requiring positive histogram means catching wave 3
-    // late, after the low-risk zone has already passed. The A-B-C wave structure is
-    // the primary quality gate; MACD direction confirms momentum turning, not sign.
-    if (signal === "WAIT" && bullTrigger && macdBuyOk && trend !== "DOWNTREND") {
-      const ds = findDaggerBullSetup(candles, n - 1, atr);
-      // Entry bar must not have violated the wave 2 low (C still intact),
-      // must be within 1.5 ATR of C (not already run far above the pullback),
-      // and trigger must fire within 8 bars of C being established.
-      if (ds && last.low > ds.cPrice
-          && currentPrice <= ds.cPrice + DAGGER_MAX_ENTRY_DRIFT_ATR * atr
-          && (n - 1 - ds.cIdx) <= DAGGER_ENTRY_WINDOW_BARS) {
-        if (patternBearish) {
-          patternVetoed = true; // pattern blocked an otherwise-valid DAGGER BUY
-        } else {
-          signal     = "BUY";
-          signalType = "DAGGER";
-          // Entry anchored at the wave-2 low (ds.cPrice = the wick that retested support).
-          // Using currentPrice here fires 1–2 cents ABOVE the actual retest, turning a
-          // perfectly-timed wick entry into an immediate drawdown as price consolidates
-          // back toward the wave-2 level. Anchoring at cPrice gives the correct
-          // fill reference and correct R:R from the actual setup price.
-          entryPrice  = round(ds.cPrice);
-          stopLoss    = round(ds.sl);
-          takeProfit1 = round(floorTarget(entryPrice, stopLoss, ds.tp,              MIN_RR_TP1, "BUY"));
-          takeProfit2 = round(floorTarget(entryPrice, stopLoss, ds.tp + atr * 0.5,  MIN_RR_TP2, "BUY"));
-          const fibPct = Math.round(ds.retracePct * 100);
-          signalReason = `[${tfLabel}] DAGGER BUY: Wave 1 peaked at ${fmt(ds.bPrice)}, wave 2 retraced ${fibPct}% to ${fmt(ds.cPrice)} (50% pocket). Trend: ${trend}. Wave 3 launch confirmed. Entry ${fmt(entryPrice)} (wave 2 low retest), SL ${fmt(stopLoss)} (1 ATR below wave 2 low), TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)} (wave 1 peak).`;
-        }
+    const buySwingRange = swingBHighIdx !== -1 ? swingBHigh - swingALow : 0;
+    if (
+      swingBHighIdx > swingALowIdx &&
+      buySwingRange >= MIN_SWING_ATR * atr &&
+      currentPrice < swingBHigh
+    ) {
+      const fib50Buy = swingALow + 0.5 * buySwingRange;
+      if (Math.abs(currentPrice - fib50Buy) <= FIB50_TOLERANCE_ATR * atr) {
+        const ep  = round(fib50Buy);
+        const sl  = round(swingALow - SWING_SL_BUFFER_ATR * atr);
+        const tp1 = round(floorTarget(ep, sl, swingBHigh, MIN_RR_TP1, "BUY"));
+        const tp2 = round(floorTarget(ep, sl, swingBHigh + buySwingRange, MIN_RR_TP2, "BUY"));
+        signal       = "BUY";
+        entryPrice   = ep;
+        stopLoss     = sl;
+        takeProfit1  = tp1;
+        takeProfit2  = tp2;
+        displaySwingHigh = swingBHigh;
+        displaySwingLow  = swingALow;
+        displayFib50     = ep;
+        signalReason = `[${tfLabel}] FIB50 SWING BUY: Swing low ${fmt(swingALow)} → new high ${fmt(swingBHigh)} (range ${fmt(buySwingRange)}). Entry at 50% fib ${fmt(ep)}, SL ${fmt(sl)} (below swing low), TP1 ${fmt(tp1)} (swing high), TP2 ${fmt(tp2)} (measured move).`;
       }
     }
 
-    // Bear DAGGER: same rationale — use macdSellOk (histogram ticking down, any sign)
-    // not macdBreakoutSellOk. Wave 3 drops while MACD histogram is still positive
-    // from the wave 2 bounce; the negative-crossing confirmation comes too late.
-    if (signal === "WAIT" && !patternVetoed && bearTrigger && macdSellOk && !isLongOnly && trend !== "UPTREND") {
-      const ds = findDaggerBearSetup(candles, n - 1, atr);
-      // Same proximity gates as bull side: entry must be within 1.5 ATR of C
-      // and trigger must fire within 8 bars of C being set.
-      if (ds && last.high < ds.cPrice
-          && currentPrice >= ds.cPrice - DAGGER_MAX_ENTRY_DRIFT_ATR * atr
-          && (n - 1 - ds.cIdx) <= DAGGER_ENTRY_WINDOW_BARS) {
-        if (patternBullish) {
-          patternVetoed = true; // pattern blocked an otherwise-valid DAGGER SELL
-        } else {
-          signal     = "SELL";
-          signalType = "DAGGER";
-          // Entry anchored at the wave-2 high (ds.cPrice = the wick that retested resistance).
-          // Same rationale as DAGGER BUY: currentPrice at trigger time is already below
-          // the wick rejection level, giving a worse short entry.
-          entryPrice  = round(ds.cPrice);
-          stopLoss    = round(ds.sl);
-          takeProfit1 = round(floorTarget(entryPrice, stopLoss, ds.tp,             MIN_RR_TP1, "SELL"));
-          takeProfit2 = round(floorTarget(entryPrice, stopLoss, ds.tp - atr * 0.5, MIN_RR_TP2, "SELL"));
-          const fibPct = Math.round(ds.retracePct * 100);
-          signalReason = `[${tfLabel}] DAGGER SELL: Wave 1 dropped to ${fmt(ds.bPrice)}, wave 2 bounced ${fibPct}% to ${fmt(ds.cPrice)} (50% pocket). Trend: ${trend}. Wave 3 drop confirmed. Entry ${fmt(entryPrice)} (wave 2 high retest), SL ${fmt(stopLoss)} (1 ATR above wave 2 high), TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)} (wave 1 low).`;
+    // ── SELL Setup: swing high A → new low B → bounce to 50% fib ────────────
+    if (signal === "WAIT" && !isLongOnly) {
+      let swingAHigh = -Infinity, swingAHighIdx = lookbackStart;
+      for (let i = lookbackStart; i < completed.length; i++) {
+        if (completed[i].high > swingAHigh) { swingAHigh = completed[i].high; swingAHighIdx = i; }
+      }
+      let swingBLow = Infinity, swingBLowIdx = -1;
+      for (let i = swingAHighIdx + 1; i < completed.length; i++) {
+        if (completed[i].low < swingBLow) { swingBLow = completed[i].low; swingBLowIdx = i; }
+      }
+
+      const sellSwingRange = swingBLowIdx !== -1 ? swingAHigh - swingBLow : 0;
+      if (
+        swingBLowIdx > swingAHighIdx &&
+        sellSwingRange >= MIN_SWING_ATR * atr &&
+        currentPrice > swingBLow
+      ) {
+        const fib50Sell = swingAHigh - 0.5 * sellSwingRange;
+        if (Math.abs(currentPrice - fib50Sell) <= FIB50_TOLERANCE_ATR * atr) {
+          const ep  = round(fib50Sell);
+          const sl  = round(swingAHigh + SWING_SL_BUFFER_ATR * atr);
+          const tp1 = round(floorTarget(ep, sl, swingBLow, MIN_RR_TP1, "SELL"));
+          const tp2 = round(floorTarget(ep, sl, swingBLow - sellSwingRange, MIN_RR_TP2, "SELL"));
+          signal       = "SELL";
+          entryPrice   = ep;
+          stopLoss     = sl;
+          takeProfit1  = tp1;
+          takeProfit2  = tp2;
+          displaySwingHigh = swingAHigh;
+          displaySwingLow  = swingBLow;
+          displayFib50     = ep;
+          signalReason = `[${tfLabel}] FIB50 SWING SELL: Swing high ${fmt(swingAHigh)} → new low ${fmt(swingBLow)} (range ${fmt(sellSwingRange)}). Entry at 50% fib ${fmt(ep)}, SL ${fmt(sl)} (above swing high), TP1 ${fmt(tp1)} (swing low), TP2 ${fmt(tp2)} (measured move).`;
         }
       }
     }
   }
 
-  // ─── PATTERN_BREAKOUT ────────────────────────────────────────────────────────
-  // Fires when a confirmed continuation chart pattern (triangle, wedge, flag, pennant)
-  // exists and price has closed through the pattern boundary in the expected direction.
-  // This is the "pattern-confirmed breakout" mode — distinct from the old pivot-based
-  // BREAKOUT (which stays off permanently due to -74.79R production result).
-  //
-  // Priority: fires after DAGGER, before PIVOT_BOUNCE.
-  // Gate conditions:
-  //   • confirmed continuation chartPattern (category === "continuation")
-  //   • direction matches a basic momentum gate (MACD + EMA21 alignment)
-  //   • reversal patterns do NOT fire here — they remain in the veto gate only
-  //
-  // SL = pattern lower rail (necklinePrice for BUY) / upper rail (upperBound for SELL)
-  // TP = pattern width (upperBound - necklinePrice) projected from breakout close
-  //
-  // Zone-conflict gates: a continuation pattern can break right at a pivot support
-  // or resistance floor, producing a signal that fights the zone direction.
-  // Classic failure case: rising wedge breaks down INTO pivot S1 support → SELL
-  // fires at the structural bottom (ETH daily $2104 incident).
-  //
-  // Rule: don't fire a continuation SELL when price is within 1 ATR of the buy-zone
-  // ceiling (close to or inside support). Don't fire a continuation BUY when price
-  // is within 1 ATR of the sell-zone floor (close to or inside resistance).
-  const patBreakoutSellZoneOk = currentPrice > buyZoneHigh + atr * 1.0;
-  const patBreakoutBuyZoneOk  = currentPrice < sellZoneLow  - atr * 1.0;
-
-  if (signal === "WAIT" && chartPattern?.confirmed && chartPattern.category === "continuation") {
-    const cp = chartPattern;
-    const patWidth = cp.upperBound != null ? cp.upperBound - cp.necklinePrice : atr * 2;
-    const patLabel = PATTERN_LABELS[cp.pattern] ?? cp.pattern;
-
-    // For pattern breakouts the setup IS the confirmation — MACD is far too lagging
-    // (takes 2-3 bars to react), and the pattern expiry window is only 2 bars, so by
-    // the time MACD turns positive the window has closed entirely.
-    //
-    // Fast structural gates instead:
-    //   • Price must still be on the correct side of the pattern boundary (not a
-    //     false breakout that has already reversed back inside the pattern).
-    //   • Broad EMA21/50 trend must not be directly opposed (faster than MACD).
-    //   • Zone conflict gate is unchanged.
-    const patBONotFalseBreakBuy  = last.close > cp.necklinePrice - atr * 0.3;
-    const patBONotFalseBreakSell = last.close < (cp.upperBound ?? (cp.necklinePrice + patWidth)) + atr * 0.3;
-
-    if (cp.direction === "bullish" && trendBullishBreakout && patBONotFalseBreakBuy && patBreakoutBuyZoneOk) {
-      // Limit entry at the neckline retest (broken upper boundary → support).
-      // The breakout bar confirmed the pattern; now wait for the pullback to the
-      // neckline before entering — same mechanic as DAGGER anchoring at ds.cPrice.
-      const entryRef  = cp.necklinePrice;
-      const slPrice   = round(entryRef - atr * 0.75); // 0.75 ATR gives room past normal retest wicks
-      const tp1Price  = round(floorTarget(entryRef, slPrice, entryRef + patWidth * 0.6,  MIN_RR_TP1, "BUY"));
-      const tp2Price  = round(floorTarget(entryRef, slPrice, entryRef + patWidth,         MIN_RR_TP2, "BUY"));
-      signal     = "BUY";
-      signalType = "PATTERN_BREAKOUT";
-      entryPrice  = round(entryRef);
-      stopLoss    = slPrice;
-      takeProfit1 = tp1Price;
-      takeProfit2 = tp2Price;
-      signalReason = `[${tfLabel}] PATTERN BREAKOUT BUY: ${patLabel} breakout confirmed — limit at neckline retest ${fmt(entryRef)}, SL ${fmt(stopLoss)} (below pattern support), TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)} (${(patWidth / (entryRef - slPrice)).toFixed(1)}R pattern projection).`;
-    } else if (cp.direction === "bearish" && trendBearishBreakout && patBONotFalseBreakSell && !isLongOnly && patBreakoutSellZoneOk) {
-      // Limit entry at the neckline retest (broken lower boundary → resistance).
-      const entryRef  = cp.necklinePrice;
-      const slPrice   = round(entryRef + atr * 0.75); // 0.75 ATR gives room past normal retest wicks
-      const tp1Price  = round(floorTarget(entryRef, slPrice, entryRef - patWidth * 0.6,  MIN_RR_TP1, "SELL"));
-      const tp2Price  = round(floorTarget(entryRef, slPrice, entryRef - patWidth,         MIN_RR_TP2, "SELL"));
-      signal     = "SELL";
-      signalType = "PATTERN_BREAKOUT";
-      entryPrice  = round(entryRef);
-      stopLoss    = slPrice;
-      takeProfit1 = tp1Price;
-      takeProfit2 = tp2Price;
-      signalReason = `[${tfLabel}] PATTERN BREAKOUT SELL: ${patLabel} breakdown confirmed — limit at neckline retest ${fmt(entryRef)}, SL ${fmt(stopLoss)} (above pattern resistance), TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)} (${(patWidth / (slPrice - entryRef)).toFixed(1)}R pattern projection).`;
-    }
-  }
-
-  // ─── TREND_BOUNCE ─────────────────────────────────────────────────────────────
-  // Fires in a CONFIRMED TREND when price pulls back to the S1/R1 zone and the
-  // MACD histogram just crossed zero — the timing signal the user described:
-  //   Downtrend → bounce to R1 → MACD flips red → SELL
-  //   Uptrend   → dip to S1   → MACD flips green → BUY
-  //
-  // This is the trend complement to PIVOT_BOUNCE (which requires RANGING).
-  // PIVOT_BOUNCE fades the zone in choppy/sideways markets; TREND_BOUNCE
-  // fades the zone in directional markets using MACD crossover as the
-  // precise entry bar (not just "MACD is bearish" — specifically the flip bar).
-  //
-  // Location gate: price within 1.5 ATR of the zone in the bounce direction
-  // (above sellZoneHigh for sells, below buyZoneLow for buys) to allow for
-  // entries slightly extended past the zone boundary (channel-top entries
-  // often pip slightly above R1 before rejecting).
-  //
-  // Confirmed reversal patterns (patternBullish/patternBearish) block the signal
-  // to avoid fading into an IHS/HS neckline breakout.
-  if (signal === "WAIT" && macdWarm) {
-    const macdFlippedRed   = histPrev2 >= 0 && histPrev1 < 0;
-    const macdFlippedGreen = histPrev2 <= 0 && histPrev1 > 0;
-    // Zone proximity tightened to ±0.5 ATR (was +1.5 ATR above sell zone for sells,
-    // −1.5 ATR below buy zone for buys). The old window let TREND_BOUNCE fire when
-    // price was 1.5 ATR PAST resistance/support — firing into empty air, not at the zone.
-    const nearSellZone = currentPrice >= sellZoneLow - atr * 0.5
-                      && currentPrice <= sellZoneHigh + atr * 0.5;
-    const nearBuyZone  = currentPrice >= buyZoneLow  - atr * 0.5
-                      && currentPrice <= Math.min(buyZoneHigh + atr * 0.5, pivots.r1);
-
-    if (trend === "DOWNTREND" && macdFlippedRed && nearSellZone
-        && !isLongOnly && !patternBullish
-        && zoneTestedSell          // last completed bar tested and held the sell zone
-        && closedBarBearish        // confirmed bearish close — no entry on doji/green bar
-        && (isNaN(rsi) || rsi >= 45)) { // RSI not already deeply oversold — don't short the bottom
-      const slPrice  = round(sellZoneHigh + atr * 0.5);
-      // Entry anchored at R1 (the zone level the bounce is happening at), not currentPrice.
-      const ep = round(pivots.r1);
-      const tp1Price = round(floorTarget(ep, slPrice, ep - (ep - buyZoneHigh) * 0.5, MIN_RR_TP1, "SELL"));
-      const tp2Price = round(floorTarget(ep, slPrice, buyZoneHigh, MIN_RR_TP2, "SELL"));
-      signal     = "SELL";
-      signalType = "TREND_BOUNCE";
-      entryPrice  = ep;
-      stopLoss    = slPrice;
-      takeProfit1 = tp1Price;
-      takeProfit2 = tp2Price;
-      signalReason = `[${tfLabel}] TREND BOUNCE SELL: MACD flipped red (${histPrev2.toFixed(5)} → ${histPrev1.toFixed(5)}) near R1 resistance ${fmt(sellZoneLow)}–${fmt(sellZoneHigh)} in downtrend. Entry ${fmt(entryPrice)} (R1 zone), SL ${fmt(stopLoss)} (above resistance), TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)} (S1 support).`;
-    } else if (trend === "UPTREND" && macdFlippedGreen && nearBuyZone && !patternBearish
-               && zoneTestedBuy          // last completed bar tested and held the buy zone
-               && closedBarBullish       // confirmed bullish close — no doji/red-bar entries
-               && (isNaN(rsi) || rsi <= 55)) { // RSI not already overbought — don't buy the top
-      const slPrice  = round(buyZoneLow - atr * 0.5);
-      // Entry anchored at S1 (the zone level the dip is touching), not currentPrice.
-      const ep = round(pivots.s1);
-      const tp1Price = round(floorTarget(ep, slPrice, ep + (sellZoneLow - ep) * 0.5, MIN_RR_TP1, "BUY"));
-      const tp2Price = round(floorTarget(ep, slPrice, sellZoneLow, MIN_RR_TP2, "BUY"));
-      signal     = "BUY";
-      signalType = "TREND_BOUNCE";
-      entryPrice  = ep;
-      stopLoss    = slPrice;
-      takeProfit1 = tp1Price;
-      takeProfit2 = tp2Price;
-      signalReason = `[${tfLabel}] TREND BOUNCE BUY: MACD flipped green (${histPrev2.toFixed(5)} → ${histPrev1.toFixed(5)}) near S1 support ${fmt(buyZoneLow)}–${fmt(buyZoneHigh)} in uptrend. Entry ${fmt(entryPrice)} (S1 zone), SL ${fmt(stopLoss)} (below support), TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)} (R1 resistance).`;
-    }
-  }
-
-  // ─── FIB_BREAK ────────────────────────────────────────────────────────────────
-  // Fires when price recently closed through a key Fibonacci level (acting as S/R).
-  //   Break below .236 → SELL  (former support broken, target .382 / .500)
-  //   Break below .382 → SELL  (deeper breakdown,      target .500 / .618)
-  //   Break above .786 → BUY   (deepest support reclaimed, target .618 / .500)
-  //   Break above .618 → BUY   (golden ratio reclaimed,    target .500 / .382)
-  //
-  // Scans up to FIB_BREAK_STALE completed bars backward to find the crossover bar,
-  // so the signal fires even if evaluation runs one bar after the actual break.
-  // currentPrice must still be on the break side (stale signal auto-expires).
-  if (signal === "WAIT") {
-    const FIB_BREAK_STALE = 5;
-    const nc = candles.length;
-
-    const recentBrokeDown = (level: number): boolean => {
-      if (currentPrice >= level) return false;
-      for (let i = nc - 2; i >= Math.max(1, nc - 2 - FIB_BREAK_STALE); i--) {
-        if (candles[i].close < level && candles[i - 1].close >= level) return true;
-      }
-      return false;
-    };
-
-    const recentBrokeUp = (level: number): boolean => {
-      if (currentPrice <= level) return false;
-      for (let i = nc - 2; i >= Math.max(1, nc - 2 - FIB_BREAK_STALE); i--) {
-        if (candles[i].close > level && candles[i - 1].close <= level) return true;
-      }
-      return false;
-    };
-
-    // Fail-CLOSED: require MACD to be warm and actually confirming direction.
-    const macdDeclining = macdWarm && histPrev1 < histPrev2;
-    const macdRising    = macdWarm && histPrev1 > histPrev2;
-
-    if (!isLongOnly && strongCloseBearish && macdDeclining && trend !== "UPTREND"
-        && (isNaN(rsi) || rsi >= 45)) { // not already deeply oversold — don't short the bottom
-      const broke236 = recentBrokeDown(fibs.fib236);
-      const broke382 = !broke236 && recentBrokeDown(fibs.fib382);
-      if (broke236 || broke382) {
-        const brokenLevel = broke236 ? fibs.fib236 : fibs.fib382;
-        const tp1Fib      = broke236 ? fibs.fib382  : fibs.fib500;
-        const tp2Fib      = broke236 ? fibs.fib500  : fibs.fib618;
-        const fibLabel    = broke236 ? "23.6%" : "38.2%";
-        const tp1Label    = broke236 ? "38.2%" : "50.0%";
-        const tp2Label    = broke236 ? "50.0%" : "61.8%";
-        signal      = "SELL";
-        signalType  = "FIB_BREAK";
-        entryPrice  = round(currentPrice);
-        stopLoss    = round(brokenLevel + atr * 0.5);
-        takeProfit1 = round(floorTarget(entryPrice, stopLoss, tp1Fib, MIN_RR_TP1, "SELL"));
-        takeProfit2 = round(floorTarget(entryPrice, stopLoss, tp2Fib, MIN_RR_TP2, "SELL"));
-        signalReason = `[${tfLabel}] FIB BREAK SELL: Price (${fmt(currentPrice)}) closed below the ${fibLabel} Fibonacci level (${fmt(brokenLevel)}) — former support broken. Entry ${fmt(entryPrice)}, SL ${fmt(stopLoss)} (above broken fib), TP1 ${fmt(takeProfit1)} (${tp1Label} fib), TP2 ${fmt(takeProfit2)} (${tp2Label} fib).`;
-      }
-    }
-
-    if (signal === "WAIT" && strongCloseBullish && macdRising && trend !== "DOWNTREND"
-        && (isNaN(rsi) || rsi <= 55)) { // not already overbought — don't buy the top
-      const broke786 = recentBrokeUp(fibs.fib786);
-      const broke618 = !broke786 && recentBrokeUp(fibs.fib618);
-      if (broke786 || broke618) {
-        const brokenLevel = broke786 ? fibs.fib786 : fibs.fib618;
-        const tp1Fib      = broke786 ? fibs.fib618  : fibs.fib500;
-        const tp2Fib      = broke786 ? fibs.fib500  : fibs.fib382;
-        const fibLabel    = broke786 ? "78.6%" : "61.8%";
-        const tp1Label    = broke786 ? "61.8%" : "50.0%";
-        const tp2Label    = broke786 ? "50.0%" : "38.2%";
-        signal      = "BUY";
-        signalType  = "FIB_BREAK";
-        entryPrice  = round(currentPrice);
-        stopLoss    = round(brokenLevel - atr * 0.5);
-        takeProfit1 = round(floorTarget(entryPrice, stopLoss, tp1Fib, MIN_RR_TP1, "BUY"));
-        takeProfit2 = round(floorTarget(entryPrice, stopLoss, tp2Fib, MIN_RR_TP2, "BUY"));
-        signalReason = `[${tfLabel}] FIB BREAK BUY: Price (${fmt(currentPrice)}) closed above the ${fibLabel} Fibonacci level (${fmt(brokenLevel)}) — former resistance reclaimed. Entry ${fmt(entryPrice)}, SL ${fmt(stopLoss)} (below reclaimed fib), TP1 ${fmt(takeProfit1)} (${tp1Label} fib), TP2 ${fmt(takeProfit2)} (${tp2Label} fib).`;
-      }
-    }
-  }
-
-  // ─── PIVOT_BOUNCE + BREAKOUT ─────────────────────────────────────────────────
-  // Only runs when DAGGER and PATTERN_BREAKOUT didn't fire. PIVOT_BOUNCE checks
-  // S1/R1 zone touches; BREAKOUT checks R2/S2 momentum breaks. FIB_BOUNCE follows.
-  if (signal === "WAIT") {
-  if (pivotBounceEnabled && inBuyZone && buyAllowed && !patternBearish) {
-    // Only fire when price is ACTUALLY IN the buy zone — not approaching from above.
-    // "Approaching" signals generated 46 MISSED trades in production (price went
-    // to TP without filling the limit at S1, or filled into a falling knife).
-    // Entry anchored at S1 (zone centre) — not currentPrice. inBuyZone guarantees
-    // price is within ±0.5×ATR of S1, so S1 is always achievable on a limit.
-    // Using currentPrice when price has bounced to buyZoneHigh gives an entry that
-    // is 1×ATR above the structural level, showing false drawdown immediately.
-    signal = "BUY";
-    entryPrice = round(pivots.s1);
-    stopLoss = round(buyZoneLow - atr * 0.5);
-    takeProfit1 = round(floorTarget(entryPrice, stopLoss, pivots.pivot, MIN_RR_TP1, "BUY"));
-    takeProfit2 = round(floorTarget(entryPrice, stopLoss, sellZoneLow, MIN_RR_TP2, "BUY"));
-    // BB mean-reversion TP override: when price is at/near the lower band,
-    // the middle band (SMA20) is the natural first target — price reliably
-    // returns to the mean after touching the band.
-    const bbBuyTpNote = bbAtLower && bb
-      ? (() => {
-          takeProfit1 = round(floorTarget(entryPrice, stopLoss, bb.middle, MIN_RR_TP1, "BUY"));
-          return ` 📉 Price at lower BB (lower ${fmt(bb.lower)} · mid ${fmt(bb.middle)} · upper ${fmt(bb.upper)}) — TP1 set to BB middle (mean reversion target).`;
-        })()
-      : bb ? ` BB: ${fmt(bb.lower)} / ${fmt(bb.middle)} / ${fmt(bb.upper)}.` : "";
-    const pivotRegimeTag = `ADX ${adxWarm ? adx.toFixed(1) : "—"} · CI ${Number.isFinite(choppiness) ? choppiness.toFixed(1) : "—"}`;
-    signalReason = `[${tfLabel}] PIVOT BUY (RANGING): Price (${fmt(currentPrice)}) at S1 support zone ${fmt(buyZoneLow)}–${fmt(buyZoneHigh)}. Market is ranging — mean-reversion setup (${pivotRegimeTag}). Bullish reversal bar confirmed on last close. Entry ${fmt(entryPrice)} (S1 zone), SL ${fmt(stopLoss)}, TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)}.${bbBuyTpNote}`;
-  } else if (pivotBounceEnabled && inBuyZone && buyAllowed && patternBearish) {
-    // All zone + indicator conditions are met but a confirmed bearish chart pattern
-    // specifically blocks this BUY. Mark `patternVetoed` so the annotation correctly
-    // attributes the suppression to the pattern rather than zone/indicator conditions.
-    patternVetoed = true;
-    signal = "WAIT";
-    entryPrice = round(pivots.s1);
-    stopLoss = round(buyZoneLow - atr * 0.5);
-    takeProfit1 = round(floorTarget(entryPrice, stopLoss, pivots.pivot, MIN_RR_TP1, "BUY"));
-    takeProfit2 = round(floorTarget(entryPrice, stopLoss, sellZoneLow, MIN_RR_TP2, "BUY"));
-    signalReason = `[${tfLabel}] Price is in the buy zone (${fmt(buyZoneLow)}–${fmt(buyZoneHigh)}) and all conditions are met, but entry is blocked by a bearish reversal pattern (forming or confirmed).`;
-  } else if (pivotBounceEnabled && inSellZone && sellAllowed && !patternBullish) {
-    // Same logic as buy: only fire when price is ACTUALLY IN the sell zone.
-    // Entry anchored at R1 (zone centre) — not currentPrice. Same rationale as BUY:
-    // currentPrice at the bottom of inSellZone is still 1×ATR below R1, giving a
-    // worse short reference point and inflated R:R illusion.
-    signal = "SELL";
-    entryPrice = round(pivots.r1);
-    stopLoss = round(sellZoneHigh + atr * 0.5);
-    takeProfit1 = round(floorTarget(entryPrice, stopLoss, pivots.pivot, MIN_RR_TP1, "SELL"));
-    takeProfit2 = round(floorTarget(entryPrice, stopLoss, buyZoneHigh, MIN_RR_TP2, "SELL"));
-    // BB mean-reversion TP override: when price is at/near the upper band,
-    // the middle band (SMA20) is the natural first target.
-    const bbSellTpNote = bbAtUpper && bb
-      ? (() => {
-          takeProfit1 = round(floorTarget(entryPrice, stopLoss, bb.middle, MIN_RR_TP1, "SELL"));
-          return ` 📈 Price at upper BB (lower ${fmt(bb.lower)} · mid ${fmt(bb.middle)} · upper ${fmt(bb.upper)}) — TP1 set to BB middle (mean reversion target).`;
-        })()
-      : bb ? ` BB: ${fmt(bb.lower)} / ${fmt(bb.middle)} / ${fmt(bb.upper)}.` : "";
-    const pivotRegimeTagSell = `ADX ${adxWarm ? adx.toFixed(1) : "—"} · CI ${Number.isFinite(choppiness) ? choppiness.toFixed(1) : "—"}`;
-    signalReason = `[${tfLabel}] PIVOT SELL (RANGING): Price (${fmt(currentPrice)}) at R1 resistance zone ${fmt(sellZoneLow)}–${fmt(sellZoneHigh)}. Market is ranging — mean-reversion setup (${pivotRegimeTagSell}). Bearish rejection bar confirmed on last close. Entry ${fmt(entryPrice)} (R1 zone), SL ${fmt(stopLoss)}, TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)}.${bbSellTpNote}`;
-  } else if (pivotBounceEnabled && inSellZone && sellAllowed && patternBullish) {
-    // All zone + indicator conditions are met but a confirmed bullish chart pattern
-    // specifically blocks this SELL.
-    patternVetoed = true;
-    signal = "WAIT";
-    entryPrice = round(pivots.r1);
-    stopLoss = round(sellZoneHigh + atr * 0.5);
-    takeProfit1 = round(floorTarget(entryPrice, stopLoss, pivots.pivot, MIN_RR_TP1, "SELL"));
-    takeProfit2 = round(floorTarget(entryPrice, stopLoss, buyZoneHigh, MIN_RR_TP2, "SELL"));
-    signalReason = `[${tfLabel}] Price is in the sell zone (${fmt(sellZoneLow)}–${fmt(sellZoneHigh)}) and all conditions are met, but entry is blocked by a bullish reversal pattern (forming or confirmed).`;
-  } else if (inBuyZone && !buyAllowed) {
-    signal = "WAIT";
-    const blockNote =
-      useEma200Gate && !ema200BuyOk
-        ? ` Price below EMA200 (${fmt(prevEma200)}) — institutional bear bias, fade suppressed.`
-        : !isNaN(rsi) && rsi > RSI_OVERSOLD
-        ? ` RSI ${rsi.toFixed(0)} not yet oversold (need ≤${RSI_OVERSOLD}) — wait for exhaustion.`
-        : macdWarm && !macdBuyOk
-        ? ` MACD histogram still falling — selling momentum not yet cooling. Wait for the turn.`
-        : !closedBarBullish
-        ? ` Last bar closed bearish — wait for a bullish close inside the zone before entering.`
-        : ` Conditions not yet met.`;
-    signalReason = `[${tfLabel}] Price is in the buy zone (${fmt(buyZoneLow)}–${fmt(buyZoneHigh)}) but conditions not met.${blockNote}`;
-    // Entry stays inside the buy zone — show a pending BUY at S1, not a SELL.
-    // Swapping to a SELL entry (old code used R1) was a direction inversion bug:
-    // price is at support, so the pending setup is a BUY if conditions improve.
-    entryPrice = round(pivots.s1);
-    stopLoss = round(buyZoneLow - atr * 0.5);
-    takeProfit1 = round(floorTarget(entryPrice, stopLoss, pivots.pivot, MIN_RR_TP1, "BUY"));
-    takeProfit2 = round(floorTarget(entryPrice, stopLoss, sellZoneLow, MIN_RR_TP2, "BUY"));
-  } else if (inSellZone && !sellAllowed) {
-    signal = "WAIT";
-    const blockNote =
-      useEma200Gate && !ema200SellOk
-        ? ` Price above EMA200 (${fmt(prevEma200)}) — institutional bull bias, fade suppressed.`
-        : !isNaN(rsi) && rsi < RSI_OVERBOUGHT
-        ? ` RSI ${rsi.toFixed(0)} not yet overbought (need ≥${RSI_OVERBOUGHT}) — wait for exhaustion.`
-        : macdWarm && !macdSellOk
-        ? ` MACD histogram still rising — buying momentum not yet cooling. Wait for the turn.`
-        : !closedBarBearish
-        ? ` Last bar closed bullish — wait for a bearish close inside the zone before entering.`
-        : ` Conditions not yet met.`;
-    signalReason = `[${tfLabel}] Price is in the sell zone (${fmt(sellZoneLow)}–${fmt(sellZoneHigh)}) but conditions not met.${blockNote}`;
-    // Entry stays inside the sell zone — show a pending SELL at R1, not a BUY.
-    // The old code showed a BUY at S1 while price was at resistance — direction inversion.
-    entryPrice = round(pivots.r1);
-    stopLoss = round(sellZoneHigh + atr * 0.5);
-    takeProfit1 = round(floorTarget(entryPrice, stopLoss, pivots.pivot, MIN_RR_TP1, "SELL"));
-    takeProfit2 = round(floorTarget(entryPrice, stopLoss, buyZoneHigh, MIN_RR_TP2, "SELL"));
-  } else {
-    signal = "WAIT";
-    const aboveSellZone = currentPrice > sellZoneHigh;
-    const belowBuyZone = currentPrice < buyZoneLow;
-
-    if (aboveSellZone) {
-      const distAboveSell = round(currentPrice - sellZoneHigh);
-      const distToR2 = round(pivots.r2 - currentPrice);
-      signalReason = `[${tfLabel}] Price (${fmt(currentPrice)}) has cleared the sell zone and is ${fmt(distAboveSell)} above resistance. ${distToR2 > 0 ? `Watch R2 at ${fmt(pivots.r2)} (${fmt(distToR2)} away) for the next sell opportunity.` : `Price is above R2 — momentum play, no clean entry zone yet.`} Wait for a pullback into a zone.`;
-      if (distToR2 > 0) {
-        // R2 is above current — pending SELL at R2 keeps entry above price ✓
-        entryPrice = round(pivots.r2);
-        stopLoss = round(pivots.r2 + atr * 0.5);
-        takeProfit1 = round(floorTarget(entryPrice, stopLoss, pivots.pivot, MIN_RR_TP1, "SELL"));
-        takeProfit2 = round(floorTarget(entryPrice, stopLoss, buyZoneHigh, MIN_RR_TP2, "SELL"));
-      } else if (breakoutEnabled && breakoutBuyOk) {
-        // Momentum breakout: price cleared R2 with RSI + EMA trend aligned.
-        // Market-entry BUY; SL is 1×ATR below entry so risk scales with fill price,
-        // not with how far price has run from R2.
-        signal = "BUY";
-        signalType = "BREAKOUT";
-        entryPrice = round(currentPrice);
-        stopLoss = round(entryPrice - atr);
-        // TP must always be above entry — if price has already blown past R3, fall
-        // back to ATR multiples above entry so TP1/TP2 are never below entry.
-        takeProfit1 = round(Math.max(pivots.r3, entryPrice + atr));
-        takeProfit2 = round(Math.max(pivots.r3 + atr, entryPrice + atr * 2));
-        signalReason = `[${tfLabel}] BREAKOUT BUY: Price (${fmt(currentPrice)}) cleared R2 ${fmt(pivots.r2)} by ≥0.25×ATR with strong-close confirmation (RSI ${rsi.toFixed(0)}, EMA21>50, MACD+rising). Market entry, SL ${fmt(stopLoss)} (1×ATR below entry), TP1 = ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)}.`;
-      } else {
-        // Price is above R2, no breakout confirmation — show pending BUY at S1 on a pullback.
-        entryPrice = round(pivots.s1);
-        stopLoss = round(buyZoneLow - atr * 0.5);
-        takeProfit1 = round(floorTarget(entryPrice, stopLoss, pivots.pivot, MIN_RR_TP1, "BUY"));
-        takeProfit2 = round(floorTarget(entryPrice, stopLoss, sellZoneLow, MIN_RR_TP2, "BUY"));
-      }
-    } else if (belowBuyZone) {
-      const distBelowBuy = round(buyZoneLow - currentPrice);
-      const distToS2 = round(currentPrice - pivots.s2);
-      signalReason = `[${tfLabel}] Price (${fmt(currentPrice)}) has broken below the buy zone and is ${fmt(distBelowBuy)} below support. ${distToS2 > 0 ? `Watch S2 at ${fmt(pivots.s2)} (${fmt(distToS2)} away) for the next buy opportunity.` : `Price is below S2 — wait for stabilization before entering.`}`;
-      if (distToS2 > 0) {
-        // S2 is below current — pending BUY at S2 keeps entry below price ✓
-        entryPrice = round(pivots.s2);
-        stopLoss = round(pivots.s2 - atr * 0.5);
-        takeProfit1 = round(floorTarget(entryPrice, stopLoss, pivots.pivot, MIN_RR_TP1, "BUY"));
-        takeProfit2 = round(floorTarget(entryPrice, stopLoss, sellZoneLow, MIN_RR_TP2, "BUY"));
-      } else if (breakoutEnabled && breakdownSellOk) {
-        // Momentum breakdown: price broke S2 with RSI + EMA trend aligned.
-        // Market-entry SELL; SL is 1×ATR above entry so risk scales with fill price,
-        // not with how far price has fallen from S2.
-        signal = "SELL";
-        signalType = "BREAKOUT";
-        entryPrice = round(currentPrice);
-        stopLoss = round(entryPrice + atr);
-        // TP must always be below entry — if price has already blown past S3, fall
-        // back to ATR multiples below entry so TP1/TP2 are never above entry.
-        takeProfit1 = round(Math.min(pivots.s3, entryPrice - atr));
-        takeProfit2 = round(Math.min(pivots.s3 - atr, entryPrice - atr * 2));
-        signalReason = `[${tfLabel}] BREAKDOWN SELL: Price (${fmt(currentPrice)}) broke S2 ${fmt(pivots.s2)} by ≥0.25×ATR with strong-close confirmation (RSI ${rsi.toFixed(0)}, EMA21<50, MACD-falling). Market entry, SL ${fmt(stopLoss)} (1×ATR above entry), TP1 = ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)}.`;
-      } else {
-        // Price is below S2, no breakdown confirmation — show pending SELL at R1 on a bounce.
-        entryPrice = round(pivots.r1);
-        stopLoss = round(sellZoneHigh + atr * 0.5);
-        takeProfit1 = round(floorTarget(entryPrice, stopLoss, pivots.pivot, MIN_RR_TP1, "SELL"));
-        takeProfit2 = round(floorTarget(entryPrice, stopLoss, buyZoneHigh, MIN_RR_TP2, "SELL"));
-      }
-    } else {
-      const distToBuy = round(currentPrice - buyZoneHigh);
-      const distToSell = round(sellZoneLow - currentPrice);
-      signalReason = `[${tfLabel}] Price (${fmt(currentPrice)}) is in no-trade territory — ${fmt(distToBuy)} above the buy zone (${fmt(buyZoneLow)}–${fmt(buyZoneHigh)}) and ${fmt(distToSell)} below the sell zone (${fmt(sellZoneLow)}–${fmt(sellZoneHigh)}). Wait for price to reach a zone.`;
-      // Direction is symmetric: established trend takes priority, then whichever
-      // momentum condition (buyAllowed / sellAllowed) is active. No built-in bias.
-      const dir: "BUY" | "SELL" =
-        trend === "UPTREND"   ? "BUY"  :
-        trend === "DOWNTREND" ? "SELL" :
-        sellAllowed           ? "SELL" : "BUY";
-      entryPrice = round(dir === "BUY" ? pivots.s1 : pivots.r1);
-      stopLoss = round(dir === "BUY" ? buyZoneLow - atr * 0.5 : sellZoneHigh + atr * 0.5);
-      const structural1 = pivots.pivot;
-      const structural2 = dir === "BUY" ? sellZoneLow : buyZoneHigh;
-      takeProfit1 = round(floorTarget(entryPrice, stopLoss, structural1, MIN_RR_TP1, dir));
-      takeProfit2 = round(floorTarget(entryPrice, stopLoss, structural2, MIN_RR_TP2, dir));
-    }
-  }
-  } // end if (signal === "WAIT") — PIVOT_BOUNCE + BREAKOUT
-
-  // ─── FIB_BOUNCE: lowest priority — only fires when PIVOT and BREAKOUT both ──
-  // leave signal = WAIT. FIB_BOUNCE only fires on BUY (long bias — pocket
-  // entries are defined against upward impulse swings). Sell-side fib entries
-  // are not implemented; the pivot SELL zone handles shorts.
-  if (signal === "WAIT" && fibBounceEnabled && (inGoldenPocket || approachingGoldenPocket) && buyAllowed) {
-    signal = "BUY";
-    signalType = "FIB_BOUNCE";
-    // Entry: fib 61.8% level (deepest structural support in the pocket). Clamp
-    // to currentPrice so the entry never sits above the live print.
-    entryPrice = round(Math.min(goldenPocket!.fib618, currentPrice));
-    // SL: just below the 65% level + 0.5×ATR buffer. A close below 65% invalidates
-    // the golden pocket — the impulse has retraced too deeply to be a bounce.
-    stopLoss = round(goldenPocket!.low - atr * 0.5);
-    // TP1: swing high (100% recovery of the impulse) — the natural target of a
-    // golden pocket bounce trade. Floored at 1.5R.
-    // TP2: swing high + 0.5×ATR extension. Floored at 2.5R.
-    takeProfit1 = round(floorTarget(entryPrice, stopLoss, impulse!.swingHigh,             MIN_RR_TP1, "BUY"));
-    takeProfit2 = round(floorTarget(entryPrice, stopLoss, impulse!.swingHigh + atr * 0.5, MIN_RR_TP2, "BUY"));
-    signalReason = inGoldenPocket
-      ? `[${tfLabel}] FIB GOLDEN POCKET BUY: Price (${fmt(currentPrice)}) is retracing into the 61.8–65% golden pocket (${fmt(goldenPocket!.low)}–${fmt(goldenPocket!.high)}) of the ${fmt(impulse!.swingLow)}→${fmt(impulse!.swingHigh)} impulse. High-probability bounce zone — limit entry near ${fmt(entryPrice)}, SL ${fmt(stopLoss)}, TP1 ${fmt(takeProfit1)}, TP2 ${fmt(takeProfit2)}.`
-      : `[${tfLabel}] FIB GOLDEN POCKET approaching: Price (${fmt(currentPrice)}) is within ${fmt(currentPrice - goldenPocket!.high)} of the golden pocket (${fmt(goldenPocket!.low)}–${fmt(goldenPocket!.high)}). Stage a limit order at ${fmt(goldenPocket!.fib618)} (61.8% of ${fmt(impulse!.swingLow)}→${fmt(impulse!.swingHigh)}).`;
-  }
-
-  // ─── Pattern annotation (append to signalReason) ─────────────────────────────
-  // Adds a brief suffix so the trader can see pattern context in the reason text.
-  // Veto note: when a confirmed pattern blocked an entry the signal is WAIT;
-  //   append which pattern caused the gate so it is visible in the UI.
-  // Reinforce note: when the signal direction agrees with the pattern append a
-  //   confirmation marker — useful for trade conviction.
-  // ── Chart-pattern annotation ──────────────────────────────────────────────
-  // Appends veto or reinforcement notes from the multi-bar chart pattern.
-  if (chartPattern && signalReason) {
-    const label        = PATTERN_LABELS[chartPattern.pattern] ?? chartPattern.pattern;
-    const confirmedStr = chartPattern.confirmed ? "confirmed" : "forming";
-
-    if (patternVetoed) {
-      // Only append veto text when the reversal pattern was the specific blocking factor.
-      const blocked = patternBearish ? "BUY" : "SELL";
-      signalReason += ` [${label} (${confirmedStr}) — ${blocked} entry suppressed by reversal pattern gate.]`;
-    } else if (signal !== "WAIT") {
-      const signalDir = signal === "BUY" ? "bullish" : "bearish";
-      if (signalDir === chartPattern.direction) {
-        signalReason += ` [Aligned with ${label} (${confirmedStr}).]`;
-      } else if (chartPattern.confirmed && chartPattern.category !== "reversal") {
-        signalReason += ` [Note: ${label} (confirmed) suggests opposite direction — monitor.]`;
-      }
-    }
-  }
-
-  // ── Candlestick annotation — always applied independently ─────────────────
-  // Candlestick patterns are a final-bar confirmation layer. They are evaluated
-  // regardless of whether a multi-bar chart pattern was also found.
-  // They never veto — they only add alignment or mismatch notes.
-  if (candlestickResult && signalReason) {
-    const csLabel  = PATTERN_LABELS[candlestickResult.pattern] ?? candlestickResult.pattern;
-    const csDir    = candlestickResult.direction;
-    const signalDir = signal === "BUY" ? "bullish" : signal === "SELL" ? "bearish" : null;
-    if (signalDir && signalDir === csDir) {
-      signalReason += ` [${csLabel} — aligned ${csDir} candlestick signal on the last bar.]`;
-    } else if (signalDir && signalDir !== csDir) {
-      signalReason += ` [${csLabel} — ${csDir} candlestick signal on last bar (counter-signal, monitor).]`;
-    } else {
-      // signal === "WAIT"
-      signalReason += ` [${csLabel} — ${csDir} candlestick signal on the last closed bar.]`;
-    }
-  }
-
-  // ── Minimum SL floor ─────────────────────────────────────────────────────
-  // Guarantees |entry − SL| ≥ 1.0 ATR regardless of how narrow the structural
-  // zone was. Prevents sub-1-pip stops on tight forex pairs (e.g. AUDUSD 30m
-  // where 0.5 ATR = 2 pips — easily clipped by a normal wick).
-  if (signal !== "WAIT" && entryPrice > 0 && stopLoss > 0 && atr > 0) {
-    const minSlDist = atr * 1.5;
-    if (Math.abs(entryPrice - stopLoss) < minSlDist) {
-      stopLoss = round(signal === "BUY" ? entryPrice - minSlDist : entryPrice + minSlDist);
-    }
-  }
-
-  // ─── Swing / Position TP extension ─────────────────────────────────────────
-  // Scalps (15m/30m) keep the default zone-to-zone targets.
-  // Swing (1h/4h): TP1 shifts to where TP2 was; TP2 extends one more TP-gap
-  //   forward — landing roughly at the next structural level (R2/S2 territory).
-  // Position (1d+): same shift, plus an additional half-gap so the trade has
-  //   room to run through the full daily/weekly swing.
-  // The signalReason text is patched so the numbers stay consistent with the
-  // displayed targets. floorTarget re-applied as a safety net on both new levels.
-  if ((signal === "BUY" || signal === "SELL") && timeframe !== "15m" && timeframe !== "30m") {
-    const isSwing   = timeframe === "1h" || timeframe === "4h";
-    const dir       = signal === "BUY" ? 1 : -1;
-    const tpGap     = Math.abs(takeProfit2 - takeProfit1);
-    if (tpGap > 0) {
-      const oldTp1Str = fmt(takeProfit1);
-      const oldTp2Str = fmt(takeProfit2);
-
-      const newTp1Raw = isSwing
-        ? takeProfit2                                     // TP1 → old TP2
-        : round(takeProfit2 + dir * tpGap * 0.5);        // Position: half-gap above old TP2
-      const newTp2Raw = isSwing
-        ? round(takeProfit2 + dir * tpGap)               // TP2 → one full gap further
-        : round(takeProfit2 + dir * tpGap * 1.5);        // Position: 1.5 gaps further
-
-      const newTp1 = round(floorTarget(entryPrice, stopLoss, newTp1Raw, MIN_RR_TP1, signal));
-      const newTp2 = round(floorTarget(entryPrice, stopLoss, newTp2Raw, MIN_RR_TP2, signal));
-
-      // Patch the TP numbers embedded in the reason text before overwriting.
-      signalReason = signalReason
-        .replace(`TP1 ${oldTp1Str}`, `TP1 ${fmt(newTp1)}`)
-        .replace(`TP2 ${oldTp2Str}`, `TP2 ${fmt(newTp2)}`);
-      takeProfit1 = newTp1;
-      takeProfit2 = newTp2;
-    }
-  }
+  // Entry zone for chart display: ±FIB50_TOLERANCE_ATR around the entry price.
+  const entryZoneLow  = round(entryPrice - FIB50_TOLERANCE_ATR * atr);
+  const entryZoneHigh = round(entryPrice + FIB50_TOLERANCE_ATR * atr);
+  const buyZoneLow    = signal === "BUY"  ? entryZoneLow  : round(currentPrice - FIB50_TOLERANCE_ATR * atr);
+  const buyZoneHigh   = signal === "BUY"  ? entryZoneHigh : round(currentPrice + FIB50_TOLERANCE_ATR * atr);
+  const sellZoneLow   = signal === "SELL" ? entryZoneLow  : round(currentPrice - FIB50_TOLERANCE_ATR * atr);
+  const sellZoneHigh  = signal === "SELL" ? entryZoneHigh : round(currentPrice + FIB50_TOLERANCE_ATR * atr);
 
   const riskDist = Math.abs(entryPrice - stopLoss);
   const rewardDist = Math.abs(takeProfit1 - entryPrice);
@@ -2415,20 +1613,9 @@ export function computeLevels(
 
   type LevelType = "resistance" | "support" | "pivot";
   const levels: { label: string; price: number; type: LevelType }[] = [
-    { label: "R3",         price: pivots.r3,      type: "resistance" as LevelType },
-    { label: "R2",         price: pivots.r2,      type: "resistance" as LevelType },
-    { label: "R1",         price: pivots.r1,      type: "resistance" as LevelType },
-    { label: "Pivot",      price: pivots.pivot,   type: "pivot"      as LevelType },
-    { label: "S1",         price: pivots.s1,      type: "support"    as LevelType },
-    { label: "S2",         price: pivots.s2,      type: "support"    as LevelType },
-    { label: "S3",         price: pivots.s3,      type: "support"    as LevelType },
-    { label: "Fib 23.6%",  price: fibs.fib236,    type: "resistance" as LevelType },
-    { label: "Fib 38.2%",  price: fibs.fib382,    type: "resistance" as LevelType },
-    { label: "Fib 50.0%",  price: fibs.fib500,    type: "pivot"      as LevelType },
-    { label: "Fib 61.8%",  price: fibs.fib618,    type: "support"    as LevelType },
-    { label: "Fib 78.6%",  price: fibs.fib786,    type: "support"    as LevelType },
-    { label: "Swing High", price: fibs.swingHigh, type: "resistance" as LevelType },
-    { label: "Swing Low",  price: fibs.swingLow,  type: "support"    as LevelType },
+    { label: "Swing High", price: displaySwingHigh, type: "resistance" as LevelType },
+    { label: "50% Fib",    price: displayFib50,     type: "pivot"      as LevelType },
+    { label: "Swing Low",  price: displaySwingLow,  type: "support"    as LevelType },
   ]
     .filter((l) => l.price > 0)
     .sort((a, b) => b.price - a.price);
@@ -2465,15 +1652,15 @@ export function computeLevels(
     choppiness: Number.isFinite(choppiness) ? choppiness : undefined,
     swingRhythm: swingRhythm ?? undefined,
     rsi: isNaN(rsi) ? undefined : rsi,
-    detectedPattern: patternResult?.pattern,
-    patternDirection: patternResult?.direction,
-    patternConfirmed: patternResult?.confirmed,
-    patternNeckline: patternResult?.necklinePrice,
-    patternUpperBound: patternResult?.upperBound,
-    patternNecklineStart: patternResult?.necklineStartPrice,
-    patternUpperBoundStart: patternResult?.upperBoundStartPrice,
-    patternStartDate: patternResult?.patternStartDate,
-    patternEndDate: patternResult?.patternEndDate,
+    detectedPattern: undefined,
+    patternDirection: undefined,
+    patternConfirmed: undefined,
+    patternNeckline: undefined,
+    patternUpperBound: undefined,
+    patternNecklineStart: undefined,
+    patternUpperBoundStart: undefined,
+    patternStartDate: undefined,
+    patternEndDate: undefined,
     lastUpdated: new Date().toISOString(),
     positionSizing,
   };
@@ -2497,7 +1684,7 @@ type Levels = ReturnType<typeof computeLevels>;
 
 interface ActiveTrade {
   signal: "BUY" | "SELL";
-  signalType?: "PIVOT_BOUNCE" | "BREAKOUT" | "FIB_BOUNCE" | "FIB_BREAK" | "DAGGER" | "PATTERN_BREAKOUT" | "TREND_BOUNCE" | "EMA_CROSS";
+  signalType?: "FIB50_SWING";
   signalReason: string;
   entryPrice: number;
   stopLoss: number;
@@ -2637,7 +1824,7 @@ function insertSignalLog(trade: ActiveTrade, symbolKey: string, timeframe: Timef
         symbolKey,
         timeframe,
         trade.signal,
-        trade.signalType ?? "PIVOT_BOUNCE",
+        trade.signalType ?? "FIB50_SWING",
         trade.entryPrice,
         trade.stopLoss,
         trade.takeProfit1,
@@ -2723,7 +1910,7 @@ function logClosedTrade(
         symbolKey,
         timeframe,
         trade.signal,
-        trade.signalType ?? "PIVOT_BOUNCE",
+        trade.signalType ?? "FIB50_SWING",
         trade.entryPrice,
         trade.stopLoss,
         trade.takeProfit1,
@@ -2769,14 +1956,11 @@ async function syncFromDb(): Promise<void> {
     for (const row of res.rows) {
       if (activeTrades.has(row.key)) continue; // local file wins for existing keys
       const v = row.data as Partial<ActiveTrade>;
+      // Skip trades from previous strategies — they have wrong levels for FIB50_SWING.
+      if (v.signalType !== "FIB50_SWING") continue;
       activeTrades.set(row.key, {
         ...(v as ActiveTrade),
-        signalType:
-          v.signalType === "PIVOT_BOUNCE" || v.signalType === "BREAKOUT" || v.signalType === "DAGGER" ||
-          v.signalType === "PATTERN_BREAKOUT" || v.signalType === "TREND_BOUNCE" || v.signalType === "EMA_CROSS" ||
-          v.signalType === "FIB_BREAK" || v.signalType === "FIB_BOUNCE"
-            ? v.signalType
-            : "PIVOT_BOUNCE",
+        signalType: "FIB50_SWING",
         triggered: typeof v.triggered === "boolean" ? v.triggered : false,
         openedPrice: typeof v.openedPrice === "number" ? v.openedPrice : (v.entryPrice ?? 0),
         openedCandleStartTs:
@@ -2788,23 +1972,19 @@ async function syncFromDb(): Promise<void> {
     }
     if (merged > 0) persistActiveTrades(); // flush merged DB state to local file
 
-    // ── One-time purge: drop BREAKOUT trades whose stored R:R < 1.0 ──────────
-    // These were recorded before the ATR-based SL formula was introduced.
-    // The riskRewardRatio field reflects TP1/risk at snapshot time; anything
-    // below 1.0 is a structurally bad entry that will re-register cleanly on
-    // the next signal cycle with the corrected formula.
+    // ── Purge zero-risk (corrupted) entries ──────────────────────────────────
     let purged = 0;
     for (const [k, trade] of activeTrades) {
       const zeroRisk = trade.entryPrice === trade.stopLoss || trade.stopLoss === 0;
-      if ((trade.signalType === "BREAKOUT" && trade.riskRewardRatio < 1.0) || zeroRisk) {
+      if (zeroRisk) {
         activeTrades.delete(k);
         purged++;
       }
     }
     if (purged > 0) {
-      persistActiveTrades(); // writes the cleaned set back to disk AND DB
+      persistActiveTrades();
       // eslint-disable-next-line no-console
-      console.warn(`[signals] Purged ${purged} stale low-RR BREAKOUT trade(s) on startup`);
+      console.warn(`[signals] Purged ${purged} zero-risk trade(s) on startup`);
     }
   } catch {
     // DB unreachable — proceed with file-only state.
@@ -2817,6 +1997,8 @@ function loadActiveTradesFromDisk(): void {
     const obj = JSON.parse(raw) as Record<string, Partial<ActiveTrade>>;
     let didMigrate = false;
     for (const [k, v] of Object.entries(obj)) {
+      // Skip trades from previous strategies — they have wrong levels for FIB50_SWING.
+      if (v.signalType !== "FIB50_SWING") { didMigrate = true; continue; }
       // Backward-compat for snapshots persisted before fill-tracking existed.
       // Default triggered=false; the next tick's candle scan since openedAt
       // will retroactively flip it to true if price actually did tag entry.
@@ -2830,12 +2012,7 @@ function loadActiveTradesFromDisk(): void {
       if (needsMigration) didMigrate = true;
       const migrated: ActiveTrade = {
         ...(v as ActiveTrade),
-        signalType:
-          v.signalType === "PIVOT_BOUNCE" || v.signalType === "BREAKOUT" || v.signalType === "DAGGER" ||
-          v.signalType === "PATTERN_BREAKOUT" || v.signalType === "TREND_BOUNCE" || v.signalType === "EMA_CROSS" ||
-          v.signalType === "FIB_BREAK" || v.signalType === "FIB_BOUNCE"
-            ? v.signalType
-            : "PIVOT_BOUNCE",
+        signalType: "FIB50_SWING",
         triggered: typeof v.triggered === "boolean" ? v.triggered : false,
         openedPrice:
           typeof v.openedPrice === "number" ? v.openedPrice : (v.entryPrice ?? 0),
@@ -3256,9 +2433,8 @@ export function computeLevelsStable(
     // immediately filled. If an old snapshot slipped through with triggered=false
     // (created before this fix), force it triggered now rather than waiting for
     // a candle wick that may never arrive or arriving in the wrong direction.
-    const isMarketEntryTrade =
-      preTriggerCheck.signalType === "DAGGER" ||
-      preTriggerCheck.signalType === "PATTERN_BREAKOUT";
+    // FIB50_SWING is always a limit entry — price must reach the 50% fib level.
+    const isMarketEntryTrade = false;
     if (isMarketEntryTrade) {
       preTriggerCheck.triggered = true;
       persistActiveTrades();
@@ -3326,7 +2502,7 @@ export function computeLevelsStable(
     return {
       ...fresh,
       signal: stillActive.signal,
-      signalType: stillActive.signalType ?? "PIVOT_BOUNCE",
+      signalType: stillActive.signalType ?? "FIB50_SWING",
       // Recompute the explanation against current price — the frozen text is
       // a lie the moment price walks away from the original zone.
       signalReason: describeFrozenTrade(stillActive, fresh.currentPrice, timeframe, symbolKey, meta),
@@ -3367,12 +2543,8 @@ export function computeLevelsStable(
     // the correct FILLED state from the first tick and `spotTagged` / candle
     // wick checks are never incorrectly applied to these trades.
     //
-    // Limit entries (PIVOT_BOUNCE, FIB_BOUNCE, BREAKOUT) use strict inequality:
-    // triggered = price has moved strictly past the staged level. Equality is
-    // excluded so that when entryPrice is clamped to currentPrice (e.g.
-    // max(R1, price)), price must actually move through the level to fill.
-    const isMarketEntry =
-      fresh.signalType === "DAGGER" || fresh.signalType === "PATTERN_BREAKOUT";
+    // FIB50_SWING always uses limit entry — triggered when price reaches the 50% fib.
+    const isMarketEntry = false;
     const triggered = isMarketEntry
       ? true
       : fresh.signal === "BUY"
@@ -3476,12 +2648,7 @@ export function seedActiveTrades(raw: Record<string, unknown>): number {
     const p = v as Partial<ActiveTrade>;
     activeTrades.set(k, {
       ...(p as ActiveTrade),
-      signalType:
-        p.signalType === "PIVOT_BOUNCE" || p.signalType === "BREAKOUT" || p.signalType === "DAGGER" ||
-        p.signalType === "PATTERN_BREAKOUT" || p.signalType === "TREND_BOUNCE" || p.signalType === "EMA_CROSS" ||
-        p.signalType === "FIB_BREAK" || p.signalType === "FIB_BOUNCE"
-          ? p.signalType
-          : "PIVOT_BOUNCE",
+      signalType: "FIB50_SWING",
       triggered: typeof p.triggered === "boolean" ? p.triggered : false,
       openedPrice: typeof p.openedPrice === "number" ? p.openedPrice : (p.entryPrice ?? 0),
       openedCandleStartTs: typeof p.openedCandleStartTs === "number" ? p.openedCandleStartTs : (p.openedAt ?? 0),

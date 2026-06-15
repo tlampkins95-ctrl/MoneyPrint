@@ -90,17 +90,11 @@ export function SignalPanel({
 
   const isActiveSignal = data?.signal === "BUY" || data?.signal === "SELL";
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const btPivot = useGetBacktest(
+  const { data: btData } = useGetBacktest(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    { symbol: symbol as any, timeframe, signalType: "PIVOT_BOUNCE" },
-    { query: { staleTime: 5 * 60 * 1000, refetchOnWindowFocus: false, enabled: isActiveSignal && data?.signalType !== "BREAKOUT" } as never },
+    { symbol: symbol as any, timeframe, signalType: "FIB50_SWING" as const },
+    { query: { staleTime: 5 * 60 * 1000, refetchOnWindowFocus: false, enabled: isActiveSignal } as never },
   );
-  const btBreakout = useGetBacktest(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    { symbol: symbol as any, timeframe, signalType: "BREAKOUT" },
-    { query: { staleTime: 5 * 60 * 1000, refetchOnWindowFocus: false, enabled: isActiveSignal && data?.signalType === "BREAKOUT" } as never },
-  );
-  const btData = data?.signalType === "BREAKOUT" ? btBreakout.data : btPivot.data;
   const poorWinRate = !!btData && btData.totalTrades >= 15 && btData.winRate < 45;
 
   useEffect(() => {
@@ -241,23 +235,9 @@ export function SignalPanel({
             {data.signal}
           </div>
           {(data.signal === "BUY" || data.signal === "SELL") && (
-            data.signalType === "BREAKOUT" ? (
-              <span className="mt-1 px-3 py-0.5 text-[10px] font-bold tracking-widest rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/40">
-                ◈ BREAKOUT
-              </span>
-            ) : data.signalType === "DAGGER" ? (
-              <span className="mt-1 px-3 py-0.5 text-[10px] font-bold tracking-widest rounded-full bg-violet-500/20 text-violet-300 border border-violet-500/40">
-                🗡 DAGGER
-              </span>
-            ) : data.signalType === "PATTERN_BREAKOUT" ? (
-              <span className="mt-1 px-3 py-0.5 text-[10px] font-bold tracking-widest rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40">
-                ◆ PAT BREAK
-              </span>
-            ) : (
-              <span className="mt-1 px-3 py-0.5 text-[10px] font-bold tracking-widest rounded-full bg-zinc-700/40 text-zinc-400 border border-zinc-600/40">
-                ↕ PIVOT BOUNCE
-              </span>
-            )
+            <span className="mt-1 px-3 py-0.5 text-[10px] font-bold tracking-widest rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40">
+              ◈ FIB50 SWING
+            </span>
           )}
           {data.detectedPattern && (
             <span className={[
@@ -427,31 +407,21 @@ export function SignalPanel({
             {/* Zone Watch */}
             <div className="min-w-0">
               {(() => {
-                const isBreakout = data.signalType === "BREAKOUT" && (data.signal === "BUY" || data.signal === "SELL");
-                const isBuyBreakout = isBreakout && data.signal === "BUY";
-                const isSellBreakout = isBreakout && data.signal === "SELL";
-                // BREAKOUT mode: repurpose zones to show R2 floor/S2 ceiling and R3/S3 target.
-                // stopLoss ≈ R2 - 0.5×ATR (floor), entryPrice ≈ current price (above R2).
-                // takeProfit1 = R3 (target), takeProfit2 = R3 + ATR.
-                const longZoneLabel = isBreakout
-                  ? isBuyBreakout
-                    ? `${fmtPriceCompactMeta(meta, data.stopLoss, 1)}–${fmtPriceCompactMeta(meta, data.entryPrice, 1)}`
-                    : `${fmtPriceCompactMeta(meta, data.takeProfit2, 1)}–${fmtPriceCompactMeta(meta, data.takeProfit1, 1)}`
-                  : `${fmtPriceCompactMeta(meta, data.buyZone.low, 1)}–${fmtPriceCompactMeta(meta, data.buyZone.high, 1)}`;
-                const shortZoneLabel = isBreakout
-                  ? isBuyBreakout
-                    ? `${fmtPriceCompactMeta(meta, data.takeProfit1, 1)}–${fmtPriceCompactMeta(meta, data.takeProfit2, 1)}`
-                    : `${fmtPriceCompactMeta(meta, data.entryPrice, 1)}–${fmtPriceCompactMeta(meta, data.stopLoss, 1)}`
-                  : `${fmtPriceCompactMeta(meta, data.sellZone.low, 1)}–${fmtPriceCompactMeta(meta, data.sellZone.high, 1)}`;
-                const longZoneLow  = isBreakout ? (isBuyBreakout ? data.stopLoss   : data.takeProfit2) : data.buyZone.low;
-                const longZoneHigh = isBreakout ? (isBuyBreakout ? data.entryPrice : data.takeProfit1) : data.buyZone.high;
-                const shortZoneLow  = isBreakout ? (isBuyBreakout ? data.takeProfit1 : data.entryPrice) : data.sellZone.low;
-                const shortZoneHigh = isBreakout ? (isBuyBreakout ? data.takeProfit2 : data.stopLoss)   : data.sellZone.high;
+                // FIB50_SWING always displays the entry zones (50% fib ± tolerance).
+                const isBreakout = false;
+                const isBuyBreakout = false;
+                const isSellBreakout = false;
+                const longZoneLabel = `${fmtPriceCompactMeta(meta, data.buyZone.low, 1)}–${fmtPriceCompactMeta(meta, data.buyZone.high, 1)}`;
+                const shortZoneLabel = `${fmtPriceCompactMeta(meta, data.sellZone.low, 1)}–${fmtPriceCompactMeta(meta, data.sellZone.high, 1)}`;
+                const longZoneLow  = data.buyZone.low;
+                const longZoneHigh = data.buyZone.high;
+                const shortZoneLow  = data.sellZone.low;
+                const shortZoneHigh = data.sellZone.high;
                 return (
                   <>
                     <div className="text-[10px] text-zinc-500 tracking-widest font-sans font-semibold mb-2 flex items-center gap-2">
                       <span className="w-1.5 h-1.5 rounded-full bg-zinc-600 inline-block" />
-                      {isBreakout ? (isBuyBreakout ? "BREAKOUT LEVELS" : "BREAKDOWN LEVELS") : "ZONE WATCH"}
+                      ZONE WATCH
                     </div>
                     <div className="rounded-lg overflow-hidden border border-zinc-800 divide-y divide-zinc-800/60 bg-[#111]">
                       <ZoneRow

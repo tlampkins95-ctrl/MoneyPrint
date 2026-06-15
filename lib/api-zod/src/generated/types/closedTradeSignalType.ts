@@ -10,12 +10,5 @@ export type ClosedTradeSignalType =
   (typeof ClosedTradeSignalType)[keyof typeof ClosedTradeSignalType];
 
 export const ClosedTradeSignalType = {
-  PIVOT_BOUNCE: "PIVOT_BOUNCE",
-  BREAKOUT: "BREAKOUT",
-  FIB_BOUNCE: "FIB_BOUNCE",
-  FIB_BREAK: "FIB_BREAK",
-  DAGGER: "DAGGER",
-  PATTERN_BREAKOUT: "PATTERN_BREAKOUT",
-  TREND_BOUNCE: "TREND_BOUNCE",
-  EMA_CROSS: "EMA_CROSS",
+  FIB50_SWING: "FIB50_SWING",
 } as const;

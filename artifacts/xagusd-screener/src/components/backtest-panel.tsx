@@ -93,8 +93,6 @@ function StatCard({
   );
 }
 
-type SignalTypeMode = "PIVOT_BOUNCE" | "BREAKOUT";
-
 // Inner component: only mounted when symbol is a known static symbol.
 // Keeping the hook call in this component avoids the `enabled: false` typing
 // workaround — if the component doesn't mount, the hook never runs.
@@ -105,15 +103,7 @@ function BacktestPanelInner({
   symbol: GetBacktestSymbol;
   timeframe: Timeframe;
 }) {
-  const [signalType, setSignalType] = useState<SignalTypeMode>(() => {
-    if (typeof window === "undefined") return "PIVOT_BOUNCE";
-    return (window.localStorage.getItem("screener.backtest.signalType") as SignalTypeMode | null) ?? "PIVOT_BOUNCE";
-  });
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem("screener.backtest.signalType", signalType);
-    }
-  }, [signalType]);
+  const signalType = "FIB50_SWING" as const;
 
   const { data, isLoading, error } = useGetBacktest({ symbol, timeframe, signalType });
   const [tradesOpen, setTradesOpen] = useState(false);
@@ -132,24 +122,9 @@ function BacktestPanelInner({
   const toggle = () => setCollapsed((v) => !v);
 
   const modeToggle = (
-    <div className="flex items-center gap-1 text-[10px] font-mono">
-      {(["PIVOT_BOUNCE", "BREAKOUT"] as SignalTypeMode[]).map((m) => (
-        <button
-          key={m}
-          type="button"
-          onClick={(e) => { e.stopPropagation(); setSignalType(m); }}
-          className={`px-2 py-0.5 rounded border transition-colors ${
-            signalType === m
-              ? m === "BREAKOUT"
-                ? "border-cyan-500/60 bg-cyan-500/10 text-cyan-300"
-                : "border-primary/60 bg-primary/10 text-primary"
-              : "border-border/40 text-muted-foreground hover:text-foreground hover:border-border"
-          }`}
-        >
-          {m === "PIVOT_BOUNCE" ? "Pivot" : "◈ Breakout"}
-        </button>
-      ))}
-    </div>
+    <span className="px-2 py-0.5 rounded border border-amber-500/60 bg-amber-500/10 text-amber-300 text-[10px] font-mono">
+      ◈ FIB50 Swing
+    </span>
   );
 
   if (isLoading) {

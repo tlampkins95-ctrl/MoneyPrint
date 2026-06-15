@@ -19,7 +19,7 @@ export type GetBacktestParams = {
    */
   timeframe?: GetBacktestTimeframe;
   /**
-   * Which signal mode to backtest. PIVOT_BOUNCE = classic S1/R1 fade (default). BREAKOUT = momentum breakout above R2 / breakdown below S2.
+   * Which signal mode to backtest. FIB50_SWING = daily-timeframe swing fibonacci retracement entry at the 50% fib level.
    */
   signalType?: GetBacktestSignalType;
 };

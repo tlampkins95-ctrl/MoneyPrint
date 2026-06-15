@@ -127,9 +127,7 @@ export async function sendTelegramAlert(ctx: AlertContext): Promise<void> {
       ? `+$${(ps.riskAmount * tp2R).toFixed(2)}`
       : "—";
 
-  const typeTag =
-    levels.signalType === "DAGGER"   ? " 🗡 DAGGER"   :
-    levels.signalType === "BREAKOUT" ? " ◈ BREAKOUT"  : " ↕ PIVOT";
+  const typeTag = " ◈ FIB50";
   const lines = [
     `${sideEmoji} <b>${sideWord}${typeTag} ${escapeHtml(meta.label)}</b>`,
     `<i>${tfLabel} · now ${fmt(meta, levels.currentPrice)}</i>`,

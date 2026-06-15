@@ -79,7 +79,7 @@ interface RowProps {
   symbol: string;
   timeframe: Timeframe;
   signal: "BUY" | "SELL";
-  signalType?: "PIVOT_BOUNCE" | "BREAKOUT" | "PATTERN_BREAKOUT" | "DAGGER" | "FIB_BREAK" | "FIB_BOUNCE" | "TREND_BOUNCE" | "EMA_CROSS";
+  signalType?: "FIB50_SWING";
   signalReason: string;
   tradeState: LevelsDataTradeState;
   currentPrice: number;
@@ -175,7 +175,7 @@ function SignalRow(p: RowProps) {
 
   const { data: btData } = useGetBacktest(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    { symbol: p.symbol as any, timeframe: p.timeframe, signalType: (p.signalType === "BREAKOUT" ? "BREAKOUT" : "PIVOT_BOUNCE") },
+    { symbol: p.symbol as any, timeframe: p.timeframe, signalType: "FIB50_SWING" as const },
     { query: { staleTime: 5 * 60 * 1000, refetchOnWindowFocus: false } as never },
   );
   const poorWinRate = !!btData && btData.totalTrades >= 15 && btData.winRate < 45;
@@ -214,9 +214,9 @@ function SignalRow(p: RowProps) {
           <Arrow className="w-3 h-3" />
           {p.signal}
         </span>
-        {p.signalType === "BREAKOUT" && (
-          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold tracking-widest bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
-            ◈ BKT
+        {p.signalType === "FIB50_SWING" && (
+          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold tracking-widest bg-amber-500/15 text-amber-300 border border-amber-500/30">
+            ◈ FIB
           </span>
         )}
         {poorWinRate && btData && (
@@ -510,7 +510,7 @@ export function ActiveSignalsOverview({
                             symbol={s.symbol}
                             timeframe={s.timeframe as Timeframe}
                             signal={s.levels.signal as "BUY" | "SELL"}
-                            signalType={s.levels.signalType as "PIVOT_BOUNCE" | "BREAKOUT" | "PATTERN_BREAKOUT" | "DAGGER" | undefined}
+                            signalType={s.levels.signalType as "FIB50_SWING" | undefined}
                             signalReason={s.levels.signalReason}
                             tradeState={s.levels.tradeState}
                             currentPrice={s.levels.currentPrice}

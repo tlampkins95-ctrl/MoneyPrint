@@ -92,18 +92,9 @@ export const GetLevelsResponse = zod.object({
     .enum(["BUY", "SELL", "WAIT"])
     .describe("Single clear trade signal"),
   signalType: zod
-    .enum([
-      "PIVOT_BOUNCE",
-      "BREAKOUT",
-      "FIB_BOUNCE",
-      "FIB_BREAK",
-      "DAGGER",
-      "PATTERN_BREAKOUT",
-      "TREND_BOUNCE",
-      "EMA_CROSS",
-    ])
+    .enum(["FIB50_SWING"])
     .describe(
-      "Which signal mode generated this signal. PIVOT_BOUNCE = price at S1\/R1 zone bounce in a ranging market. BREAKOUT = momentum break above R2\/below S2. FIB_BOUNCE = golden pocket 61.8% retracement. FIB_BREAK = price closes through key fib level (.236\/.382 down or .618\/.786 up) with MACD confirmation. DAGGER = 50% pullback on wave 1 (A→B impulse, 40–65% retracement to C, entry on first tick back in trend direction). PATTERN_BREAKOUT = confirmed continuation chart pattern (triangle, wedge, flag, pennant) with price closing through the pattern boundary in the expected direction. TREND_BOUNCE = MACD histogram crossover (flip red\/green) at the R1\/S1 zone in a confirmed trend. EMA_CROSS = EMA50 crosses EMA200 — Golden Cross (BUY) or Death Cross (SELL), highest-priority structural regime-change signal.",
+      "Which signal mode generated this signal. FIB50_SWING = daily-timeframe swing fibonacci retracement entry: swing low A → new high B → enter at 50% fib of A→B (BUY), or swing high A → new low B → enter at 50% fib of A→B (SELL). SL below\/above swing extreme, TP1 at B, TP2 at measured move.",
     ),
   signalReason: zod
     .string()
@@ -452,7 +443,7 @@ export const GetLevelsResponse = zod.object({
  */
 export const getBacktestQuerySymbolDefault = `XAGUSD`;
 export const getBacktestQueryTimeframeDefault = `1d`;
-export const getBacktestQuerySignalTypeDefault = `PIVOT_BOUNCE`;
+export const getBacktestQuerySignalTypeDefault = `FIB50_SWING`;
 
 export const GetBacktestQueryParams = zod.object({
   symbol: zod
@@ -474,10 +465,10 @@ export const GetBacktestQueryParams = zod.object({
     .default(getBacktestQueryTimeframeDefault)
     .describe("Bar timeframe used for the backtest"),
   signalType: zod
-    .enum(["PIVOT_BOUNCE", "BREAKOUT"])
+    .enum(["FIB50_SWING"])
     .default(getBacktestQuerySignalTypeDefault)
     .describe(
-      "Which signal mode to backtest. PIVOT_BOUNCE = classic S1\/R1 fade (default). BREAKOUT = momentum breakout above R2 \/ breakdown below S2.",
+      "Which signal mode to backtest. FIB50_SWING = daily-timeframe swing fibonacci retracement entry at the 50% fib level.",
     ),
 });
 
@@ -605,18 +596,9 @@ export const GetActiveSignalsResponse = zod.object({
               .enum(["BUY", "SELL", "WAIT"])
               .describe("Single clear trade signal"),
             signalType: zod
-              .enum([
-                "PIVOT_BOUNCE",
-                "BREAKOUT",
-                "FIB_BOUNCE",
-                "FIB_BREAK",
-                "DAGGER",
-                "PATTERN_BREAKOUT",
-                "TREND_BOUNCE",
-                "EMA_CROSS",
-              ])
+              .enum(["FIB50_SWING"])
               .describe(
-                "Which signal mode generated this signal. PIVOT_BOUNCE = price at S1\/R1 zone bounce in a ranging market. BREAKOUT = momentum break above R2\/below S2. FIB_BOUNCE = golden pocket 61.8% retracement. FIB_BREAK = price closes through key fib level (.236\/.382 down or .618\/.786 up) with MACD confirmation. DAGGER = 50% pullback on wave 1 (A→B impulse, 40–65% retracement to C, entry on first tick back in trend direction). PATTERN_BREAKOUT = confirmed continuation chart pattern (triangle, wedge, flag, pennant) with price closing through the pattern boundary in the expected direction. TREND_BOUNCE = MACD histogram crossover (flip red\/green) at the R1\/S1 zone in a confirmed trend. EMA_CROSS = EMA50 crosses EMA200 — Golden Cross (BUY) or Death Cross (SELL), highest-priority structural regime-change signal.",
+                "Which signal mode generated this signal. FIB50_SWING = daily-timeframe swing fibonacci retracement entry: swing low A → new high B → enter at 50% fib of A→B (BUY), or swing high A → new low B → enter at 50% fib of A→B (SELL). SL below\/above swing extreme, TP1 at B, TP2 at measured move.",
               ),
             signalReason: zod
               .string()
@@ -1159,16 +1141,7 @@ export const GetTradeHistoryResponse = zod.object({
       symbol: zod.string(),
       timeframe: zod.string(),
       signal: zod.enum(["BUY", "SELL"]),
-      signalType: zod.enum([
-        "PIVOT_BOUNCE",
-        "BREAKOUT",
-        "FIB_BOUNCE",
-        "FIB_BREAK",
-        "DAGGER",
-        "PATTERN_BREAKOUT",
-        "TREND_BOUNCE",
-        "EMA_CROSS",
-      ]),
+      signalType: zod.enum(["FIB50_SWING"]),
       entryPrice: zod.number(),
       stopLoss: zod.number(),
       takeProfit1: zod.number(),
@@ -1238,16 +1211,7 @@ export const GetSignalLogResponse = zod.object({
       symbol: zod.string(),
       timeframe: zod.string(),
       signal: zod.enum(["BUY", "SELL"]),
-      signalType: zod.enum([
-        "PIVOT_BOUNCE",
-        "BREAKOUT",
-        "FIB_BOUNCE",
-        "FIB_BREAK",
-        "DAGGER",
-        "PATTERN_BREAKOUT",
-        "TREND_BOUNCE",
-        "EMA_CROSS",
-      ]),
+      signalType: zod.enum(["FIB50_SWING"]),
       entryPrice: zod.number(),
       stopLoss: zod.number(),
       takeProfit1: zod.number(),

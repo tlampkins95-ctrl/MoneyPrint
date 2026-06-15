@@ -109,8 +109,8 @@ export function getNotifierStatus(): NotifierStatus {
 // remains visible in the UI and the API — just no notifications.
 const ALERT_SYMBOLS: Symbol[] = ["XAGUSD", "EURUSD"];
 
-// Alert on 30m, 1h (intraday entries) and 1d (catches major daily moves like metals pumps).
-const TRACKED_TIMEFRAMES: Timeframe[] = ["30m", "1h", "4h", "1d"];
+// FIB50_SWING fires only on daily — track only 1d.
+const TRACKED_TIMEFRAMES: Timeframe[] = ["1d"];
 // Only seed-alert on 30m at startup/restart for trending/all symbols.
 // ALERT_SYMBOLS (XAGUSD, EURUSD) also seed on 1h — there are only 2 symbols
 // so the risk of a barrage is minimal, and missing a live 1h metal BUY on
@@ -300,24 +300,6 @@ async function checkSymbol(
       (levels.signal === "BUY" || levels.signal === "SELL") &&
       tradeAlreadyAlerted;
 
-    // PATTERN_BREAKOUT fingerprint dedup: same neckline + same direction =
-    // same pattern still in its confirmation window. Suppress even if cooldown
-    // was cleared by a prior BE_TRAIL/TP close. Cleared when signal returns to WAIT.
-    if (
-      (levels.signal === "BUY" || levels.signal === "SELL") &&
-      levels.signalType === "PATTERN_BREAKOUT"
-    ) {
-      const patternKey = `${levels.signal}|${levels.entryPrice}`;
-      if (patternKey === prev?.lastPatternKey) {
-        logger.info(
-          { symbol, timeframe, patternKey },
-          "PATTERN_BREAKOUT alert suppressed (same pattern fingerprint already alerted)",
-        );
-        stateMap.set(k, { ...(prev ?? {}), signal: levels.signal, lastAlertAt: prev?.lastAlertAt ?? 0 });
-        return;
-      }
-    }
-
     if (transitioned && !cooldownActive && !alreadyInSameDirection) {
       // Filled-trade and direction-flip checks run FIRST — both exempt from
       // the type filter and the higher-TF gate below.
@@ -350,17 +332,11 @@ async function checkSymbol(
         return;
       }
 
-      // Hard type filter. PIVOT_BOUNCE is disabled — it produced -7.8R on 38 trades
-      // in the last 14 days (55% loss rate). DAGGER is the preferred entry signal.
+      // Hard type filter. Only FIB50_SWING signals trigger notifications.
       // Filled trades bypass this: a fill notification is always actionable
       // regardless of what signal type originally opened the position.
       if (!isFilledTrade) {
-        const signalTypeAllowed =
-          levels.signalType === "DAGGER" ||
-          levels.signalType === "PATTERN_BREAKOUT" ||
-          levels.signalType === "TREND_BOUNCE" ||
-          levels.signalType === "EMA_CROSS" ||
-          levels.signalType === "FIB_BREAK";
+        const signalTypeAllowed = levels.signalType === "FIB50_SWING";
         if (!signalTypeAllowed) {
           logger.info(
             { symbol, timeframe, signalType: levels.signalType },
@@ -478,7 +454,7 @@ async function checkSymbol(
       if (isWebPushEnabled()) {
         const sideEmoji = levels.signal === "BUY" ? "🟢" : "🔴";
         const sideWord = levels.signal === "BUY" ? "BUY" : "SELL";
-        const typeTag = levels.signalType === "DAGGER" ? " 🗡 DAGGER" : levels.signalType === "BREAKOUT" ? " ◈ BREAKOUT" : levels.signalType === "PATTERN_BREAKOUT" ? " ⬛ PATTERN" : levels.signalType === "TREND_BOUNCE" ? " ↗ TREND" : levels.signalType === "EMA_CROSS" ? " ⊕ CROSS" : " ↕ PIVOT";
+        const typeTag = " ◈ FIB50";
         const m = SYMBOLS[symbol];
         const fmtN = (n: number) => `${m.prefix}${n.toFixed(m.decimals)}`;
         // Body keeps the most decision-relevant numbers within the
@@ -516,10 +492,7 @@ async function checkSymbol(
           "Signal alert dispatched",
         );
       }
-      const newPatternKey =
-        levels.signalType === "PATTERN_BREAKOUT" && (levels.signal === "BUY" || levels.signal === "SELL")
-          ? `${levels.signal}|${levels.entryPrice}`
-          : prev?.lastPatternKey;
+      const newPatternKey = prev?.lastPatternKey;
       stateMap.set(k, { ...(prev ?? {}), signal: levels.signal, lastAlertAt: now, lastAlertSignal: levels.signal, lastPatternKey: newPatternKey });
       return;
     }
@@ -643,22 +616,6 @@ async function checkTrendingSymbol(
       (levels.signal === "BUY" || levels.signal === "SELL") &&
       tradeAlreadyAlertedT;
 
-    // PATTERN_BREAKOUT fingerprint dedup (same logic as checkSymbol).
-    if (
-      (levels.signal === "BUY" || levels.signal === "SELL") &&
-      levels.signalType === "PATTERN_BREAKOUT"
-    ) {
-      const patternKey = `${levels.signal}|${levels.entryPrice}`;
-      if (patternKey === prev?.lastPatternKey) {
-        logger.info(
-          { symbolKey, timeframe, patternKey },
-          "Trending PATTERN_BREAKOUT alert suppressed (same pattern fingerprint already alerted)",
-        );
-        stateMap.set(k, { ...(prev ?? {}), signal: levels.signal, lastAlertAt: prev?.lastAlertAt ?? 0 });
-        return;
-      }
-    }
-
     if (transitioned && !cooldownActive && !alreadyInSameDirection) {
       // Filled-trade and direction-flip checks run FIRST — both exempt from
       // the type filter and the higher-TF gate below.
@@ -692,11 +649,7 @@ async function checkTrendingSymbol(
       // Filled trades bypass this: fills are always actionable regardless of
       // what signal type originally opened the position.
       if (!isFilledTrade) {
-        const trendingTypeAllowed =
-          levels.signalType === "DAGGER" ||
-          levels.signalType === "PATTERN_BREAKOUT" ||
-          levels.signalType === "TREND_BOUNCE" ||
-          levels.signalType === "EMA_CROSS";
+        const trendingTypeAllowed = levels.signalType === "FIB50_SWING";
         if (!trendingTypeAllowed) {
           logger.info(
             { symbolKey, timeframe, signalType: levels.signalType },
@@ -787,7 +740,7 @@ async function checkTrendingSymbol(
       if (isWebPushEnabled()) {
         const sideEmoji = levels.signal === "BUY" ? "🟢" : "🔴";
         const sideWord = levels.signal === "BUY" ? "BUY" : "SELL";
-        const typeTagT = levels.signalType === "PATTERN_BREAKOUT" ? " ⬛ PATTERN" : levels.signalType === "TREND_BOUNCE" ? " ↗ TREND" : levels.signalType === "EMA_CROSS" ? " ⊕ CROSS" : " 🗡 DAGGER";
+        const typeTagT = " ◈ FIB50";
         const fmtN = (n: number) => `$${n.toFixed(tMeta.decimals)}`;
         const lines = [
           `${tfLabel} · ${fmtN(levels.currentPrice)}`,
@@ -804,10 +757,7 @@ async function checkTrendingSymbol(
         );
       }
       if (tasks.length > 0) await Promise.allSettled(tasks);
-      const newPatternKeyT =
-        levels.signalType === "PATTERN_BREAKOUT" && (levels.signal === "BUY" || levels.signal === "SELL")
-          ? `${levels.signal}|${levels.entryPrice}`
-          : prev?.lastPatternKey;
+      const newPatternKeyT = prev?.lastPatternKey;
       stateMap.set(k, { ...(prev ?? {}), signal: levels.signal, lastAlertAt: now, lastAlertSignal: levels.signal, lastPatternKey: newPatternKeyT });
       return;
     }
