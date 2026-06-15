@@ -7,7 +7,7 @@ import type { CandleRaw } from "./yahoo-fetch";
 
 const BASE = "https://www.okx.com/api/v5";
 
-type OkxBar = "15m" | "30m" | "1H" | "4H" | "1D";
+type OkxBar = "1H" | "4H" | "1D" | "1W";
 
 interface PerpConfig {
   bar: OkxBar;
@@ -20,11 +20,10 @@ interface PerpConfig {
 // Intraday timeframes: enough bars for ~weeks of context. Daily: ~4 years.
 // 1H gets a deeper sample so backtest stats stay meaningful.
 const PERP_TIMEFRAME_MAP: Record<string, PerpConfig> = {
-  "15m": { bar: "15m", targetBars: 1500, isIntraday: true },
-  "30m": { bar: "30m", targetBars: 1500, isIntraday: true },
-  "1h": { bar: "1H", targetBars: 2500, isIntraday: true },
-  "4h": { bar: "4H", targetBars: 1500, isIntraday: true },
+  "1h": { bar: "1H", targetBars: 2500, isIntraday: true  },
+  "4h": { bar: "4H", targetBars: 1500, isIntraday: true  },
   "1d": { bar: "1D", targetBars: 1500, isIntraday: false },
+  "1w": { bar: "1W", targetBars: 500,  isIntraday: false },
 };
 
 // OKX endpoint limits: /candles up to 300, /history-candles up to 100.

@@ -1,13 +1,12 @@
 import { cn } from "@/lib/utils";
 
-export type Timeframe = "15m" | "30m" | "1h" | "4h" | "1d";
+export type Timeframe = "1h" | "4h" | "1d" | "1w";
 
 const OPTIONS: { value: Timeframe; label: string }[] = [
-  { value: "15m", label: "15m" },
-  { value: "30m", label: "30m" },
   { value: "1h", label: "1h" },
   { value: "4h", label: "4h" },
   { value: "1d", label: "D" },
+  { value: "1w", label: "W" },
 ];
 
 export function TimeframeSelector({

@@ -7,19 +7,17 @@ import { getSymbolMeta, fmtPriceMeta } from "@/lib/symbols";
 import type { Timeframe } from "@/components/timeframe-selector";
 
 const TF_LABEL: Record<Timeframe, string> = {
-  "15m": "15M",
-  "30m": "30M",
   "1h": "1H",
   "4h": "4H",
   "1d": "1D",
+  "1w": "1W",
 };
 
 const TF_ORDER: Record<Timeframe, number> = {
-  "30m": 0,
-  "1h":  1,
-  "4h":  2,
-  "1d":  3,
-  "15m": 4,
+  "1h":  0,
+  "4h":  1,
+  "1d":  2,
+  "1w":  3,
 };
 
 // Group signals by typed lifecycle state (server-authoritative). NEVER parse
@@ -70,7 +68,6 @@ function calcLivePnl(
 }
 
 const CATEGORY_STYLE: Record<ActiveSignalEntryCategory, string> = {
-  SCALP:    "bg-amber-500/10 text-amber-300 border-amber-500/30",
   SWING:    "bg-violet-500/10 text-violet-300 border-violet-500/30",
   POSITION: "bg-sky-500/10 text-sky-300 border-sky-500/30",
 };

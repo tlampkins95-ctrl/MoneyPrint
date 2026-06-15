@@ -22,11 +22,10 @@ function readNumber(key: string, fallback: number): number {
 }
 
 const TIMEFRAME_LABEL: Record<Timeframe, string> = {
-  "15m": "15m",
-  "30m": "30m",
   "1h": "1h",
   "4h": "4h",
   "1d": "Daily",
+  "1w": "Weekly",
 };
 
 export function SignalPanel({

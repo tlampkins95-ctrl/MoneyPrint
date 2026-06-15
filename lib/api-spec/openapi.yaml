@@ -45,7 +45,7 @@ paths:
           name: timeframe
           schema:
             type: string
-            enum: ["15m", "30m", "1h", "4h", "1d"]
+            enum: ["1h", "4h", "1d", "1w"]
             default: "1d"
           description: Bar timeframe used to compute pivots and zones
         - in: query
@@ -112,7 +112,7 @@ paths:
           name: timeframe
           schema:
             type: string
-            enum: ["15m", "30m", "1h", "4h", "1d"]
+            enum: ["1h", "4h", "1d", "1w"]
             default: "1d"
           description: Bar timeframe used for the backtest
         - in: query
@@ -330,7 +330,7 @@ paths:
           name: timeframe
           schema:
             type: string
-            enum: ["15m", "30m", "1h", "4h", "1d"]
+            enum: ["1h", "4h", "1d", "1w"]
             default: "1d"
           description: Bar timeframe
         - in: query
@@ -893,13 +893,13 @@ components:
           description: Symbol key (static or trending dynamic coin)
         timeframe:
           type: string
-          enum: ["15m", "30m", "1h", "4h", "1d"]
+          enum: ["1h", "4h", "1d", "1w"]
         levels:
           $ref: "#/components/schemas/LevelsData"
         category:
           type: string
-          enum: ["SCALP", "SWING", "POSITION"]
-          description: "Trade duration category derived from timeframe: SCALP=15m/30m, SWING=1h/4h, POSITION=1d"
+          enum: ["SWING", "POSITION"]
+          description: "Trade duration category derived from timeframe: SWING=1h/4h, POSITION=1d/1w"
         confluence:
           $ref: "#/components/schemas/SignalConfluence"
       required: [symbol, timeframe, levels, category]
@@ -986,7 +986,7 @@ components:
           type: integer
         key:
           type: string
-          description: Composite key (e.g. XAGUSD::30m)
+          description: Composite key (e.g. XAGUSD::1h)
         symbol:
           type: string
         timeframe:

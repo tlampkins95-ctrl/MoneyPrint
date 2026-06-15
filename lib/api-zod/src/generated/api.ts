@@ -44,7 +44,7 @@ export const GetLevelsQueryParams = zod.object({
       "Trading instrument — static key (e.g. XAGUSD, BTCUSD) or a dynamic trending coin key (e.g. TONUSDT)",
     ),
   timeframe: zod
-    .enum(["15m", "30m", "1h", "4h", "1d"])
+    .enum(["1h", "4h", "1d", "1w"])
     .default(getLevelsQueryTimeframeDefault)
     .describe("Bar timeframe used to compute pivots and zones"),
   accountSize: zod.coerce
@@ -461,7 +461,7 @@ export const GetBacktestQueryParams = zod.object({
     .default(getBacktestQuerySymbolDefault)
     .describe("Trading instrument"),
   timeframe: zod
-    .enum(["15m", "30m", "1h", "4h", "1d"])
+    .enum(["1h", "4h", "1d", "1w"])
     .default(getBacktestQueryTimeframeDefault)
     .describe("Bar timeframe used for the backtest"),
   signalType: zod
@@ -586,7 +586,7 @@ export const GetActiveSignalsResponse = zod.object({
           symbol: zod
             .string()
             .describe("Symbol key (static or trending dynamic coin)"),
-          timeframe: zod.enum(["15m", "30m", "1h", "4h", "1d"]),
+          timeframe: zod.enum(["1h", "4h", "1d", "1w"]),
           levels: zod.object({
             symbol: zod.string(),
             currentPrice: zod.number(),
@@ -973,9 +973,9 @@ export const GetActiveSignalsResponse = zod.object({
               ),
           }),
           category: zod
-            .enum(["SCALP", "SWING", "POSITION"])
+            .enum(["SWING", "POSITION"])
             .describe(
-              "Trade duration category derived from timeframe: SCALP=15m\/30m, SWING=1h\/4h, POSITION=1d",
+              "Trade duration category derived from timeframe: SWING=1h\/4h, POSITION=1d\/1w",
             ),
           confluence: zod
             .object({
@@ -1137,7 +1137,7 @@ export const GetTradeHistoryResponse = zod.object({
   trades: zod.array(
     zod.object({
       id: zod.number(),
-      key: zod.string().describe("Composite key (e.g. XAGUSD::30m)"),
+      key: zod.string().describe("Composite key (e.g. XAGUSD::1h)"),
       symbol: zod.string(),
       timeframe: zod.string(),
       signal: zod.enum(["BUY", "SELL"]),
@@ -1248,7 +1248,7 @@ export const GetPriceHistoryQueryParams = zod.object({
     .default(getPriceHistoryQuerySymbolDefault)
     .describe("Trading instrument"),
   timeframe: zod
-    .enum(["15m", "30m", "1h", "4h", "1d"])
+    .enum(["1h", "4h", "1d", "1w"])
     .default(getPriceHistoryQueryTimeframeDefault)
     .describe("Bar timeframe"),
   bars: zod.coerce

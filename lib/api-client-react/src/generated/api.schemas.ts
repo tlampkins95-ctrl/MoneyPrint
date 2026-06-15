@@ -449,21 +449,19 @@ export type ActiveSignalEntryTimeframe =
   (typeof ActiveSignalEntryTimeframe)[keyof typeof ActiveSignalEntryTimeframe];
 
 export const ActiveSignalEntryTimeframe = {
-  "15m": "15m",
-  "30m": "30m",
   "1h": "1h",
   "4h": "4h",
   "1d": "1d",
+  "1w": "1w",
 } as const;
 
 /**
- * Trade duration category derived from timeframe: SCALP=15m/30m, SWING=1h/4h, POSITION=1d
+ * Trade duration category derived from timeframe: SWING=1h/4h, POSITION=1d/1w
  */
 export type ActiveSignalEntryCategory =
   (typeof ActiveSignalEntryCategory)[keyof typeof ActiveSignalEntryCategory];
 
 export const ActiveSignalEntryCategory = {
-  SCALP: "SCALP",
   SWING: "SWING",
   POSITION: "POSITION",
 } as const;
@@ -476,7 +474,7 @@ export interface ActiveSignalEntry {
   symbol: string;
   timeframe: ActiveSignalEntryTimeframe;
   levels: LevelsData;
-  /** Trade duration category derived from timeframe: SCALP=15m/30m, SWING=1h/4h, POSITION=1d */
+  /** Trade duration category derived from timeframe: SWING=1h/4h, POSITION=1d/1w */
   category: ActiveSignalEntryCategory;
   confluence?: SignalConfluence;
 }
@@ -566,7 +564,7 @@ export const ClosedTradeOutcome = {
 
 export interface ClosedTrade {
   id: number;
-  /** Composite key (e.g. XAGUSD::30m) */
+  /** Composite key (e.g. XAGUSD::1h) */
   key: string;
   symbol: string;
   timeframe: string;
@@ -718,11 +716,10 @@ export type GetLevelsTimeframe =
   (typeof GetLevelsTimeframe)[keyof typeof GetLevelsTimeframe];
 
 export const GetLevelsTimeframe = {
-  "15m": "15m",
-  "30m": "30m",
   "1h": "1h",
   "4h": "4h",
   "1d": "1d",
+  "1w": "1w",
 } as const;
 
 export type GetBacktestParams = {
@@ -759,11 +756,10 @@ export type GetBacktestTimeframe =
   (typeof GetBacktestTimeframe)[keyof typeof GetBacktestTimeframe];
 
 export const GetBacktestTimeframe = {
-  "15m": "15m",
-  "30m": "30m",
   "1h": "1h",
   "4h": "4h",
   "1d": "1d",
+  "1w": "1w",
 } as const;
 
 export type GetBacktestSignalType =
@@ -864,9 +860,8 @@ export type GetPriceHistoryTimeframe =
   (typeof GetPriceHistoryTimeframe)[keyof typeof GetPriceHistoryTimeframe];
 
 export const GetPriceHistoryTimeframe = {
-  "15m": "15m",
-  "30m": "30m",
   "1h": "1h",
   "4h": "4h",
   "1d": "1d",
+  "1w": "1w",
 } as const;

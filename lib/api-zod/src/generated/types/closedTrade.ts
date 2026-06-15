@@ -11,7 +11,7 @@ import type { ClosedTradeSignalType } from "./closedTradeSignalType";
 
 export interface ClosedTrade {
   id: number;
-  /** Composite key (e.g. XAGUSD::30m) */
+  /** Composite key (e.g. XAGUSD::1h) */
   key: string;
   symbol: string;
   timeframe: string;

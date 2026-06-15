@@ -14,7 +14,7 @@ import { getSymbolMeta } from "@/lib/symbols";
 import { cn } from "@/lib/utils";
 import { useGetActiveSignals, getGetActiveSignalsQueryKey } from "@workspace/api-client-react";
 
-const VALID_TIMEFRAMES: readonly Timeframe[] = ["15m", "30m", "1h", "4h", "1d"];
+const VALID_TIMEFRAMES: readonly Timeframe[] = ["1h", "4h", "1d", "1w"];
 type Tab = "signals" | "journal" | "learn";
 
 function readInitial(): { symbol: string; timeframe: Timeframe; tab: Tab } {

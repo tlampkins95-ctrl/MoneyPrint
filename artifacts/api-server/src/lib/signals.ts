@@ -631,11 +631,10 @@ function getWeeklyTrend(weeklyCandles: CandleRaw[]): "UP" | "DOWN" | "NEUTRAL" {
 }
 
 const TIMEFRAME_LABELS: Record<Timeframe, string> = {
-  "15m": "15-minute",
-  "30m": "30-minute",
   "1h": "1-hour",
   "4h": "4-hour",
   "1d": "daily",
+  "1w": "weekly",
 };
 
 // ─── Dagger Setup Detection (50% Pullback on Wave 1) ─────────────────────────
@@ -1539,7 +1538,7 @@ export function computeLevels(
   //   • Bollinger Bands (SMA-30 close, 2σ): BUY entry ≤ BB mid, SELL entry ≥ BB mid
   // ────────────────────────────────────────────────────────────────────────────
   // Lookback: 1D uses 60 completed bars; 1H uses 120 bars (≈ 5 trading days).
-  const SWING_LOOKBACK_BY_TF: Partial<Record<Timeframe, number>> = { "1d": 60, "1h": 120 };
+  const SWING_LOOKBACK_BY_TF: Partial<Record<Timeframe, number>> = { "1d": 60, "1h": 120, "1w": 52 };
   const SWING_LOOKBACK      = SWING_LOOKBACK_BY_TF[timeframe] ?? 60;
   const MIN_SWING_ATR       = 2.5;  // swing height must be ≥ 2.5 × ATR to be meaningful
   const FIB50_TOLERANCE_ATR = 0.5;  // price must be within ±0.5 × ATR of the 50% fib
@@ -1560,8 +1559,8 @@ export function computeLevels(
   let displaySwingLow  = fibs.swingLow;
   let displayFib50     = 0;
 
-  // Fire on 1D and 1H only.
-  if (timeframe === "1d" || timeframe === "1h") {
+  // Fire on 1D, 1H, and 1W.
+  if (timeframe === "1d" || timeframe === "1h" || timeframe === "1w") {
     // Use only completed bars (exclude the still-forming current bar).
     const completed = candles.slice(0, candles.length - 1);
     const lookbackStart = Math.max(0, completed.length - SWING_LOOKBACK);
@@ -1573,10 +1572,13 @@ export function computeLevels(
     const swingAtr = completedAtr > 0 ? completedAtr : atr; // fall back to global if < 14 bars
 
     // ── Weekly macro trend gate ───────────────────────────────────────────────
+    // For 1W: completed IS the weekly candles — use them directly as the gate.
     // For 1D: synthesize weekly candles from the daily candles already available.
     // For 1H: use the daily candles passed in by the caller (dailyCandlesForWeekly).
-    const dailySrcForWeekly = timeframe === "1d" ? completed : (dailyCandlesForWeekly ?? null);
-    const weeklyCandles = dailySrcForWeekly ? synthesizeWeeklyCandles(dailySrcForWeekly) : [];
+    const weeklyCandles =
+      timeframe === "1w" ? completed :
+      timeframe === "1d" ? synthesizeWeeklyCandles(completed) :
+      (dailyCandlesForWeekly ? synthesizeWeeklyCandles(dailyCandlesForWeekly) : []);
     const weeklyTrend = getWeeklyTrend(weeklyCandles);
     // All three filters must agree before a signal fires:
     //   • Weekly SMA-30 trend: UP for BUY, DOWN for SELL (NEUTRAL = no trade)

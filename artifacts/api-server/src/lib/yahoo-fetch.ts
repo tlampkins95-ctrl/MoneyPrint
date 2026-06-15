@@ -1,7 +1,7 @@
 import { SYMBOLS, type Symbol } from "./symbols";
 import { fetchOkxPerpCandles } from "./crypto-perp-fetch";
 
-export type Timeframe = "15m" | "30m" | "1h" | "4h" | "1d";
+export type Timeframe = "1h" | "4h" | "1d" | "1w";
 
 export interface CandleRaw {
   date: string;
@@ -18,11 +18,10 @@ interface YahooConfig {
 }
 
 const TIMEFRAME_MAP: Record<Timeframe, YahooConfig> = {
-  "15m": { interval: "15m", range: "60d" },
-  "30m": { interval: "30m", range: "60d" },
   "1h": { interval: "60m", range: "730d" },
   "4h": { interval: "60m", range: "730d" }, // placeholder — 4h uses Twelve Data, not Yahoo
-  "1d": { interval: "1d", range: "2y" },
+  "1d": { interval: "1d",  range: "2y"   },
+  "1w": { interval: "1wk", range: "10y"  },
 };
 
 interface CacheEntry {
@@ -31,11 +30,10 @@ interface CacheEntry {
 }
 
 const CACHE_TTL_MS: Record<Timeframe, number> = {
-  "15m": 60 * 1000,
-  "30m": 2 * 60 * 1000,
   "1h": 5 * 60 * 1000,
   "4h": 15 * 60 * 1000,
   "1d": 5 * 60 * 1000,
+  "1w": 30 * 60 * 1000,
 };
 
 const cache = new Map<string, CacheEntry>();
@@ -74,11 +72,10 @@ export async function fetchCandlesForTimeframe(
 // Row format: [timestamp_s, vol_quote, open, high, low, close, vol_base, is_closed]
 const GATEIO_BASE = "https://api.gateio.ws/api/v4";
 const GATEIO_INTERVAL: Record<Timeframe, string> = {
-  "15m": "15m",
-  "30m": "30m",
   "1h":  "1h",
   "4h":  "4h",
   "1d":  "1d",
+  "1w":  "7d",
 };
 // Gate.io caps at 1000 per request; for small-cap tokens that's usually enough
 // for all indicators (EMA200 needs 200+ bars, RSI/MACD need ~35).
@@ -96,7 +93,7 @@ async function fetchGateioCandles(
   });
   if (!response.ok) throw new Error(`Gate.io fetch failed: ${response.status}`);
   const json = (await response.json()) as string[][];
-  const isIntraday = timeframe !== "1d";
+  const isIntraday = timeframe !== "1d" && timeframe !== "1w";
   const candles: CandleRaw[] = [];
   for (const row of json) {
     const ts  = Number(row[0]) * 1000; // Gate.io returns seconds
@@ -256,7 +253,7 @@ async function doFetch(
   }
   const r = json.chart.result[0];
   const q = r.indicators.quote[0];
-  const isIntraday = timeframe !== "1d";
+  const isIntraday = timeframe !== "1d" && timeframe !== "1w";
   const candles: CandleRaw[] = [];
   for (let i = 0; i < r.timestamp.length; i++) {
     const o = q.open[i], h = q.high[i], l = q.low[i], c = q.close[i];

@@ -24,7 +24,7 @@ interface CandleRaw {
   volume: number;
 }
 
-type Timeframe = "15m" | "30m" | "1h" | "1d";
+type Timeframe = "1h" | "1d" | "1w";
 type Direction = "bull" | "bear";
 type GateMode  = "none" | "macd" | "macd+rsi";
 type Outcome   = "TP" | "SL" | "EXPIRED";
@@ -70,17 +70,16 @@ const SYMBOLS: Record<string, SymbolCfg> = {
   ZECUSD: { label: "ZEC/USDT", okxPerp: "ZEC-USDT-SWAP" },
 };
 
-const TIMEFRAMES: Timeframe[] = ["15m", "30m", "1h", "1d"];
+const TIMEFRAMES: Timeframe[] = ["1h", "1d", "1w"];
 
 const YAHOO_CFG: Record<Timeframe, { interval: string; range: string }> = {
-  "15m": { interval: "15m", range: "60d"  },
-  "30m": { interval: "30m", range: "60d"  },
   "1h":  { interval: "60m", range: "730d" },
   "1d":  { interval: "1d",  range: "2y"   },
+  "1w":  { interval: "1wk", range: "10y"  },
 };
 
 const OKX_BAR: Record<Timeframe, string> = {
-  "15m": "15m", "30m": "30m", "1h": "1H", "1d": "1D",
+  "1h": "1H", "1d": "1D", "1w": "1W",
 };
 
 // ─── Strategy Parameters ──────────────────────────────────────────────────────

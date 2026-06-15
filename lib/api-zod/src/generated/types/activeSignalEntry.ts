@@ -18,7 +18,7 @@ export interface ActiveSignalEntry {
   symbol: string;
   timeframe: ActiveSignalEntryTimeframe;
   levels: LevelsData;
-  /** Trade duration category derived from timeframe: SCALP=15m/30m, SWING=1h/4h, POSITION=1d */
+  /** Trade duration category derived from timeframe: SWING=1h/4h, POSITION=1d/1w */
   category: ActiveSignalEntryCategory;
   confluence?: SignalConfluence;
 }

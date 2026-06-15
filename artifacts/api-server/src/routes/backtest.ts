@@ -73,21 +73,19 @@ interface Trade {
 }
 
 const MAX_HOLD_BARS: Record<Timeframe, number> = {
-  "15m": 24,
-  "30m": 16,
   "1h": 12,
   "4h": 10,
   "1d": 10,
+  "1w": 8,
 };
 
 // FIB_BOUNCE targets the swing high — a multi-bar swing trade, not a scalp.
 // 3× the pivot hold window gives price enough time to retrace back to the top.
 const FIB_MAX_HOLD_BARS: Record<Timeframe, number> = {
-  "15m": 72,   // 18 hours
-  "30m": 48,   // 24 hours
   "1h":  36,   // 36 hours
   "4h":  24,   // 4 days
   "1d":  20,   // 20 days
+  "1w":  16,   // 16 weeks
 };
 
 // Standard EMA via the recursive (close - prev) * alpha + prev formula. Uses
@@ -1157,11 +1155,9 @@ router.get("/backtest", async (req: Request, res: Response) => {
     }
     // Disabled combinations — return an empty-result object and cache it.
     // PIVOT_BOUNCE on 1d: daily metals pivots produce negative edge (see sweep).
-    // BREAKOUT on 30m: misfires too often; 1h breakout is the only live setup.
     // FIB_BOUNCE: disabled for symbols/TFs where sweep showed consistent losses.
     const isDisabled =
       (signalType === "PIVOT_BOUNCE" && timeframe === "1d") ||
-      (signalType === "BREAKOUT"     && timeframe === "30m") ||
       (signalType === "BREAKOUT"     && timeframe === "1h" && symbol === "XAGUSD") || // -1.37R, no edge
       (signalType === "BREAKOUT"     && timeframe === "1h" && symbol === "ETHUSD") || // -1.40R, no edge
       (signalType === "FIB_BOUNCE"   && symbol === "XAGUSD") ||                       // PIVOT far superior; fib pf 0.49–0.96

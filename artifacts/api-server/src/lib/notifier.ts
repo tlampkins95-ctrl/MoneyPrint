@@ -112,21 +112,20 @@ export function getNotifierStatus(): NotifierStatus {
 const ALERT_SYMBOLS: Symbol[] = ["XAGUSD", "EURUSD"];
 
 // FIB50_SWING fires on 1H and 1D. 1H entries confirmed by weekly macro trend.
-const TRACKED_TIMEFRAMES: Timeframe[] = ["1h", "1d"];
+const TRACKED_TIMEFRAMES: Timeframe[] = ["1h", "1d", "1w"];
 // Only seed-alert on 30m at startup/restart for trending/all symbols.
 // ALERT_SYMBOLS (XAGUSD, EURUSD) also seed on 1h — there are only 2 symbols
 // so the risk of a barrage is minimal, and missing a live 1h metal BUY on
 // restart is a real operational gap.
-const SEED_TIMEFRAMES = new Set<Timeframe>(["30m", "1h", "1d"]);
-const ALERT_SEED_TIMEFRAMES = new Set<Timeframe>(["30m", "1h"]);
+const SEED_TIMEFRAMES = new Set<Timeframe>(["1h", "1d", "1w"]);
+const ALERT_SEED_TIMEFRAMES = new Set<Timeframe>(["1h"]);
 const POLL_INTERVAL_MS = 20_000;
 
 const COOLDOWN_BY_TIMEFRAME: Record<Timeframe, number> = {
-  "15m": 30 * 60_000,
-  "30m": 60 * 60_000,
   "1h": 3 * 60 * 60_000,
   "4h": 8 * 60 * 60_000,
   "1d": 24 * 60 * 60_000,
+  "1w": 7 * 24 * 60 * 60_000,
 };
 
 // Minimum time that must pass before a direction flip (BUY→SELL or SELL→BUY)
@@ -135,30 +134,27 @@ const COOLDOWN_BY_TIMEFRAME: Record<Timeframe, number> = {
 // during US session hours produces a SELL → BUY flip within minutes on the 1d,
 // which is noise from the live candle, not a genuine daily structure change.
 const MIN_FLIP_COOLDOWN_MS: Record<Timeframe, number> = {
-  "15m": 0,
-  "30m": 0,
   "1h": 0,
-  "4h": 60 * 60_000,   // 1h min between 4h flips
-  "1d": 4 * 60 * 60_000, // 4h min between daily flips
+  "4h": 60 * 60_000,        // 1h min between 4h flips
+  "1d": 4 * 60 * 60_000,    // 4h min between daily flips
+  "1w": 24 * 60 * 60_000,   // 24h min between weekly flips
 };
 
 // Minimum re-entry delay after an SL: one full candle period.
 // This is the hard floor on effectiveCooldownMs — even with streak=0,
 // a re-entry cannot happen in the same polling tick that closed the prior trade.
 const CANDLE_PERIOD_MS: Record<Timeframe, number> = {
-  "15m": 15 * 60_000,
-  "30m": 30 * 60_000,
   "1h": 60 * 60_000,
   "4h": 4 * 60 * 60_000,
   "1d": 24 * 60 * 60_000,
+  "1w": 7 * 24 * 60 * 60_000,
 };
 
 const TIMEFRAME_LABEL: Record<Timeframe, string> = {
-  "15m": "15-min",
-  "30m": "30-min",
   "1h": "1-hour",
   "4h": "4-hour",
   "1d": "Daily",
+  "1w": "Weekly",
 };
 
 const stateMap = new Map<string, TrackedState>();
@@ -244,9 +240,9 @@ function isWebPushEnabled(): boolean {
 
 // Map each tracked TF to the higher TF used as its alignment gate.
 const HIGHER_TIMEFRAME: Partial<Record<Timeframe, Timeframe>> = {
-  "30m": "1h",
   "1h": "4h",
   "4h": "1d",
+  "1d": "1w",
 };
 
 async function checkSymbol(
@@ -458,40 +454,6 @@ async function checkSymbol(
             lastAlertAt: prev?.lastAlertAt ?? 0,
           });
           return;
-        }
-      }
-
-      // 1h MACD sign gate: for 30m signals, the 1h MACD histogram must be on
-      // the same side of zero as the signal direction. Reuses already-fetched
-      // higherCandles — no extra network call. Filled trades and direction
-      // flips are exempt. Fail-open if histogram is NaN (insufficient bars).
-      if (
-        timeframe === "30m" &&
-        !isFilledTrade &&
-        !isDirectionFlip &&
-        (levels.signal === "BUY" || levels.signal === "SELL") &&
-        higherCandles.length >= 40
-      ) {
-        const closes1h = higherCandles.map((c) => c.close);
-        const hist1h = calcMACDHist(closes1h);
-        const lastHist = hist1h[closes1h.length - 2]; // last completed bar
-        if (!isNaN(lastHist)) {
-          const histPositive = lastHist >= 0;
-          const macdOpposes =
-            (levels.signal === "BUY" && !histPositive) ||
-            (levels.signal === "SELL" && histPositive);
-          if (macdOpposes) {
-            logger.info(
-              { symbol, timeframe, signal: levels.signal, hist1h: lastHist.toFixed(5) },
-              "Signal alert suppressed (1h MACD histogram on wrong side of zero)",
-            );
-            stateMap.set(k, {
-              ...(prev ?? {}),
-              signal: prev?.signal ?? "WAIT",
-              lastAlertAt: prev?.lastAlertAt ?? 0,
-            });
-            return;
-          }
         }
       }
 
@@ -766,37 +728,6 @@ async function checkTrendingSymbol(
             lastAlertAt: prev?.lastAlertAt ?? 0,
           });
           return;
-        }
-      }
-
-      // 1h MACD sign gate for trending coins (same logic as checkSymbol).
-      if (
-        timeframe === "30m" &&
-        !isFilledTrade &&
-        !isDirectionFlip &&
-        (levels.signal === "BUY" || levels.signal === "SELL") &&
-        higherCandles.length >= 40
-      ) {
-        const closes1h = higherCandles.map((c) => c.close);
-        const hist1h = calcMACDHist(closes1h);
-        const lastHist = hist1h[closes1h.length - 2];
-        if (!isNaN(lastHist)) {
-          const histPositive = lastHist >= 0;
-          const macdOpposes =
-            (levels.signal === "BUY" && !histPositive) ||
-            (levels.signal === "SELL" && histPositive);
-          if (macdOpposes) {
-            logger.info(
-              { symbolKey, timeframe, signal: levels.signal, hist1h: lastHist.toFixed(5) },
-              "Trending signal alert suppressed (1h MACD histogram on wrong side of zero)",
-            );
-            stateMap.set(k, {
-              ...(prev ?? {}),
-              signal: prev?.signal ?? "WAIT",
-              lastAlertAt: prev?.lastAlertAt ?? 0,
-            });
-            return;
-          }
         }
       }
 

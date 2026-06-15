@@ -7,13 +7,12 @@
  */
 
 /**
- * Trade duration category derived from timeframe: SCALP=15m/30m, SWING=1h/4h, POSITION=1d
+ * Trade duration category derived from timeframe: SWING=1h/4h, POSITION=1d/1w
  */
 export type ActiveSignalEntryCategory =
   (typeof ActiveSignalEntryCategory)[keyof typeof ActiveSignalEntryCategory];
 
 export const ActiveSignalEntryCategory = {
-  SCALP: "SCALP",
   SWING: "SWING",
   POSITION: "POSITION",
 } as const;
