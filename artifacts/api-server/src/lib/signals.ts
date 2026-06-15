@@ -1572,9 +1572,9 @@ export function computeLevels(
     const dailySrcForWeekly = timeframe === "1d" ? completed : (dailyCandlesForWeekly ?? null);
     const weeklyCandles = dailySrcForWeekly ? synthesizeWeeklyCandles(dailySrcForWeekly) : [];
     const weeklyTrend = getWeeklyTrend(weeklyCandles);
-    // "NEUTRAL" = not enough weekly history → fail-open (allow both directions).
-    const weeklyAllowsBuy  = weeklyTrend !== "DOWN";
-    const weeklyAllowsSell = weeklyTrend !== "UP";
+    // NEUTRAL = ranging / insufficient history → no trade (strategy does not work in ranging markets).
+    const weeklyAllowsBuy  = weeklyTrend === "UP";
+    const weeklyAllowsSell = weeklyTrend === "DOWN";
 
     // ── Bollinger Bands (SMA-30 close, 2σ) filter ────────────────────────────
     // BUY: entry must be ≤ BB middle band (price in lower half of channel).
@@ -1615,7 +1615,7 @@ export function computeLevels(
           displaySwingLow  = swingALow;
           displayFib50     = ep;
           const bbTag     = bb30 ? ` BB-mid ${fmt(bb30.middle)}` : "";
-          const weeklyTag = weeklyTrend !== "NEUTRAL" ? ` | Weekly ${weeklyTrend}` : "";
+          const weeklyTag = ` | Weekly ${weeklyTrend}`;
           signalReason = `[${tfLabel}] FIB50 SWING BUY: Swing low ${fmt(swingALow)} → new high ${fmt(swingBHigh)} (range ${fmt(buySwingRange)}). Entry at 50% fib ${fmt(ep)}, SL ${fmt(sl)} (below swing low), TP1 ${fmt(tp1)} (swing high), TP2 ${fmt(tp2)} (measured move).${bbTag}${weeklyTag}`;
         }
       }
@@ -1654,7 +1654,7 @@ export function computeLevels(
           displaySwingLow  = swingBLow;
           displayFib50     = ep;
           const bbTag     = bb30 ? ` BB-mid ${fmt(bb30.middle)}` : "";
-          const weeklyTag = weeklyTrend !== "NEUTRAL" ? ` | Weekly ${weeklyTrend}` : "";
+          const weeklyTag = ` | Weekly ${weeklyTrend}`;
           signalReason = `[${tfLabel}] FIB50 SWING SELL: Swing high ${fmt(swingAHigh)} → new low ${fmt(swingBLow)} (range ${fmt(sellSwingRange)}). Entry at 50% fib ${fmt(ep)}, SL ${fmt(sl)} (above swing high), TP1 ${fmt(tp1)} (swing low), TP2 ${fmt(tp2)} (measured move).${bbTag}${weeklyTag}`;
         }
       }
