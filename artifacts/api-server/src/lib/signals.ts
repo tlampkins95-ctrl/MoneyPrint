@@ -585,6 +585,51 @@ function calcBollingerBands(
   return { upper: mean + multiplier * stdDev, middle: mean, lower: mean - multiplier * stdDev };
 }
 
+/**
+ * Aggregate daily candles into weekly bars (Monday-anchored ISO week grouping).
+ * Includes the current (still-forming) week using whatever daily bars have closed.
+ */
+function synthesizeWeeklyCandles(dailyCandles: CandleRaw[]): CandleRaw[] {
+  const weeks = new Map<string, CandleRaw[]>();
+  for (const c of dailyCandles) {
+    const d = new Date(c.date);
+    const dayOfWeek = (d.getUTCDay() + 6) % 7; // Mon=0 … Sun=6
+    const monday = new Date(d);
+    monday.setUTCDate(d.getUTCDate() - dayOfWeek);
+    const wk = `${monday.getUTCFullYear()}-${String(monday.getUTCMonth() + 1).padStart(2, "0")}-${String(monday.getUTCDate()).padStart(2, "0")}`;
+    if (!weeks.has(wk)) weeks.set(wk, []);
+    weeks.get(wk)!.push(c);
+  }
+  const result: CandleRaw[] = [];
+  for (const [wkDate, bars] of [...weeks.entries()].sort()) {
+    result.push({
+      date: wkDate,
+      open: bars[0].open,
+      high: Math.max(...bars.map((b) => b.high)),
+      low: Math.min(...bars.map((b) => b.low)),
+      close: bars[bars.length - 1].close,
+      volume: bars.reduce((s, b) => s + b.volume, 0),
+    });
+  }
+  return result;
+}
+
+/**
+ * Determine macro weekly trend via SMA-30 of weekly closes.
+ * Returns "UP" when latest weekly close > SMA-30, "DOWN" when below,
+ * or "NEUTRAL" when fewer than 30 weekly bars are available (fail-open).
+ */
+function getWeeklyTrend(weeklyCandles: CandleRaw[]): "UP" | "DOWN" | "NEUTRAL" {
+  if (weeklyCandles.length < 30) return "NEUTRAL";
+  const closes = weeklyCandles.map((c) => c.close);
+  const slice = closes.slice(-30);
+  const sma30 = slice.reduce((a, b) => a + b, 0) / 30;
+  const latest = closes[closes.length - 1];
+  if (latest > sma30) return "UP";
+  if (latest < sma30) return "DOWN";
+  return "NEUTRAL";
+}
+
 const TIMEFRAME_LABELS: Record<Timeframe, string> = {
   "15m": "15-minute",
   "30m": "30-minute",
