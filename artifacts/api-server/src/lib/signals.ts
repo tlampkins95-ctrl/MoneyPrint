@@ -1572,9 +1572,13 @@ export function computeLevels(
     const dailySrcForWeekly = timeframe === "1d" ? completed : (dailyCandlesForWeekly ?? null);
     const weeklyCandles = dailySrcForWeekly ? synthesizeWeeklyCandles(dailySrcForWeekly) : [];
     const weeklyTrend = getWeeklyTrend(weeklyCandles);
-    // NEUTRAL = ranging / insufficient history → no trade (strategy does not work in ranging markets).
-    const weeklyAllowsBuy  = weeklyTrend === "UP";
-    const weeklyAllowsSell = weeklyTrend === "DOWN";
+    // All three filters must agree before a signal fires:
+    //   • Weekly SMA-30 trend: UP for BUY, DOWN for SELL (NEUTRAL = no trade)
+    //   • Local market structure (EMA21/50 + ADX): UPTREND for BUY, DOWNTREND for SELL
+    //   • BB midline: entry in correct half of the channel
+    // This prevents the contradictory case of e.g. a SELL signal with UPTREND structure.
+    const weeklyAllowsBuy  = weeklyTrend === "UP"   && trend === "UPTREND";
+    const weeklyAllowsSell = weeklyTrend === "DOWN"  && trend === "DOWNTREND";
 
     // ── Bollinger Bands (SMA-30 close, 2σ) filter ────────────────────────────
     // BUY: entry must be ≤ BB middle band (price in lower half of channel).
