@@ -52,6 +52,9 @@ export function LevelsChart({
   const sellZoneRef       = useRef<ISeriesApi<"Baseline"> | null>(null);
   const patUpperRailRef   = useRef<ISeriesApi<"Line"> | null>(null);
   const patLowerRailRef   = useRef<ISeriesApi<"Line"> | null>(null);
+  const bbUpperRef        = useRef<ISeriesApi<"Line"> | null>(null);
+  const bbMiddleRef       = useRef<ISeriesApi<"Line"> | null>(null);
+  const bbLowerRef        = useRef<ISeriesApi<"Line"> | null>(null);
   const linesRef          = useRef<IPriceLine[]>([]);
   // Raw date strings from the first/last candle — used to anchor zone band data.
   // Stored as strings so toTime() can apply the right conversion (business-day
@@ -89,10 +92,13 @@ export function LevelsChart({
     ? patternUserOverride
     : levels?.patternConfirmed === true;
 
-  // Reset user override when symbol/timeframe changes so the default (confirmed=ON,
-  // otherwise OFF) re-evaluates against the newly loaded symbol's pattern state.
+  // Bollinger Bands toggle — default OFF, opt-in per chart view.
+  const [showBB, setShowBB] = useState(false);
+
+  // Reset overlays when symbol/timeframe changes so defaults re-evaluate.
   useEffect(() => {
     setPatternUserOverride(null);
+    setShowBB(false);
   }, [symbol, timeframe]);
 
   // ── Create / recreate chart when symbol or timeframe changes ───────────
@@ -184,11 +190,44 @@ export function LevelsChart({
       crosshairMarkerVisible: false,
     });
 
+    // ── Bollinger Bands series (upper / middle / lower) ──────────────────
+    // Sky-blue palette; upper/lower solid, middle dashed SMA line.
+    // Data is populated (or cleared) by the separate BB effect below.
+    const BB_COLOR_BAND = "rgba(14,165,233,0.55)";
+    const BB_COLOR_MID  = "rgba(14,165,233,0.35)";
+    const bbUpper = chart.addSeries(LineSeries, {
+      color:                  BB_COLOR_BAND,
+      lineWidth:              1 as LineWidth,
+      lineStyle:              LineStyle.Solid,
+      priceLineVisible:       false,
+      lastValueVisible:       false,
+      crosshairMarkerVisible: false,
+    });
+    const bbMiddle = chart.addSeries(LineSeries, {
+      color:                  BB_COLOR_MID,
+      lineWidth:              1 as LineWidth,
+      lineStyle:              LineStyle.Dashed,
+      priceLineVisible:       false,
+      lastValueVisible:       false,
+      crosshairMarkerVisible: false,
+    });
+    const bbLower = chart.addSeries(LineSeries, {
+      color:                  BB_COLOR_BAND,
+      lineWidth:              1 as LineWidth,
+      lineStyle:              LineStyle.Solid,
+      priceLineVisible:       false,
+      lastValueVisible:       false,
+      crosshairMarkerVisible: false,
+    });
+
     candleSeriesRef.current   = candles;
     buyZoneRef.current        = buyZone;
     sellZoneRef.current       = sellZone;
     patUpperRailRef.current   = patUpper;
     patLowerRailRef.current   = patLower;
+    bbUpperRef.current        = bbUpper;
+    bbMiddleRef.current       = bbMiddle;
+    bbLowerRef.current        = bbLower;
     chartRef.current          = chart;
     linesRef.current          = [];
     firstDateRef.current      = null;
@@ -202,6 +241,9 @@ export function LevelsChart({
       sellZoneRef.current       = null;
       patUpperRailRef.current   = null;
       patLowerRailRef.current   = null;
+      bbUpperRef.current        = null;
+      bbMiddleRef.current       = null;
+      bbLowerRef.current        = null;
       firstDateRef.current      = null;
       lastDateRef.current       = null;
       hasScrolledRef.current    = false;
@@ -254,6 +296,43 @@ export function LevelsChart({
       hasScrolledRef.current = true;
     }
   }, [history]);
+
+  // ── Bollinger Bands (SMA-30, 2σ) computed from candle history ─────────
+  // Runs whenever candle history loads or the BB toggle changes.
+  // All arithmetic is done in the component — no extra API round-trip needed.
+  useEffect(() => {
+    const upper  = bbUpperRef.current;
+    const middle = bbMiddleRef.current;
+    const lower  = bbLowerRef.current;
+    if (!upper || !middle || !lower) return;
+
+    if (!showBB || !history?.candles?.length) {
+      upper.setData([]);
+      middle.setData([]);
+      lower.setData([]);
+      return;
+    }
+
+    const cs      = history.candles;
+    const PERIOD  = 30;
+    const MULT    = 2;
+    type Pt = { time: ReturnType<typeof toTime>; value: number };
+    const uData: Pt[] = [], mData: Pt[] = [], lData: Pt[] = [];
+
+    for (let i = PERIOD - 1; i < cs.length; i++) {
+      const slice  = cs.slice(i - PERIOD + 1, i + 1);
+      const mean   = slice.reduce((s, c) => s + c.close, 0) / PERIOD;
+      const stdDev = Math.sqrt(slice.reduce((s, c) => s + (c.close - mean) ** 2, 0) / PERIOD);
+      const time   = toTime(cs[i].date);
+      uData.push({ time, value: mean + MULT * stdDev });
+      mData.push({ time, value: mean });
+      lData.push({ time, value: mean - MULT * stdDev });
+    }
+
+    upper.setData(uData);
+    middle.setData(mData);
+    lower.setData(lData);
+  }, [history, showBB]);
 
   // ── Refresh price lines + zone bands whenever levels change ───────────
   useEffect(() => {
@@ -485,6 +564,17 @@ export function LevelsChart({
       {/* Signal + live price badge — top-right */}
       {levels && (
         <div className="absolute top-2 right-2 z-20 flex items-center gap-1 font-mono select-none">
+          {/* BB toggle — Bollinger Bands (SMA-30, 2σ). Default OFF. */}
+          <button
+            onClick={() => setShowBB(v => !v)}
+            className={`px-2 py-0.5 rounded-sm font-mono text-[10px] border transition-colors cursor-pointer ${
+              showBB
+                ? "bg-sky-950/90 border-sky-500/60 text-sky-300 hover:bg-sky-900/90"
+                : "bg-zinc-900/80 border-zinc-700 text-zinc-500 hover:text-zinc-300 hover:border-zinc-500"
+            }`}
+          >
+            BB(30,2)
+          </button>
           {/* Patterns toggle — always visible when levels are loaded so the user
               can see and control the ON/OFF state. Default is derived from
               patternConfirmed (ON = confirmed pattern present, OFF otherwise). */}
