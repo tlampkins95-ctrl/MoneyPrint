@@ -184,8 +184,39 @@ interface TrendingCoin {
   price: number;
 }
 
-// Fetch trending coins from CoinGecko's /api/v3/search/trending endpoint.
-// Returns coins ranked by user search interest (same concept as CMC trending tab).
+// Fetch trending coins from CoinMarketCap's /v1/cryptocurrency/trending/latest.
+// This is the actual "Trending" tab on CMC, ranked by user visits/searches.
+// Requires COINMARKETCAP_API_KEY.
+async function fetchCmcTrending(): Promise<TrendingCoin[]> {
+  const apiKey = process.env["COINMARKETCAP_API_KEY"];
+  if (!apiKey) return [];
+  try {
+    const res = await fetch(
+      "https://pro-api.coinmarketcap.com/v1/cryptocurrency/trending/latest?limit=10&convert=USD",
+      {
+        headers: { "X-CMC_PRO_API_KEY": apiKey, Accept: "application/json" },
+        signal: AbortSignal.timeout(10_000),
+      },
+    );
+    if (!res.ok) {
+      logger.warn({ status: res.status }, "CMC trending fetch failed — will try CoinGecko fallback");
+      return [];
+    }
+    const json = (await res.json()) as { data?: Array<{ symbol: string; quote: { USD: { percent_change_24h: number; price: number } } }> };
+    const data = json.data ?? [];
+    return data.map((coin, idx) => ({
+      symbol: coin.symbol.toUpperCase(),
+      cmcRank: idx + 1,
+      priceChange24h: coin.quote.USD.percent_change_24h ?? 0,
+      price: coin.quote.USD.price ?? 1,
+    }));
+  } catch (err) {
+    logger.warn({ err }, "CMC trending fetch error — will try CoinGecko fallback");
+    return [];
+  }
+}
+
+// Fallback: CoinGecko trending (coins ranked by search interest — same concept).
 // Free tier, no API key required.
 async function fetchCoinGeckoTrending(): Promise<TrendingCoin[]> {
   try {
@@ -200,11 +231,14 @@ async function fetchCoinGeckoTrending(): Promise<TrendingCoin[]> {
     const json = (await res.json()) as { coins?: CoinGeckoTrendingItem[] };
     const coins = json.coins ?? [];
     return coins.map((c) => {
-      const priceStr = c.item.data?.price ?? "$1";
-      const price = parseFloat(priceStr.replace(/[$,\s]/g, "")) || 1;
+      // price field can be a number or formatted string like "$0.6452"
+      const rawPrice = c.item.data?.price;
+      const price = typeof rawPrice === "number"
+        ? rawPrice
+        : parseFloat(String(rawPrice ?? "1").replace(/[$,\s]/g, "")) || 1;
       return {
         symbol: c.item.symbol.toUpperCase(),
-        cmcRank: (c.item.score ?? 0) + 1, // score is 0-indexed
+        cmcRank: (c.item.score ?? 0) + 1,
         priceChange24h: c.item.data?.price_change_percentage_24h?.usd ?? 0,
         price,
       };
@@ -397,17 +431,22 @@ async function runDiscovery(pool: Pool): Promise<void> {
   try {
     logger.info("Running trending coin discovery");
 
-    // Fetch all three sources in parallel.
-    const [trendingCoins, okxMap, phemexMap] = await Promise.all([
-      fetchCoinGeckoTrending(),
-      fetchOkxSwapInstruments(),
-      fetchPhemexPerpProducts(),
+    // Fetch OKX + Phemex in parallel while we try CMC trending first.
+    const [[cmcCoins, okxMap, phemexMap]] = await Promise.all([
+      Promise.all([fetchCmcTrending(), fetchOkxSwapInstruments(), fetchPhemexPerpProducts()]),
     ]);
 
+    // Fall back to CoinGecko if CMC returned nothing (wrong plan, rate-limited, etc.)
+    const trendingCoins = cmcCoins.length > 0
+      ? cmcCoins
+      : await fetchCoinGeckoTrending();
+
     if (trendingCoins.length === 0) {
-      logger.warn("CoinGecko returned no trending data — skipping discovery cycle");
+      logger.warn("Both CMC and CoinGecko returned no trending data — skipping discovery cycle");
       return;
     }
+
+    logger.info({ source: cmcCoins.length > 0 ? "CMC" : "CoinGecko", count: trendingCoins.length }, "Trending data fetched");
 
     if (phemexMap.size === 0) {
       logger.warn("Phemex returned no USDT-perp products — skipping discovery cycle");
