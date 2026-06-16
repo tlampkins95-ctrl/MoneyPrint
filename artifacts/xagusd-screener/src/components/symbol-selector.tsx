@@ -211,7 +211,7 @@ export function SymbolSelector({
               <>
                 <div className="flex items-center gap-1.5 px-3 py-1.5 border-t border-border/60 text-[10px] font-bold tracking-widest text-amber-400/80">
                   <Flame className="w-3 h-3" />
-                  TRENDING · 24H GAINERS
+                  TRENDING ON CMC
                 </div>
                 {trending.map((t) => {
                   const isActive = t.symbolKey === value;

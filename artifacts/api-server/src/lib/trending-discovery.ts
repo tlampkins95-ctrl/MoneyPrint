@@ -150,14 +150,15 @@ const TRENDING_TTL_MS = 8 * 60 * 60 * 1000;
 // Refresh interval: every 4 hours.
 const DISCOVERY_INTERVAL_MS = 4 * 60 * 60 * 1000;
 
-interface CmcQuote {
-  percent_change_24h: number;
-  price: number;
-}
-
-interface CmcCoin {
-  symbol: string;
-  quote: { USD: CmcQuote };
+interface CoinGeckoTrendingItem {
+  item: {
+    symbol: string;
+    score: number; // 0-indexed CMC-equivalent trending rank
+    data?: {
+      price?: string; // e.g. "$0.6452"
+      price_change_percentage_24h?: { usd?: number };
+    };
+  };
 }
 
 interface OkxInstrument {
@@ -176,34 +177,40 @@ interface PhemexPerpProduct {
   priceScaleRq?: string;   // price tick scale
 }
 
-// Fetch top gainers from CoinMarketCap's /v1/cryptocurrency/listings/latest
-// sorted by percent_change_24h descending.  Requires COINMARKETCAP_API_KEY.
-async function fetchCmcGainers(): Promise<CmcCoin[]> {
-  const apiKey = process.env["COINMARKETCAP_API_KEY"];
-  if (!apiKey) {
-    logger.warn("COINMARKETCAP_API_KEY not set — skipping CMC gainers fetch");
-    return [];
-  }
+interface TrendingCoin {
+  symbol: string;
+  cmcRank: number;
+  priceChange24h: number;
+  price: number;
+}
+
+// Fetch trending coins from CoinGecko's /api/v3/search/trending endpoint.
+// Returns coins ranked by user search interest (same concept as CMC trending tab).
+// Free tier, no API key required.
+async function fetchCoinGeckoTrending(): Promise<TrendingCoin[]> {
   try {
-    const url =
-      "https://pro-api.coinmarketcap.com/v1/cryptocurrency/listings/latest" +
-      "?limit=200&sort=percent_change_24h&sort_dir=desc&cryptocurrency_type=coins" +
-      "&convert=USD";
-    const res = await fetch(url, {
-      headers: {
-        "X-CMC_PRO_API_KEY": apiKey,
-        Accept: "application/json",
-      },
+    const res = await fetch("https://api.coingecko.com/api/v3/search/trending", {
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; Forex-Screener/1.0)" },
       signal: AbortSignal.timeout(10_000),
     });
     if (!res.ok) {
-      logger.warn({ status: res.status }, "CMC gainers fetch failed");
+      logger.warn({ status: res.status }, "CoinGecko trending fetch failed");
       return [];
     }
-    const json = (await res.json()) as { data?: CmcCoin[] };
-    return Array.isArray(json.data) ? json.data : [];
+    const json = (await res.json()) as { coins?: CoinGeckoTrendingItem[] };
+    const coins = json.coins ?? [];
+    return coins.map((c) => {
+      const priceStr = c.item.data?.price ?? "$1";
+      const price = parseFloat(priceStr.replace(/[$,\s]/g, "")) || 1;
+      return {
+        symbol: c.item.symbol.toUpperCase(),
+        cmcRank: (c.item.score ?? 0) + 1, // score is 0-indexed
+        priceChange24h: c.item.data?.price_change_percentage_24h?.usd ?? 0,
+        price,
+      };
+    });
   } catch (err) {
-    logger.warn({ err }, "CMC fetch error");
+    logger.warn({ err }, "CoinGecko trending fetch error");
     return [];
   }
 }
@@ -391,14 +398,14 @@ async function runDiscovery(pool: Pool): Promise<void> {
     logger.info("Running trending coin discovery");
 
     // Fetch all three sources in parallel.
-    const [gainers, okxMap, phemexMap] = await Promise.all([
-      fetchCmcGainers(),
+    const [trendingCoins, okxMap, phemexMap] = await Promise.all([
+      fetchCoinGeckoTrending(),
       fetchOkxSwapInstruments(),
       fetchPhemexPerpProducts(),
     ]);
 
-    if (gainers.length === 0) {
-      logger.warn("CMC returned no data — skipping discovery cycle");
+    if (trendingCoins.length === 0) {
+      logger.warn("CoinGecko returned no trending data — skipping discovery cycle");
       return;
     }
 
@@ -408,15 +415,14 @@ async function runDiscovery(pool: Pool): Promise<void> {
     }
 
     const discovered: TrendingMeta[] = [];
-    let rank = 0;
 
-    for (const coin of gainers) {
+    // Iterate CoinGecko trending list in order — cmcRank IS the trending position.
+    // Coins here are ranked by user search interest (trending tab concept),
+    // not by 24h price change, so we do not filter by minimum gain.
+    for (const coin of trendingCoins) {
       if (discovered.length >= MAX_TRENDING) break;
-      const ticker = coin.symbol.toUpperCase();
+      const { symbol: ticker, cmcRank, priceChange24h: change, price } = coin;
       if (EXCLUDED_TICKERS.has(ticker)) continue;
-
-      const change = coin.quote.USD.percent_change_24h ?? 0;
-      if (change < 5) continue; // only coins up ≥5% in 24h
 
       const okxKey = `${ticker}-USDT-SWAP`;
       if (!okxMap.has(okxKey)) continue; // need OKX for candle data
@@ -425,12 +431,10 @@ async function runDiscovery(pool: Pool): Promise<void> {
       const phemexInst = phemexMap.get(phemexKey);
       if (!phemexInst) continue; // must be listed as a Phemex USDT-perp
 
-      const price = coin.quote.USD.price ?? 1;
       const decimals = inferDecimals(price);
       const expiresAt = Date.now() + TRENDING_TTL_MS;
       const discoveredAt = Date.now(); // will be preserved in DB on conflict
 
-      rank++;
       discovered.push(
         buildDynamicMeta(
           phemexKey,
@@ -441,7 +445,7 @@ async function runDiscovery(pool: Pool): Promise<void> {
           phemexInst.minQty,
           phemexInst.qtyStep,
           change,
-          rank,
+          cmcRank,
           expiresAt,
           discoveredAt,
         ),
