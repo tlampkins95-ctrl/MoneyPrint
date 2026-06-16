@@ -139,7 +139,7 @@ const EXCLUDED_TICKERS = new Set([
 ]);
 
 // How many trending coins to track (beyond the static list).
-const MAX_TRENDING = 5;
+const MAX_TRENDING = 15;
 
 // TTL for a discovered trending coin in the DB: 8 hours (2× the discovery
 // interval). This gives coins a full extra cycle of buffer before expiring,
@@ -439,12 +439,13 @@ async function runDiscovery(pool: Pool): Promise<void> {
       fetchPhemexPerpProducts(),
     ]);
 
-    // Merge trending + gainers, deduplicating by ticker (trending takes priority).
+    // Merge trending + gainers, deduplicating by ticker (trending takes priority),
+    // then sort by 24h gain descending so the biggest movers get first pick of slots.
     const seenTickers = new Set(trendingCoins.map((c) => c.symbol));
     const mergedCoins: TrendingCoin[] = [
       ...trendingCoins,
       ...gainerCoins.filter((c) => !seenTickers.has(c.symbol)),
-    ];
+    ].sort((a, b) => (b.priceChange24h ?? 0) - (a.priceChange24h ?? 0));
 
     if (mergedCoins.length === 0) {
       logger.warn("No trending or gainer data returned — skipping discovery cycle");
