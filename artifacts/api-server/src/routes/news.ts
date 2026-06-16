@@ -1,4 +1,5 @@
 import { Router, type IRouter } from "express";
+import { getTrendingSymbols } from "../lib/trending-discovery";
 
 const router: IRouter = Router();
 
@@ -89,7 +90,15 @@ async function fetchNews() {
 
 router.get("/news", async (_req, res) => {
   const [articles, gainers] = await Promise.all([fetchNews(), fetchTopGainers()]);
-  res.json({ articles, gainers });
+
+  // Only surface gainers that are already validated in the trending cache
+  // (confirmed present on both OKX and Phemex). Coins not in the cache will
+  // return HTTP 400 "Unknown symbol" from the levels route.
+  // symbolKey is e.g. "HYPEUSDT"; gainers use bare ticker e.g. "HYPE"
+  const validKeys = new Set(getTrendingSymbols().map((t) => t.symbolKey));
+  const filteredGainers = gainers.filter((g) => validKeys.has(`${g.symbol}USDT`));
+
+  res.json({ articles, gainers: filteredGainers });
 });
 
 export default router;
