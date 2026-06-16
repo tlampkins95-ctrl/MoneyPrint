@@ -244,8 +244,8 @@ function detectDoubleTop(candles: CandleRaw[]): PatternResult | null {
     // Valley must be at least 4% below the tops — shallow dips are just noise
     if ((avgTop - valley.price) / avgTop < 0.04) continue;
     if (H2.idx < candles.length - 20) continue;
-    // Volume confirmation: left peak must have a higher vol/20MA ratio than right peak.
-    // Fail-open when volume data is absent (e.g. forex with no volume).
+    // Volume confirmation: left peak vol/20MA ratio must exceed right peak.
+    // Guard against data gaps that produce zero-volume candles.
     const ma1 = vol20MA(candles, H1.idx), ma2 = vol20MA(candles, H2.idx);
     if (ma1 > 0 && ma2 > 0) {
       const r1 = volAtPeak(candles, H1.idx) / ma1;
@@ -282,8 +282,8 @@ function detectDoubleBottom(candles: CandleRaw[]): PatternResult | null {
     // Peak between them must be at least 4% above the troughs
     if ((peak.price - avgBot) / avgBot < 0.04) continue;
     if (L2.idx < candles.length - 20) continue;
-    // Volume confirmation: left trough must have a higher vol/20MA ratio than right trough.
-    // Fail-open when volume data is absent (e.g. forex with no volume).
+    // Volume confirmation: left trough vol/20MA ratio must exceed right trough.
+    // Guard against data gaps that produce zero-volume candles.
     const ma1 = vol20MA(candles, L1.idx), ma2 = vol20MA(candles, L2.idx);
     if (ma1 > 0 && ma2 > 0) {
       const r1 = volAtPeak(candles, L1.idx) / ma1;
