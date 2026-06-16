@@ -150,17 +150,6 @@ const TRENDING_TTL_MS = 8 * 60 * 60 * 1000;
 // Refresh interval: every 4 hours.
 const DISCOVERY_INTERVAL_MS = 4 * 60 * 60 * 1000;
 
-interface CoinGeckoTrendingItem {
-  item: {
-    symbol: string;
-    score: number; // 0-indexed CMC-equivalent trending rank
-    data?: {
-      price?: string; // e.g. "$0.6452"
-      price_change_percentage_24h?: { usd?: number };
-    };
-  };
-}
-
 interface OkxInstrument {
   instId: string;
   minSz: string;
@@ -189,7 +178,10 @@ interface TrendingCoin {
 // Requires COINMARKETCAP_API_KEY.
 async function fetchCmcTrending(): Promise<TrendingCoin[]> {
   const apiKey = process.env["COINMARKETCAP_API_KEY"];
-  if (!apiKey) return [];
+  if (!apiKey) {
+    logger.warn("COINMARKETCAP_API_KEY not set — skipping trending discovery");
+    return [];
+  }
   try {
     const res = await fetch(
       "https://pro-api.coinmarketcap.com/v1/cryptocurrency/trending/latest?limit=10&convert=USD",
@@ -199,7 +191,7 @@ async function fetchCmcTrending(): Promise<TrendingCoin[]> {
       },
     );
     if (!res.ok) {
-      logger.warn({ status: res.status }, "CMC trending fetch failed — will try CoinGecko fallback");
+      logger.warn({ status: res.status }, "CMC trending fetch failed");
       return [];
     }
     const json = (await res.json()) as { data?: Array<{ symbol: string; quote: { USD: { percent_change_24h: number; price: number } } }> };
@@ -211,40 +203,7 @@ async function fetchCmcTrending(): Promise<TrendingCoin[]> {
       price: coin.quote.USD.price ?? 1,
     }));
   } catch (err) {
-    logger.warn({ err }, "CMC trending fetch error — will try CoinGecko fallback");
-    return [];
-  }
-}
-
-// Fallback: CoinGecko trending (coins ranked by search interest — same concept).
-// Free tier, no API key required.
-async function fetchCoinGeckoTrending(): Promise<TrendingCoin[]> {
-  try {
-    const res = await fetch("https://api.coingecko.com/api/v3/search/trending", {
-      headers: { "User-Agent": "Mozilla/5.0 (compatible; Forex-Screener/1.0)" },
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!res.ok) {
-      logger.warn({ status: res.status }, "CoinGecko trending fetch failed");
-      return [];
-    }
-    const json = (await res.json()) as { coins?: CoinGeckoTrendingItem[] };
-    const coins = json.coins ?? [];
-    return coins.map((c) => {
-      // price field can be a number or formatted string like "$0.6452"
-      const rawPrice = c.item.data?.price;
-      const price = typeof rawPrice === "number"
-        ? rawPrice
-        : parseFloat(String(rawPrice ?? "1").replace(/[$,\s]/g, "")) || 1;
-      return {
-        symbol: c.item.symbol.toUpperCase(),
-        cmcRank: (c.item.score ?? 0) + 1,
-        priceChange24h: c.item.data?.price_change_percentage_24h?.usd ?? 0,
-        price,
-      };
-    });
-  } catch (err) {
-    logger.warn({ err }, "CoinGecko trending fetch error");
+    logger.warn({ err }, "CMC trending fetch error");
     return [];
   }
 }
@@ -431,22 +390,16 @@ async function runDiscovery(pool: Pool): Promise<void> {
   try {
     logger.info("Running trending coin discovery");
 
-    // Fetch OKX + Phemex in parallel while we try CMC trending first.
-    const [[cmcCoins, okxMap, phemexMap]] = await Promise.all([
-      Promise.all([fetchCmcTrending(), fetchOkxSwapInstruments(), fetchPhemexPerpProducts()]),
+    const [trendingCoins, okxMap, phemexMap] = await Promise.all([
+      fetchCmcTrending(),
+      fetchOkxSwapInstruments(),
+      fetchPhemexPerpProducts(),
     ]);
 
-    // Fall back to CoinGecko if CMC returned nothing (wrong plan, rate-limited, etc.)
-    const trendingCoins = cmcCoins.length > 0
-      ? cmcCoins
-      : await fetchCoinGeckoTrending();
-
     if (trendingCoins.length === 0) {
-      logger.warn("Both CMC and CoinGecko returned no trending data — skipping discovery cycle");
+      logger.warn("CMC returned no trending data — skipping discovery cycle");
       return;
     }
-
-    logger.info({ source: cmcCoins.length > 0 ? "CMC" : "CoinGecko", count: trendingCoins.length }, "Trending data fetched");
 
     if (phemexMap.size === 0) {
       logger.warn("Phemex returned no USDT-perp products — skipping discovery cycle");
