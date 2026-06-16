@@ -173,37 +173,38 @@ interface TrendingCoin {
   price: number;
 }
 
-// Fetch trending coins from CoinMarketCap's /v1/cryptocurrency/trending/latest.
-// This is the actual "Trending" tab on CMC, ranked by user visits/searches.
-// Requires COINMARKETCAP_API_KEY.
+interface CoinGeckoTrendingItem {
+  item: {
+    symbol: string;
+    score: number; // 0-indexed trending rank
+    data?: {
+      price?: number;
+      price_change_percentage_24h?: Record<string, number>;
+    };
+  };
+}
+
+// Fetch trending coins ranked by user search interest — same concept as the
+// CMC trending tab. No API key required.
 async function fetchCmcTrending(): Promise<TrendingCoin[]> {
-  const apiKey = process.env["COINMARKETCAP_API_KEY"];
-  if (!apiKey) {
-    logger.warn("COINMARKETCAP_API_KEY not set — skipping trending discovery");
-    return [];
-  }
   try {
-    const res = await fetch(
-      "https://pro-api.coinmarketcap.com/v1/cryptocurrency/trending/latest?limit=10&convert=USD",
-      {
-        headers: { "X-CMC_PRO_API_KEY": apiKey, Accept: "application/json" },
-        signal: AbortSignal.timeout(10_000),
-      },
-    );
+    const res = await fetch("https://api.coingecko.com/api/v3/search/trending", {
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; Forex-Screener/1.0)" },
+      signal: AbortSignal.timeout(10_000),
+    });
     if (!res.ok) {
-      logger.warn({ status: res.status }, "CMC trending fetch failed");
+      logger.warn({ status: res.status }, "Trending fetch failed");
       return [];
     }
-    const json = (await res.json()) as { data?: Array<{ symbol: string; quote: { USD: { percent_change_24h: number; price: number } } }> };
-    const data = json.data ?? [];
-    return data.map((coin, idx) => ({
-      symbol: coin.symbol.toUpperCase(),
-      cmcRank: idx + 1,
-      priceChange24h: coin.quote.USD.percent_change_24h ?? 0,
-      price: coin.quote.USD.price ?? 1,
+    const json = (await res.json()) as { coins?: CoinGeckoTrendingItem[] };
+    return (json.coins ?? []).map((c) => ({
+      symbol: c.item.symbol.toUpperCase(),
+      cmcRank: (c.item.score ?? 0) + 1,
+      priceChange24h: c.item.data?.price_change_percentage_24h?.["usd"] ?? 0,
+      price: c.item.data?.price ?? 1,
     }));
   } catch (err) {
-    logger.warn({ err }, "CMC trending fetch error");
+    logger.warn({ err }, "Trending fetch error");
     return [];
   }
 }
