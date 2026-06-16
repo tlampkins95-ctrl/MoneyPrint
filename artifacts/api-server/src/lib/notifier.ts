@@ -20,6 +20,10 @@ type SignalKind = "BUY" | "SELL" | "WAIT";
 interface TrackedState {
   signal: SignalKind;
   lastAlertAt: number;
+  // Set when a BUY is actively suppressed by the BTC macro gate.  Cleared the
+  // moment BTC recovers.  Used to deduplicate the suppression log — we log once
+  // on the first suppression cycle, not on every subsequent poll.
+  btcSuppressed?: boolean;
   // Direction of the last alert actually sent. Used to make the cooldown
   // direction-aware: a BUY→SELL flip bypasses the cooldown entirely because
   // it's a new setup in the opposite direction, not a repeat alert.
@@ -464,11 +468,14 @@ async function checkSymbol(
       if (levels.signal === "BUY" && !isFilledTrade && isBtcMacroGated(symbol, SYMBOLS[symbol].category)) {
         const btcTrend = await getBtcMacroTrend("1d");
         if (btcTrend === "DOWNTREND") {
-          logger.info({ symbol, timeframe, btcTrend }, "BUY alert suppressed (BTC macro DOWNTREND)");
+          if (!prev?.btcSuppressed) {
+            logger.info({ symbol, timeframe, btcTrend }, "BUY alert suppressed (BTC macro DOWNTREND)");
+          }
           stateMap.set(k, {
             ...(prev ?? {}),
             signal: prev?.signal ?? "WAIT",
             lastAlertAt: prev?.lastAlertAt ?? 0,
+            btcSuppressed: true,
           });
           return;
         }
@@ -735,11 +742,14 @@ async function checkTrendingSymbol(
       if (levels.signal === "BUY" && !isFilledTrade) {
         const btcTrend = await getBtcMacroTrend("1d");
         if (btcTrend === "DOWNTREND") {
-          logger.info({ symbolKey, timeframe, btcTrend }, "BUY alert suppressed (BTC macro DOWNTREND — trending coin)");
+          if (!prev?.btcSuppressed) {
+            logger.info({ symbolKey, timeframe, btcTrend }, "BUY alert suppressed (BTC macro DOWNTREND — trending coin)");
+          }
           stateMap.set(k, {
             ...(prev ?? {}),
             signal: prev?.signal ?? "WAIT",
             lastAlertAt: prev?.lastAlertAt ?? 0,
+            btcSuppressed: true,
           });
           return;
         }

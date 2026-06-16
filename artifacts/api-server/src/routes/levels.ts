@@ -8,6 +8,7 @@ import {
 } from "@workspace/api-zod";
 import {
   fetchCandlesForTimeframe,
+  type CandleRaw,
   type Timeframe,
 } from "../lib/yahoo-fetch";
 import { SYMBOLS, makeRounder, ALL_SYMBOLS, type Symbol } from "../lib/symbols";
@@ -561,11 +562,16 @@ router.get("/active-signals", async (req: Request, res: Response) => {
             // Dynamic trending coin — same gate logic as static.
             const tMeta = trendingNow.find((t) => t.symbolKey === combo.symbolKey);
             if (!tMeta) return { ok: false, symbolKey, timeframe };
-            const [candles, spot] = await Promise.all([
+            const needDailyForWeekly = timeframe === "1h";
+            const [candles, spot, rawDailyForWeekly] = await Promise.all([
               fetchCandlesForDynamic(tMeta.okxPerp!, timeframe),
               spotPromises.get(combo.symbolKey)!,
+              needDailyForWeekly ? fetchCandlesForDynamic(tMeta.okxPerp!, "1d") : Promise.resolve([]),
             ]);
             if (candles.length < 2) return { ok: false, symbolKey, timeframe };
+            const dailyForWeekly = needDailyForWeekly && (rawDailyForWeekly as CandleRaw[]).length > 0
+              ? (rawDailyForWeekly as CandleRaw[])
+              : undefined;
             const levels = computeLevelsStable(
               candles,
               spot,
@@ -577,6 +583,7 @@ router.get("/active-signals", async (req: Request, res: Response) => {
               minCollateral,
               maxLeverage,
               mt5Lots,
+              dailyForWeekly,
             );
 
             const dynFilledTrade =

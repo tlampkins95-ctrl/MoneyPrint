@@ -1587,8 +1587,25 @@ export function computeLevels(
     // structural setups regardless of the higher-timeframe backdrop.
     // Local structure (EMA21/50 + ADX) still gates direction: a BUY only fires
     // when the 1h/1d structure is bullish, and a SELL only when it is bearish.
-    const weeklyAllowsBuy  = trend === "UPTREND";
-    const weeklyAllowsSell = trend === "DOWNTREND";
+    //
+    // For 1h: also gate on the DAILY EMA21/50 trend to prevent a 1h signal
+    // firing against the confirmed higher-timeframe direction.  A 1h BUY
+    // when the daily is in DOWNTREND (and vice-versa) produces conflicting
+    // signals at the same price zone — block those.
+    let dailyEMATrend: "UPTREND" | "DOWNTREND" | "RANGING" = "RANGING";
+    if (timeframe === "1h" && dailyCandlesForWeekly && dailyCandlesForWeekly.length >= 50) {
+      const dCloses = dailyCandlesForWeekly.map((c) => c.close);
+      const dEma21  = calcEMA(dCloses, 21);
+      const dEma50  = calcEMA(dCloses, 50);
+      const dLast21 = dEma21[dEma21.length - 1];
+      const dLast50 = dEma50[dEma50.length - 1];
+      if (!isNaN(dLast21) && !isNaN(dLast50)) {
+        if      (dLast21 > dLast50) dailyEMATrend = "UPTREND";
+        else if (dLast21 < dLast50) dailyEMATrend = "DOWNTREND";
+      }
+    }
+    const weeklyAllowsBuy  = trend === "UPTREND"  && (timeframe !== "1h" || dailyEMATrend !== "DOWNTREND");
+    const weeklyAllowsSell = trend === "DOWNTREND" && (timeframe !== "1h" || dailyEMATrend !== "UPTREND");
 
     // ── Bollinger Bands (SMA-30 close, 2σ) filter ────────────────────────────
     // BUY: entry must be ≤ BB middle band (price in lower half of channel).
