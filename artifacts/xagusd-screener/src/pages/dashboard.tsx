@@ -5,6 +5,7 @@ import { ActiveSignalsOverview } from "@/components/active-signals-overview";
 import { TradeHistoryPanel } from "@/components/trade-history-panel";
 import { LearnTab } from "@/components/learn/learn-tab";
 import { NewsPanel } from "@/components/news-panel";
+import { GainersStrip } from "@/components/gainers-strip";
 import {
   TimeframeSelector,
   type Timeframe,
@@ -135,7 +136,7 @@ export default function Dashboard() {
 
       {/* Tab bar */}
       <nav className="relative z-[59] shrink-0 flex items-center gap-0 border-b border-border/60 bg-card/40 backdrop-blur-md px-4">
-        {(["signals", "journal", "news", "learn"] as Tab[]).map((t) => (
+        {(["signals", "news", "learn", "journal"] as Tab[]).map((t) => (
           <button
             key={t}
             type="button"
@@ -185,6 +186,15 @@ export default function Dashboard() {
               onSelect={(s, t) => {
                 setSymbol(s);
                 setTimeframe(t);
+              }}
+            />
+
+            {/* Top gainers — clickable to navigate to that coin's signals */}
+            <GainersStrip
+              selectedSymbol={symbol}
+              onSelect={(s, t) => {
+                setSymbol(s);
+                setTimeframe(t as Timeframe);
               }}
             />
 
