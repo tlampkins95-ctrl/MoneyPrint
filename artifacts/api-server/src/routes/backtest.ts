@@ -728,7 +728,7 @@ function runFib50SwingBacktest(
           const bbOk  = !midBand || fib50 <= midBand;
           if (bbOk && Math.abs(prevClose - fib50) <= ATR_TOL * atr) {
             const ep   = round(fib50);
-            const sl   = round(swingA - SL_BUF * atr);
+            const sl   = round(swingB - 0.786 * range);  // 78.6% retracement
             const risk = Math.abs(ep - sl);
             if (risk > 0 && today.low <= ep && today.high >= ep) {
               const tp1 = round(swingB);                                           // structural: swing high
@@ -780,7 +780,7 @@ function runFib50SwingBacktest(
           const bbOk  = !midBand || fib50 >= midBand;
           if (bbOk && Math.abs(prevClose - fib50) <= ATR_TOL * atr) {
             const ep   = round(fib50);
-            const sl   = round(swingA + SL_BUF * atr);
+            const sl   = round(swingB + 0.786 * range);  // 78.6% retracement
             const risk = Math.abs(sl - ep);
             if (risk > 0 && today.high >= ep && today.low <= ep) {
               const tp1 = round(swingB);                                           // structural: swing low
