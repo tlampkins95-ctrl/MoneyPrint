@@ -6,6 +6,7 @@ export type Symbol =
   | "AUDUSD"
   | "BTCUSD"
   | "ETHUSD"
+  | "SOLUSD"
   | "USDCHF"
   | "ZECUSD";
 
@@ -157,6 +158,21 @@ export const SYMBOLS: Record<Symbol, SymbolMeta> = {
     phemexMinQty: 0.01,
     phemexQtyStep: 0.01,
     pythFeedId: "ff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace",
+    venue: "OKX · USDT perp",
+  },
+  SOLUSD: {
+    yahoo: "SOL-USD",
+    tvSymbol: "OKX:SOLUSDT.P",
+    tvScrapePath: "/symbols/SOLUSDT.P/?exchange=OKX",
+    label: "Solana / USDT (OKX Perp)",
+    decimals: 2,
+    prefix: "$",
+    category: "crypto",
+    coinbase: "SOL-USD",
+    okxPerp: "SOL-USDT-SWAP",
+    phemexPerp: "SOLUSDT",
+    phemexMinQty: 0.1,
+    phemexQtyStep: 0.1,
     venue: "OKX · USDT perp",
   },
   USDCHF: {

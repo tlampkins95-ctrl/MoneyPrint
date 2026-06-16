@@ -58,7 +58,7 @@ interface SwingPoint { idx: number; price: number; }
 
 // ── Swing point finders ───────────────────────────────────────────────────────
 
-function findSwingHighs(
+export function findSwingHighs(
   candles: CandleRaw[],
   strength = 3,
   lookback = 80,
@@ -79,7 +79,7 @@ function findSwingHighs(
   return pts;
 }
 
-function findSwingLows(
+export function findSwingLows(
   candles: CandleRaw[],
   strength = 3,
   lookback = 80,

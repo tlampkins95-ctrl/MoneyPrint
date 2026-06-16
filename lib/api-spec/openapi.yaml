@@ -105,7 +105,7 @@ paths:
           name: symbol
           schema:
             type: string
-            enum: ["XAGUSD", "XAUUSD", "EURUSD", "GBPUSD", "AUDUSD", "BTCUSD", "ETHUSD", "SKYAIUSDT", "ZECUSD"]
+            enum: ["XAGUSD", "XAUUSD", "EURUSD", "GBPUSD", "AUDUSD", "BTCUSD", "ETHUSD", "SOLUSD", "SKYAIUSDT", "ZECUSD"]
             default: "XAGUSD"
           description: Trading instrument
         - in: query
@@ -323,7 +323,7 @@ paths:
           name: symbol
           schema:
             type: string
-            enum: ["XAGUSD", "XAUUSD", "EURUSD", "GBPUSD", "AUDUSD", "BTCUSD", "ETHUSD", "SKYAIUSDT", "ZECUSD"]
+            enum: ["XAGUSD", "XAUUSD", "EURUSD", "GBPUSD", "AUDUSD", "BTCUSD", "ETHUSD", "SOLUSD", "SKYAIUSDT", "ZECUSD"]
             default: "XAGUSD"
           description: Trading instrument
         - in: query

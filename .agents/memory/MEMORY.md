@@ -4,3 +4,4 @@
 - [Signal audit bugs](signal-audit-bugs.md) — 4 bugs from full code audit: sellAllowed/ema200+MACD, trending dedup guard, FIB type whitelist, RowProps union.
 - [FIB50_SWING backtest parity](fib50swing-backtest.md) — backtest signalType dispatch, daily candle fetch for weekly gate, and expected 1D sparsity explained.
 - [Duplicate seed alerts on restart](duplicate-seed-alerts.md) — stateMap is in-memory; restarts wipe it and seed re-fires for every pending 1H signal; fix is to persist lastAlertAt+lastAlertSignal to .runtime/notifier-alert-state.json.
+- [FIB50_SWING swing selection](fib50swing-swing-selection.md) — must iterate structural swing points most-recent-first, not absolute extreme; BB30 gate removed (blocks valid setups in trending markets).

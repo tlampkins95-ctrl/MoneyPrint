@@ -6,6 +6,7 @@ export type Symbol =
   | "AUDUSD"
   | "BTCUSD"
   | "ETHUSD"
+  | "SOLUSD"
   | "USDCHF"
   | "ZECUSD";
 
@@ -30,6 +31,7 @@ export const SYMBOLS: Record<Symbol, SymbolMeta> = {
   AUDUSD:    { tv: "OANDA:AUDUSD",      short: "AUD/USD",  long: "Aussie",           badge: "AU", decimals: 5, prefix: "",  category: "forex" },
   BTCUSD:    { tv: "OKX:BTCUSDT.P",    short: "BTC/USDT", long: "Bitcoin (OKX Perp)",  badge: "₿",  decimals: 1, prefix: "$", category: "crypto", venue: "OKX · USDT perp" },
   ETHUSD:    { tv: "OKX:ETHUSDT.P",    short: "ETH/USDT", long: "Ethereum (OKX Perp)", badge: "Ξ",  decimals: 2, prefix: "$", category: "crypto", venue: "OKX · USDT perp" },
+  SOLUSD:    { tv: "OKX:SOLUSDT.P",    short: "SOL/USDT", long: "Solana (OKX Perp)",   badge: "◎",  decimals: 2, prefix: "$", category: "crypto", venue: "OKX · USDT perp" },
   USDCHF:    { tv: "OANDA:USDCHF",      short: "USD/CHF",  long: "Swissie",              badge: "Fr", decimals: 5, prefix: "",  category: "forex" },
   ZECUSD:    { tv: "OKX:ZECUSDT.P",    short: "ZEC/USDT", long: "Zcash (OKX Perp)",    badge: "ZE", decimals: 2, prefix: "$", category: "crypto", venue: "OKX · USDT perp" },
 };

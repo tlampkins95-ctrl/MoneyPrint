@@ -461,6 +461,7 @@ export const GetBacktestQueryParams = zod.object({
       "AUDUSD",
       "BTCUSD",
       "ETHUSD",
+      "SOLUSD",
       "SKYAIUSDT",
       "ZECUSD",
     ])
@@ -1254,6 +1255,7 @@ export const GetPriceHistoryQueryParams = zod.object({
       "AUDUSD",
       "BTCUSD",
       "ETHUSD",
+      "SOLUSD",
       "SKYAIUSDT",
       "ZECUSD",
     ])

@@ -17,6 +17,7 @@ export const GetPriceHistorySymbol = {
   AUDUSD: "AUDUSD",
   BTCUSD: "BTCUSD",
   ETHUSD: "ETHUSD",
+  SOLUSD: "SOLUSD",
   SKYAIUSDT: "SKYAIUSDT",
   ZECUSD: "ZECUSD",
 } as const;

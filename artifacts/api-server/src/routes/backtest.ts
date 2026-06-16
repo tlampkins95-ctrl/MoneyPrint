@@ -1141,7 +1141,7 @@ router.get("/backtest", async (req: Request, res: Response) => {
     const signalType: "PIVOT_BOUNCE" | "BREAKOUT" | "FIB_BOUNCE" | "FIB50_SWING" = (query?.signalType ?? rawSignalType) as "PIVOT_BOUNCE" | "BREAKOUT" | "FIB_BOUNCE" | "FIB50_SWING";
 
     // Dynamic/trending symbols are not supported by the backtest engine — return empty.
-    const KNOWN_SYMBOLS = new Set<string>(["XAGUSD","XAUUSD","EURUSD","GBPUSD","AUDUSD","USDCHF","BTCUSD","ETHUSD","SKYAIUSDT","ZECUSD"]);
+    const KNOWN_SYMBOLS = new Set<string>(["XAGUSD","XAUUSD","EURUSD","GBPUSD","AUDUSD","USDCHF","BTCUSD","ETHUSD","SOLUSD","SKYAIUSDT","ZECUSD"]);
     if (!KNOWN_SYMBOLS.has(symbol)) {
       res.json(aggregate([], [], symbol));
       return;
