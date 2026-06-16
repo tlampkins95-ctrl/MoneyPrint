@@ -1616,7 +1616,7 @@ export function computeLevels(
         const bbOk = !bb30 || fib50Buy <= bb30.middle; // entry in lower half of BB channel
         if (bbOk && Math.abs(currentPrice - fib50Buy) <= FIB50_TOLERANCE_ATR * swingAtr) {
           const ep  = round(fib50Buy);
-          const sl  = round(swingALow - SWING_SL_BUFFER_ATR * swingAtr);
+          const sl  = round(swingBHigh - 0.786 * buySwingRange);  // 78.6% retracement
           const tp1 = round(swingBHigh);   // structural target: the swing high itself
           const tp2 = round(floorTarget(ep, sl, swingBHigh + buySwingRange, MIN_RR_TP2, "BUY"));
           signal       = "BUY";
@@ -1629,7 +1629,7 @@ export function computeLevels(
           displayFib50     = ep;
           const bbTag     = bb30 ? ` BB-mid ${fmt(bb30.middle)}` : "";
           const weeklyTag = ` | Weekly ${weeklyTrend}`;
-          signalReason = `[${tfLabel}] FIB50 SWING BUY: Swing low ${fmt(swingALow)} → new high ${fmt(swingBHigh)} (range ${fmt(buySwingRange)}). Entry at 50% fib ${fmt(ep)}, SL ${fmt(sl)} (below swing low), TP1 ${fmt(tp1)} (swing high), TP2 ${fmt(tp2)} (measured move).${bbTag}${weeklyTag}`;
+          signalReason = `[${tfLabel}] FIB50 SWING BUY: Swing low ${fmt(swingALow)} → new high ${fmt(swingBHigh)} (range ${fmt(buySwingRange)}). Entry at 50% fib ${fmt(ep)}, SL ${fmt(sl)} (0.786 retracement), TP1 ${fmt(tp1)} (swing high), TP2 ${fmt(tp2)} (measured move).${bbTag}${weeklyTag}`;
         }
       }
     }
@@ -1655,7 +1655,7 @@ export function computeLevels(
         const bbOk = !bb30 || fib50Sell >= bb30.middle; // entry in upper half of BB channel
         if (bbOk && Math.abs(currentPrice - fib50Sell) <= FIB50_TOLERANCE_ATR * swingAtr) {
           const ep  = round(fib50Sell);
-          const sl  = round(swingAHigh + SWING_SL_BUFFER_ATR * swingAtr);
+          const sl  = round(swingBLow + 0.786 * sellSwingRange);  // 78.6% retracement
           const tp1 = round(swingBLow);    // structural target: the swing low itself
           const tp2 = round(floorTarget(ep, sl, swingBLow - sellSwingRange, MIN_RR_TP2, "SELL"));
           signal       = "SELL";
@@ -1668,7 +1668,7 @@ export function computeLevels(
           displayFib50     = ep;
           const bbTag     = bb30 ? ` BB-mid ${fmt(bb30.middle)}` : "";
           const weeklyTag = ` | Weekly ${weeklyTrend}`;
-          signalReason = `[${tfLabel}] FIB50 SWING SELL: Swing high ${fmt(swingAHigh)} → new low ${fmt(swingBLow)} (range ${fmt(sellSwingRange)}). Entry at 50% fib ${fmt(ep)}, SL ${fmt(sl)} (above swing high), TP1 ${fmt(tp1)} (swing low), TP2 ${fmt(tp2)} (measured move).${bbTag}${weeklyTag}`;
+          signalReason = `[${tfLabel}] FIB50 SWING SELL: Swing high ${fmt(swingAHigh)} → new low ${fmt(swingBLow)} (range ${fmt(sellSwingRange)}). Entry at 50% fib ${fmt(ep)}, SL ${fmt(sl)} (0.786 retracement), TP1 ${fmt(tp1)} (swing low), TP2 ${fmt(tp2)} (measured move).${bbTag}${weeklyTag}`;
         }
       }
     }
