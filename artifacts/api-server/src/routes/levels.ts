@@ -248,6 +248,12 @@ router.get("/levels", async (req: Request, res: Response) => {
         ? applyFuturesBasis(candles, spotPrice, round)
         : candles;
 
+    // For 1D: pass actual weekly candles (already fetched for the TF gate) so
+    // computeLevels can gate the 1d signal by the weekly EMA21/50 trend.
+    const weeklyCandlesForDaily = timeframe === "1d"
+      ? (higherTfMap.get("1w") ?? [])
+      : undefined;
+
     const result = computeLevelsStable(
       adjustedCandles,
       spotPrice,
@@ -260,6 +266,7 @@ router.get("/levels", async (req: Request, res: Response) => {
       maxLeverage,
       mt5Lots,
       dailyForWeekly,
+      weeklyCandlesForDaily,
     );
 
     // ── Multi-gate alignment check (applies to both static and dynamic symbols) ─
@@ -472,10 +479,12 @@ router.get("/active-signals", async (req: Request, res: Response) => {
               spotPromises.get(symbol)!,
             ];
             if (timeframe === "1h") fetches.push(fetchCandlesForTimeframe(symbol, "1d"));
-            const [candlesRaw, spotRaw, dcRaw] = await Promise.all(fetches);
+            if (timeframe === "1d") fetches.push(fetchCandlesForTimeframe(symbol, "1w"));
+            const [candlesRaw, spotRaw, extraRaw] = await Promise.all(fetches);
             const candles = candlesRaw as Awaited<ReturnType<typeof fetchCandlesForTimeframe>>;
             const spot = spotRaw as number | null;
-            const dailyForWeekly = dcRaw ? (dcRaw as typeof candles) : undefined;
+            const dailyForWeekly = timeframe === "1h" && extraRaw ? (extraRaw as typeof candles) : undefined;
+            const weeklyCandlesForDailyStatic = timeframe === "1d" && extraRaw ? (extraRaw as typeof candles) : undefined;
             if (candles.length < 2) return { ok: false, symbolKey, timeframe };
             const adjRound = makeRounder(SYMBOLS[symbol].decimals);
             const adjustedCandles =
@@ -494,6 +503,7 @@ router.get("/active-signals", async (req: Request, res: Response) => {
               maxLeverage,
               mt5Lots,
               dailyForWeekly,
+              weeklyCandlesForDailyStatic,
             );
 
             // Apply TF_GATES for this timeframe (filled trades bypass gates).

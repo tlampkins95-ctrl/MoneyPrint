@@ -1327,6 +1327,7 @@ export function computeLevels(
   maxLeverage: number = DEFAULT_MAX_LEVERAGE,
   mt5Lots: number = DEFAULT_MT5_LOTS,
   dailyCandlesForWeekly?: CandleRaw[], // daily candles used to synthesize weekly macro trend (required for 1h signals)
+  weeklyCandlesForDaily?: CandleRaw[], // actual weekly candles used to gate 1d signals by weekly EMA trend
 ) {
   const round = makeRounder(meta.decimals);
   const fmt = (n: number) => `${meta.prefix}${round(n).toFixed(meta.decimals)}`;
@@ -1604,8 +1605,23 @@ export function computeLevels(
         else if (dLast21 < dLast50) dailyEMATrend = "DOWNTREND";
       }
     }
-    const weeklyAllowsBuy  = trend === "UPTREND"  && (timeframe !== "1h" || dailyEMATrend !== "DOWNTREND");
-    const weeklyAllowsSell = trend === "DOWNTREND" && (timeframe !== "1h" || dailyEMATrend !== "UPTREND");
+    // For 1D: gate on actual weekly EMA21/50 trend (same logic as 1H→daily gate).
+    // Prevents a 1d SELL when the weekly is in UPTREND (and vice-versa).
+    // Falls back to no gate when fewer than 50 weekly bars are available.
+    let weeklyEMATrend: "UPTREND" | "DOWNTREND" | "RANGING" = "RANGING";
+    if (timeframe === "1d" && weeklyCandlesForDaily && weeklyCandlesForDaily.length >= 50) {
+      const wCloses = weeklyCandlesForDaily.map((c) => c.close);
+      const wEma21  = calcEMA(wCloses, 21);
+      const wEma50  = calcEMA(wCloses, 50);
+      const wLast21 = wEma21[wEma21.length - 1];
+      const wLast50 = wEma50[wEma50.length - 1];
+      if (!isNaN(wLast21) && !isNaN(wLast50)) {
+        if      (wLast21 > wLast50) weeklyEMATrend = "UPTREND";
+        else if (wLast21 < wLast50) weeklyEMATrend = "DOWNTREND";
+      }
+    }
+    const weeklyAllowsBuy  = trend === "UPTREND"  && (timeframe !== "1h" || dailyEMATrend !== "DOWNTREND") && (timeframe !== "1d" || weeklyEMATrend !== "DOWNTREND");
+    const weeklyAllowsSell = trend === "DOWNTREND" && (timeframe !== "1h" || dailyEMATrend !== "UPTREND")   && (timeframe !== "1d" || weeklyEMATrend !== "UPTREND");
 
     // ── Bollinger Bands (SMA-30 close, 2σ) filter ────────────────────────────
     // BUY: entry must be ≤ BB middle band (price in lower half of channel).
@@ -2498,8 +2514,9 @@ export function computeLevelsStable(
   maxLeverage: number = DEFAULT_MAX_LEVERAGE,
   mt5Lots: number = DEFAULT_MT5_LOTS,
   dailyCandlesForWeekly?: CandleRaw[],
+  weeklyCandlesForDaily?: CandleRaw[],
 ): Levels {
-  const fresh = computeLevels(candles, spotPrice, timeframe, symbolKey, meta, accountSize, riskPct, minCollateral, maxLeverage, mt5Lots, dailyCandlesForWeekly);
+  const fresh = computeLevels(candles, spotPrice, timeframe, symbolKey, meta, accountSize, riskPct, minCollateral, maxLeverage, mt5Lots, dailyCandlesForWeekly, weeklyCandlesForDaily);
   const k = tradeKey(symbolKey, timeframe);
   const existing = activeTrades.get(k);
 

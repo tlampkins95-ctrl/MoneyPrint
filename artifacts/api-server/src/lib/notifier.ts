@@ -274,6 +274,11 @@ async function checkSymbol(
         : candles;
 
     const dailyForWeekly = rawDailyForWeekly.length > 0 ? rawDailyForWeekly : undefined;
+    // For 1D: pass weekly candles (already fetched as higherCandles) so the
+    // 1d signal is gated by the weekly EMA21/50 trend before alerting.
+    const weeklyCandlesForDaily = timeframe === "1d" && higherCandles.length >= 2
+      ? higherCandles
+      : undefined;
 
     // Snapshot the active trade BEFORE calling computeLevelsStable.
     // computeLevelsStable writes a new ActiveTrade entry the moment a fresh
@@ -286,7 +291,7 @@ async function checkSymbol(
     const levels = computeLevelsStable(
       adjustedCandles, spot, timeframe, symbol, SYMBOLS[symbol],
       DEFAULT_ACCOUNT_SIZE, DEFAULT_RISK_PCT, DEFAULT_MIN_COLLATERAL, DEFAULT_MAX_LEVERAGE, DEFAULT_MT5_LOTS,
-      dailyForWeekly,
+      dailyForWeekly, weeklyCandlesForDaily,
     );
     const k = key(symbol, timeframe);
     const prev = stateMap.get(k);
@@ -601,6 +606,11 @@ async function checkTrendingSymbol(
     const dailyForWeekly = (rawDailyForWeekly as typeof candles).length > 0
       ? (rawDailyForWeekly as typeof candles)
       : undefined;
+    // For 1D: pass weekly candles (already fetched as higherCandles) so the
+    // 1d signal is gated by the weekly EMA21/50 trend.
+    const weeklyCandlesForDailyT = timeframe === "1d" && (higherCandles as typeof candles).length >= 2
+      ? (higherCandles as typeof candles)
+      : undefined;
 
     const k = key(symbolKey, timeframe);
     const prev = stateMap.get(k);
@@ -615,7 +625,7 @@ async function checkTrendingSymbol(
     const levels = computeLevelsStable(
       candles, spot, timeframe, symbolKey, tMeta,
       undefined, undefined, undefined, undefined, undefined,
-      dailyForWeekly,
+      dailyForWeekly, weeklyCandlesForDailyT,
     );
     const now = Date.now();
 
