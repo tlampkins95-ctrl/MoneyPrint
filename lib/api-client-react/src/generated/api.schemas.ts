@@ -322,6 +322,8 @@ export interface LevelsData {
   takeProfit1: number;
   /** Second take profit target */
   takeProfit2: number;
+  /** DCA level at the 61.8% retracement — add to position here if price pulls deeper before reversing. Absent on WAIT signals. */
+  dca1?: number;
   /** Risk/reward ratio for the trade */
   riskRewardRatio: number;
   buyZone: TradeZone;

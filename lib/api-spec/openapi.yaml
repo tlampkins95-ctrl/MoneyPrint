@@ -504,6 +504,9 @@ components:
         takeProfit2:
           type: number
           description: Second take profit target
+        dca1:
+          type: number
+          description: DCA level at the 61.8% retracement — add to position here if price pulls deeper before reversing. Absent on WAIT signals.
         riskRewardRatio:
           type: number
           description: Risk/reward ratio for the trade

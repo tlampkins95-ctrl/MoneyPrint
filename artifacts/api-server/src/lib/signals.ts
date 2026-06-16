@@ -1551,6 +1551,7 @@ export function computeLevels(
   let stopLoss = currentPrice;
   let takeProfit1 = currentPrice;
   let takeProfit2 = currentPrice;
+  let dca1: number | undefined = undefined;
 
   const tfLabel = TIMEFRAME_LABELS[timeframe];
 
@@ -1623,6 +1624,7 @@ export function computeLevels(
           entryPrice   = ep;
           stopLoss     = sl;
           takeProfit1  = tp1;
+          dca1         = round(swingBHigh - 0.618 * buySwingRange);  // 61.8% retracement
           takeProfit2  = tp2;
           displaySwingHigh = swingBHigh;
           displaySwingLow  = swingALow;
@@ -1662,6 +1664,7 @@ export function computeLevels(
           entryPrice   = ep;
           stopLoss     = sl;
           takeProfit1  = tp1;
+          dca1         = round(swingBLow + 0.618 * sellSwingRange);  // 61.8% retracement
           takeProfit2  = tp2;
           displaySwingHigh = swingAHigh;
           displaySwingLow  = swingBLow;
@@ -1730,6 +1733,7 @@ export function computeLevels(
     stopLoss,
     takeProfit1,
     takeProfit2,
+    dca1,
     riskRewardRatio,
     buyZone:  { low: buyZoneLow,  high: buyZoneHigh,  label: "Buy Zone"  },
     sellZone: { low: sellZoneLow, high: sellZoneHigh, label: "Sell Zone" },

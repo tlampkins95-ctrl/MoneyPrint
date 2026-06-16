@@ -116,6 +116,12 @@ export const GetLevelsResponse = zod.object({
   stopLoss: zod.number().describe("Recommended stop loss"),
   takeProfit1: zod.number().describe("First take profit target"),
   takeProfit2: zod.number().describe("Second take profit target"),
+  dca1: zod
+    .number()
+    .optional()
+    .describe(
+      "DCA level at the 61.8% retracement — add to position here if price pulls deeper before reversing. Absent on WAIT signals.",
+    ),
   riskRewardRatio: zod.number().describe("Risk\/reward ratio for the trade"),
   buyZone: zod.object({
     low: zod.number(),
@@ -622,6 +628,12 @@ export const GetActiveSignalsResponse = zod.object({
             stopLoss: zod.number().describe("Recommended stop loss"),
             takeProfit1: zod.number().describe("First take profit target"),
             takeProfit2: zod.number().describe("Second take profit target"),
+            dca1: zod
+              .number()
+              .optional()
+              .describe(
+                "DCA level at the 61.8% retracement — add to position here if price pulls deeper before reversing. Absent on WAIT signals.",
+              ),
             riskRewardRatio: zod
               .number()
               .describe("Risk\/reward ratio for the trade"),

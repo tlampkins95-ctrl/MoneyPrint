@@ -365,6 +365,17 @@ export function SignalPanel({
                   );
                 })()}
                 <Row label="Entry" value={fmtPriceMeta(meta, data.entryPrice)} />
+                {data.dca1 != null && (
+                  <TradeRow
+                    label="DCA"
+                    value={fmtPriceMeta(meta, data.dca1)}
+                    pnl={null}
+                    rMultiple={null}
+                    valueClass="text-[#f59e0b]"
+                    labelClass="text-[#f59e0b]"
+                    bg="bg-amber-950/10"
+                  />
+                )}
                 <TradeRow
                   label="Stop Loss"
                   value={fmtPriceMeta(meta, data.stopLoss)}
@@ -1176,7 +1187,7 @@ function TradeRow({
   label: string;
   value: string;
   pnl: number | null;
-  rMultiple: number;
+  rMultiple: number | null;
   labelClass?: string;
   valueClass?: string;
   bg?: string;
@@ -1186,7 +1197,7 @@ function TradeRow({
     pnl === null
       ? null
       : `${pnl >= 0 ? "+" : "−"}$${Math.abs(pnl).toFixed(2)}`;
-  const rText = `${rMultiple >= 0 ? "+" : ""}${rMultiple.toFixed(1)}R`;
+  const rText = rMultiple != null ? `${rMultiple >= 0 ? "+" : ""}${rMultiple.toFixed(1)}R` : null;
   return (
     <div className={cn("flex justify-between items-center px-3 py-2 gap-2 min-w-0", bg)}>
       <span className={cn("text-xs truncate shrink-0", labelClass)}>{label}</span>

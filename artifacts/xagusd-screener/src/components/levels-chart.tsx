@@ -369,6 +369,7 @@ export function LevelsChart({
     // ── Active trade lines ────────────────────────────────────────────────
     if (isBuy || isSell) {
       addLine(levels.entryPrice, isBuy ? "#22c55e" : "#ef4444", "Entry", LineStyle.Solid, 2);
+      if (levels.dca1 != null) addLine(levels.dca1, "#f59e0b", "DCA", LineStyle.Dashed);
       addLine(levels.stopLoss,    "#ef4444", "SL",  LineStyle.Dashed);
       addLine(levels.takeProfit1, "#10b981", "TP1", LineStyle.Dashed);
       addLine(levels.takeProfit2, "#10b981", "TP2", LineStyle.Dashed);
