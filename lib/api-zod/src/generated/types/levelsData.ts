@@ -23,7 +23,7 @@ export interface LevelsData {
   priceChangePct: number;
   /** Single clear trade signal */
   signal: LevelsDataSignal;
-  /** Which signal mode generated this signal. FIB50_SWING = daily-timeframe swing fibonacci retracement entry: swing low A → new high B → enter at 50% fib of A→B (BUY), or swing high A → new low B → enter at 50% fib of A→B (SELL). SL below/above swing extreme, TP1 at B, TP2 at measured move. */
+  /** Which signal mode generated this signal. FIB50_SWING = daily-timeframe swing fibonacci retracement entry: swing low A → new high B → enter at 50% fib of A→B (BUY), or swing high A → new low B → enter at 50% fib of A→B (SELL). SL below/above swing extreme, TP1 at B, TP2 at measured move. DOUBLE_TOP = bearish reversal pattern; entry near resistance (average of two peaks), SL above peaks, TP1 at neckline, TP2 at measured move. */
   signalType: LevelsDataSignalType;
   /** Plain-language explanation of why this signal was generated */
   signalReason: string;

@@ -11,4 +11,5 @@ export type ClosedTradeSignalType =
 
 export const ClosedTradeSignalType = {
   FIB50_SWING: "FIB50_SWING",
+  DOUBLE_TOP: "DOUBLE_TOP",
 } as const;

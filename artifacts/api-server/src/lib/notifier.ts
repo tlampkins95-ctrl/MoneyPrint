@@ -399,11 +399,11 @@ async function checkSymbol(
         return;
       }
 
-      // Hard type filter. Only FIB50_SWING signals trigger notifications.
+      // Hard type filter. Only FIB50_SWING and DOUBLE_TOP signals trigger notifications.
       // Filled trades bypass this: a fill notification is always actionable
       // regardless of what signal type originally opened the position.
       if (!isFilledTrade) {
-        const signalTypeAllowed = levels.signalType === "FIB50_SWING";
+        const signalTypeAllowed = levels.signalType === "FIB50_SWING" || levels.signalType === "DOUBLE_TOP";
         if (!signalTypeAllowed) {
           logger.info(
             { symbol, timeframe, signalType: levels.signalType },
@@ -693,7 +693,7 @@ async function checkTrendingSymbol(
       // Filled trades bypass this: fills are always actionable regardless of
       // what signal type originally opened the position.
       if (!isFilledTrade) {
-        const trendingTypeAllowed = levels.signalType === "FIB50_SWING";
+        const trendingTypeAllowed = levels.signalType === "FIB50_SWING" || levels.signalType === "DOUBLE_TOP";
         if (!trendingTypeAllowed) {
           logger.info(
             { symbolKey, timeframe, signalType: levels.signalType },

@@ -92,9 +92,9 @@ export const GetLevelsResponse = zod.object({
     .enum(["BUY", "SELL", "WAIT"])
     .describe("Single clear trade signal"),
   signalType: zod
-    .enum(["FIB50_SWING"])
+    .enum(["FIB50_SWING", "DOUBLE_TOP"])
     .describe(
-      "Which signal mode generated this signal. FIB50_SWING = daily-timeframe swing fibonacci retracement entry: swing low A → new high B → enter at 50% fib of A→B (BUY), or swing high A → new low B → enter at 50% fib of A→B (SELL). SL below\/above swing extreme, TP1 at B, TP2 at measured move.",
+      "Which signal mode generated this signal. FIB50_SWING = daily-timeframe swing fibonacci retracement entry: swing low A → new high B → enter at 50% fib of A→B (BUY), or swing high A → new low B → enter at 50% fib of A→B (SELL). SL below\/above swing extreme, TP1 at B, TP2 at measured move. DOUBLE_TOP = bearish reversal pattern; entry near resistance (average of two peaks), SL above peaks, TP1 at neckline, TP2 at measured move.",
     ),
   signalReason: zod
     .string()
@@ -602,9 +602,9 @@ export const GetActiveSignalsResponse = zod.object({
               .enum(["BUY", "SELL", "WAIT"])
               .describe("Single clear trade signal"),
             signalType: zod
-              .enum(["FIB50_SWING"])
+              .enum(["FIB50_SWING", "DOUBLE_TOP"])
               .describe(
-                "Which signal mode generated this signal. FIB50_SWING = daily-timeframe swing fibonacci retracement entry: swing low A → new high B → enter at 50% fib of A→B (BUY), or swing high A → new low B → enter at 50% fib of A→B (SELL). SL below\/above swing extreme, TP1 at B, TP2 at measured move.",
+                "Which signal mode generated this signal. FIB50_SWING = daily-timeframe swing fibonacci retracement entry: swing low A → new high B → enter at 50% fib of A→B (BUY), or swing high A → new low B → enter at 50% fib of A→B (SELL). SL below\/above swing extreme, TP1 at B, TP2 at measured move. DOUBLE_TOP = bearish reversal pattern; entry near resistance (average of two peaks), SL above peaks, TP1 at neckline, TP2 at measured move.",
               ),
             signalReason: zod
               .string()
@@ -1153,7 +1153,7 @@ export const GetTradeHistoryResponse = zod.object({
       symbol: zod.string(),
       timeframe: zod.string(),
       signal: zod.enum(["BUY", "SELL"]),
-      signalType: zod.enum(["FIB50_SWING"]),
+      signalType: zod.enum(["FIB50_SWING", "DOUBLE_TOP"]),
       entryPrice: zod.number(),
       stopLoss: zod.number(),
       takeProfit1: zod.number(),
@@ -1223,7 +1223,7 @@ export const GetSignalLogResponse = zod.object({
       symbol: zod.string(),
       timeframe: zod.string(),
       signal: zod.enum(["BUY", "SELL"]),
-      signalType: zod.enum(["FIB50_SWING"]),
+      signalType: zod.enum(["FIB50_SWING", "DOUBLE_TOP"]),
       entryPrice: zod.number(),
       stopLoss: zod.number(),
       takeProfit1: zod.number(),

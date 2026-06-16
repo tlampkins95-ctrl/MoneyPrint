@@ -226,7 +226,7 @@ function volAtPeak(candles: CandleRaw[], idx: number): number {
   return slice.reduce((s, c) => s + c.volume, 0) / slice.length;
 }
 
-function detectDoubleTop(candles: CandleRaw[]): PatternResult | null {
+export function detectDoubleTop(candles: CandleRaw[]): PatternResult | null {
   const highs = findSwingHighs(candles, 3, 60);
   const lows  = findSwingLows(candles,  3, 60);
   if (highs.length < 2) return null;
@@ -251,6 +251,43 @@ function detectDoubleTop(candles: CandleRaw[]): PatternResult | null {
       const r1 = volAtPeak(candles, H1.idx) / ma1;
       const r2 = volAtPeak(candles, H2.idx) / ma2;
       if (r1 <= r2) continue; // left peak must be relatively MORE active
+    }
+    return {
+      pattern: "DOUBLE_TOP", direction: "bearish", category: "reversal",
+      confirmed: candles[candles.length - 2].close < valley.price,
+      necklinePrice:   +valley.price.toFixed(10),
+      upperBound:      +avgTop.toFixed(10),
+      patternStartDate: candles[H1.idx]?.date,
+      patternEndDate:   candles[H2.idx]?.date,
+    };
+  }
+  return null;
+}
+
+// Fast double-top detector for same-day pump-and-dump coins (e.g. CMC trending).
+// Looser params: 5-bar minimum separation catches intraday formations;
+// 3% price tolerance handles imperfect peaks on high-volatility tokens;
+// H2 must be within the last 8 bars so the setup is still actionable.
+export function detectFastDoubleTop(candles: CandleRaw[]): PatternResult | null {
+  const highs = findSwingHighs(candles, 2, 40);
+  const lows  = findSwingLows(candles,  2, 40);
+  if (highs.length < 2) return null;
+
+  for (let i = highs.length - 1; i >= 1; i--) {
+    const H2 = highs[i], H1 = highs[i - 1];
+    if (Math.abs(H1.price - H2.price) / Math.max(H1.price, H2.price) > 0.03) continue;
+    if (H2.idx - H1.idx < 5) continue;
+    const valleys = lows.filter(l => l.idx > H1.idx && l.idx < H2.idx);
+    if (!valleys.length) continue;
+    const valley = valleys.reduce((a, b) => b.price < a.price ? b : a);
+    const avgTop = (H1.price + H2.price) / 2;
+    if ((avgTop - valley.price) / avgTop < 0.04) continue;
+    if (H2.idx < candles.length - 8) continue;
+    const ma1 = vol20MA(candles, H1.idx), ma2 = vol20MA(candles, H2.idx);
+    if (ma1 > 0 && ma2 > 0) {
+      const r1 = volAtPeak(candles, H1.idx) / ma1;
+      const r2 = volAtPeak(candles, H2.idx) / ma2;
+      if (r1 <= r2) continue;
     }
     return {
       pattern: "DOUBLE_TOP", direction: "bearish", category: "reversal",
