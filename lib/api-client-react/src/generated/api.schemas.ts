@@ -678,6 +678,27 @@ export interface BacktestResult {
   lastUpdated: string;
 }
 
+export interface NewsArticle {
+  title: string;
+  url: string;
+  publishedAt: string;
+  description: string;
+}
+
+export interface TopGainer {
+  symbol: string;
+  name: string;
+  priceChange24h: number;
+  price: number;
+  volume24h: number;
+  imageUrl: string;
+}
+
+export interface NewsResponse {
+  articles: NewsArticle[];
+  gainers: TopGainer[];
+}
+
 export type GetLevelsParams = {
   /**
    * Trading instrument — static key (e.g. XAGUSD, BTCUSD) or a dynamic trending coin key (e.g. TONUSDT)

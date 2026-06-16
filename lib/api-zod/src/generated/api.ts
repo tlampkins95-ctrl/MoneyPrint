@@ -1288,3 +1288,27 @@ export const GetPriceHistoryResponse = zod.object({
     .describe("Live OANDA spot price (also used to align candles)"),
   lastUpdated: zod.string(),
 });
+
+/**
+ * @summary Get crypto market news and top gainers
+ */
+export const GetNewsResponse = zod.object({
+  articles: zod.array(
+    zod.object({
+      title: zod.string(),
+      url: zod.string(),
+      publishedAt: zod.string(),
+      description: zod.string(),
+    }),
+  ),
+  gainers: zod.array(
+    zod.object({
+      symbol: zod.string(),
+      name: zod.string(),
+      priceChange24h: zod.number(),
+      price: zod.number(),
+      volume24h: zod.number(),
+      imageUrl: zod.string(),
+    }),
+  ),
+});

@@ -184,6 +184,47 @@ interface CoinGeckoTrendingItem {
   };
 }
 
+interface CoinGeckoMarketItem {
+  symbol: string;
+  current_price: number;
+  price_change_percentage_24h: number;
+  total_volume: number;
+}
+
+// Fetch top 24h gainers from CoinGecko markets. Runs alongside trending to
+// expand the discovery pool with coins that are pumping right now.
+async function fetchTopGainers(): Promise<TrendingCoin[]> {
+  try {
+    const res = await fetch(
+      "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=price_change_percentage_24h_desc&per_page=50&page=1&sparkline=false",
+      {
+        headers: { "User-Agent": "Mozilla/5.0 (compatible; Forex-Screener/1.0)" },
+        signal: AbortSignal.timeout(10_000),
+      },
+    );
+    if (!res.ok) {
+      logger.warn({ status: res.status }, "Top gainers fetch failed");
+      return [];
+    }
+    const data = (await res.json()) as CoinGeckoMarketItem[];
+    return data
+      .filter(
+        (c) =>
+          (c.price_change_percentage_24h ?? 0) > 3 &&
+          (c.total_volume ?? 0) > 500_000,
+      )
+      .map((c, idx) => ({
+        symbol: c.symbol.toUpperCase(),
+        cmcRank: 100 + idx, // offset so gainers don't collide with trending ranks
+        priceChange24h: c.price_change_percentage_24h,
+        price: c.current_price ?? 1,
+      }));
+  } catch (err) {
+    logger.warn({ err }, "Top gainers fetch error");
+    return [];
+  }
+}
+
 // Fetch trending coins ranked by user search interest — same concept as the
 // CMC trending tab. No API key required.
 async function fetchCmcTrending(): Promise<TrendingCoin[]> {
@@ -391,14 +432,22 @@ async function runDiscovery(pool: Pool): Promise<void> {
   try {
     logger.info("Running trending coin discovery");
 
-    const [trendingCoins, okxMap, phemexMap] = await Promise.all([
+    const [trendingCoins, gainerCoins, okxMap, phemexMap] = await Promise.all([
       fetchCmcTrending(),
+      fetchTopGainers(),
       fetchOkxSwapInstruments(),
       fetchPhemexPerpProducts(),
     ]);
 
-    if (trendingCoins.length === 0) {
-      logger.warn("CMC returned no trending data — skipping discovery cycle");
+    // Merge trending + gainers, deduplicating by ticker (trending takes priority).
+    const seenTickers = new Set(trendingCoins.map((c) => c.symbol));
+    const mergedCoins: TrendingCoin[] = [
+      ...trendingCoins,
+      ...gainerCoins.filter((c) => !seenTickers.has(c.symbol)),
+    ];
+
+    if (mergedCoins.length === 0) {
+      logger.warn("No trending or gainer data returned — skipping discovery cycle");
       return;
     }
 
@@ -409,10 +458,8 @@ async function runDiscovery(pool: Pool): Promise<void> {
 
     const discovered: TrendingMeta[] = [];
 
-    // Iterate CoinGecko trending list in order — cmcRank IS the trending position.
-    // Coins here are ranked by user search interest (trending tab concept),
-    // not by 24h price change, so we do not filter by minimum gain.
-    for (const coin of trendingCoins) {
+    // Iterate merged list: trending first (by search interest), then gainers.
+    for (const coin of mergedCoins) {
       if (discovered.length >= MAX_TRENDING) break;
       const { symbol: ticker, cmcRank, priceChange24h: change, price } = coin;
       if (EXCLUDED_TICKERS.has(ticker)) continue;

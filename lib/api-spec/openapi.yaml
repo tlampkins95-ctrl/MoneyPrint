@@ -347,6 +347,19 @@ paths:
               schema:
                 $ref: "#/components/schemas/PriceHistory"
 
+  /news:
+    get:
+      operationId: getNews
+      tags: [signals]
+      summary: Get crypto market news and top gainers
+      responses:
+        "200":
+          description: Latest market news and top gainers
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NewsResponse"
+
 components:
   schemas:
     VapidPublicKey:
@@ -1225,3 +1238,46 @@ components:
         - trades
         - qualityWarnings
         - lastUpdated
+
+    NewsArticle:
+      type: object
+      properties:
+        title:
+          type: string
+        url:
+          type: string
+        publishedAt:
+          type: string
+        description:
+          type: string
+      required: [title, url, publishedAt, description]
+
+    TopGainer:
+      type: object
+      properties:
+        symbol:
+          type: string
+        name:
+          type: string
+        priceChange24h:
+          type: number
+        price:
+          type: number
+        volume24h:
+          type: number
+        imageUrl:
+          type: string
+      required: [symbol, name, priceChange24h, price, volume24h, imageUrl]
+
+    NewsResponse:
+      type: object
+      properties:
+        articles:
+          type: array
+          items:
+            $ref: "#/components/schemas/NewsArticle"
+        gainers:
+          type: array
+          items:
+            $ref: "#/components/schemas/TopGainer"
+      required: [articles, gainers]

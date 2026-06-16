@@ -5,6 +5,7 @@ import backtestRouter from "./backtest";
 import pushRouter from "./push";
 import tradeHistoryRouter from "./trade-history";
 import signalLogRouter from "./signal-log";
+import newsRouter from "./news";
 
 const router: IRouter = Router();
 
@@ -14,5 +15,6 @@ router.use(backtestRouter);
 router.use(pushRouter);
 router.use(tradeHistoryRouter);
 router.use(signalLogRouter);
+router.use(newsRouter);
 
 export default router;

@@ -4,6 +4,7 @@ import { SignalPanel } from "@/components/signal-panel";
 import { ActiveSignalsOverview } from "@/components/active-signals-overview";
 import { TradeHistoryPanel } from "@/components/trade-history-panel";
 import { LearnTab } from "@/components/learn/learn-tab";
+import { NewsPanel } from "@/components/news-panel";
 import {
   TimeframeSelector,
   type Timeframe,
@@ -15,7 +16,7 @@ import { cn } from "@/lib/utils";
 import { useGetActiveSignals, getGetActiveSignalsQueryKey } from "@workspace/api-client-react";
 
 const VALID_TIMEFRAMES: readonly Timeframe[] = ["1h", "4h", "1d", "1w"];
-type Tab = "signals" | "journal" | "learn";
+type Tab = "signals" | "journal" | "learn" | "news";
 
 function readInitial(): { symbol: string; timeframe: Timeframe; tab: Tab } {
   if (typeof window === "undefined") {
@@ -31,7 +32,7 @@ function readInitial(): { symbol: string; timeframe: Timeframe; tab: Tab } {
       t && (VALID_TIMEFRAMES as readonly string[]).includes(t)
         ? (t as Timeframe)
         : "1d",
-    tab: tab === "journal" ? "journal" : tab === "learn" ? "learn" : "signals",
+    tab: tab === "journal" ? "journal" : tab === "learn" ? "learn" : tab === "news" ? "news" : "signals",
   };
 }
 
@@ -134,7 +135,7 @@ export default function Dashboard() {
 
       {/* Tab bar */}
       <nav className="relative z-[59] shrink-0 flex items-center gap-0 border-b border-border/60 bg-card/40 backdrop-blur-md px-4">
-        {(["signals", "journal", "learn"] as Tab[]).map((t) => (
+        {(["signals", "journal", "news", "learn"] as Tab[]).map((t) => (
           <button
             key={t}
             type="button"
@@ -147,7 +148,7 @@ export default function Dashboard() {
             )}
             style={{ fontFamily: "var(--app-font-display)" }}
           >
-            {t === "signals" ? "SIGNALS" : t === "journal" ? "JOURNAL" : "LEARN"}
+            {t === "signals" ? "SIGNALS" : t === "journal" ? "JOURNAL" : t === "news" ? "NEWS" : "LEARN"}
             {tab === t && (
               <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-primary rounded-t-full" />
             )}
@@ -196,6 +197,8 @@ export default function Dashboard() {
             onSelect={(s) => setSymbol(s)}
           />
         )}
+
+        {tab === "news" && <NewsPanel />}
 
         {tab === "learn" && <LearnTab />}
       </main>
