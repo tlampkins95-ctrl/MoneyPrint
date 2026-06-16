@@ -208,6 +208,24 @@ function detectIHS(candles: CandleRaw[]): PatternResult | null {
   return null;
 }
 
+// ── Volume confirmation helpers ───────────────────────────────────────────────
+// Returns the 20-bar SMA of volume ending at `idx` (or fewer bars if near start).
+function vol20MA(candles: CandleRaw[], idx: number): number {
+  const start = Math.max(0, idx - 19);
+  const slice = candles.slice(start, idx + 1);
+  if (!slice.length) return 0;
+  return slice.reduce((s, c) => s + c.volume, 0) / slice.length;
+}
+
+// Average volume in a ±2 bar window centred on `idx` — smooths single-bar spikes.
+function volAtPeak(candles: CandleRaw[], idx: number): number {
+  const start = Math.max(0, idx - 2);
+  const end   = Math.min(candles.length - 1, idx + 2);
+  const slice = candles.slice(start, end + 1);
+  if (!slice.length) return 0;
+  return slice.reduce((s, c) => s + c.volume, 0) / slice.length;
+}
+
 function detectDoubleTop(candles: CandleRaw[]): PatternResult | null {
   const highs = findSwingHighs(candles, 3, 60);
   const lows  = findSwingLows(candles,  3, 60);
@@ -226,6 +244,14 @@ function detectDoubleTop(candles: CandleRaw[]): PatternResult | null {
     // Valley must be at least 4% below the tops — shallow dips are just noise
     if ((avgTop - valley.price) / avgTop < 0.04) continue;
     if (H2.idx < candles.length - 20) continue;
+    // Volume confirmation: left peak must have a higher vol/20MA ratio than right peak.
+    // Fail-open when volume data is absent (e.g. forex with no volume).
+    const ma1 = vol20MA(candles, H1.idx), ma2 = vol20MA(candles, H2.idx);
+    if (ma1 > 0 && ma2 > 0) {
+      const r1 = volAtPeak(candles, H1.idx) / ma1;
+      const r2 = volAtPeak(candles, H2.idx) / ma2;
+      if (r1 <= r2) continue; // left peak must be relatively MORE active
+    }
     return {
       pattern: "DOUBLE_TOP", direction: "bearish", category: "reversal",
       confirmed: candles[candles.length - 2].close < valley.price,
@@ -256,6 +282,14 @@ function detectDoubleBottom(candles: CandleRaw[]): PatternResult | null {
     // Peak between them must be at least 4% above the troughs
     if ((peak.price - avgBot) / avgBot < 0.04) continue;
     if (L2.idx < candles.length - 20) continue;
+    // Volume confirmation: left trough must have a higher vol/20MA ratio than right trough.
+    // Fail-open when volume data is absent (e.g. forex with no volume).
+    const ma1 = vol20MA(candles, L1.idx), ma2 = vol20MA(candles, L2.idx);
+    if (ma1 > 0 && ma2 > 0) {
+      const r1 = volAtPeak(candles, L1.idx) / ma1;
+      const r2 = volAtPeak(candles, L2.idx) / ma2;
+      if (r1 <= r2) continue; // left trough must be relatively MORE active (capitulation)
+    }
     return {
       pattern: "DOUBLE_BOTTOM", direction: "bullish", category: "reversal",
       confirmed: candles[candles.length - 2].close > peak.price,
