@@ -5,7 +5,7 @@ import { SYMBOLS, makeRounder, type Symbol, type SymbolMeta } from "./symbols";
 import { type CandleRaw, type Timeframe } from "./yahoo-fetch";
 import { fetchOkxPerpPrice, fetchPhemexPerpPrice } from "./crypto-perp-fetch";
 import { fetchPythPrice } from "./pyth-fetch";
-import { detectChartPattern, detectCandlestickSignal, detectFastDoubleTop, detectDoubleTop, findSwingHighs, findSwingLows, type PatternResult } from "./patterns";
+import { detectChartPattern, detectCandlestickSignal, detectFastDoubleTop, detectDoubleTop, detectDoubleBottom, findSwingHighs, findSwingLows, type PatternResult } from "./patterns";
 
 // ─── Live spot price (per-symbol cache) ──────────────────────────────────────
 
@@ -1546,7 +1546,7 @@ export function computeLevels(
   const SWING_SL_BUFFER_ATR = 0.5;  // extra buffer below/above swing extreme for SL
 
   let signal: "BUY" | "SELL" | "WAIT" = "WAIT";
-  let signalType: "FIB50_SWING" | "DOUBLE_TOP" = "FIB50_SWING";
+  let signalType: "FIB50_SWING" | "DOUBLE_TOP" | "DOUBLE_BOTTOM" = "FIB50_SWING";
   let signalReason = "";
   let patternResult: PatternResult | null = null;
   let entryPrice = currentPrice;
@@ -1752,6 +1752,42 @@ export function computeLevels(
     }
   }
 
+  // ── DOUBLE_BOTTOM detection (crash-and-bounce long) ──────────────────────────
+  // Fires when FIB50_SWING is still WAIT and price is near a double-bottom
+  // support level. Standard detector (20-bar min separation) catches
+  // slower reversal setups on any symbol.
+  //
+  // No daily/weekly trend gate — the double bottom IS the reversal signal.
+  //
+  //   Entry:  avgBot (average of the two troughs = support)
+  //   SL:     avgBot − 0.5 × ATR (just below support)
+  //   TP1:    neckline (peak between the two troughs)
+  //   TP2:    neckline + (neckline − avgBot)  [measured move]
+  if (signal === "WAIT") {
+    const dbBars = candles.slice(0, candles.length - 1);
+    const dbResult = detectDoubleBottom(dbBars);
+    if (dbResult?.upperBound != null && dbResult.necklinePrice != null) {
+      const support = dbResult.upperBound;
+      if (Math.abs(currentPrice - support) <= FIB50_TOLERANCE_ATR * atr) {
+        const ep  = round(support);
+        const sl  = round(support - atr * 0.5);
+        const tp1 = round(dbResult.necklinePrice);
+        const rawMeasured = dbResult.necklinePrice + (dbResult.necklinePrice - support);
+        const tp2 = round(floorTarget(ep, sl, rawMeasured, MIN_RR_TP2, "BUY"));
+        signal        = "BUY";
+        signalType    = "DOUBLE_BOTTOM";
+        entryPrice    = ep;
+        stopLoss      = sl;
+        takeProfit1   = tp1;
+        takeProfit2   = tp2;
+        dca1          = undefined;
+        patternResult = dbResult;
+        const stateTag = dbResult.confirmed ? " (neckline broken)" : " (forming)";
+        signalReason = `[${tfLabel}] DOUBLE BOTTOM BUY${stateTag}: Support ${fmt(support)}, Neckline ${fmt(dbResult.necklinePrice)}. Entry ${fmt(ep)}, SL ${fmt(sl)} (below troughs), TP1 ${fmt(tp1)} (neckline), TP2 ${fmt(tp2)} (measured move).`;
+      }
+    }
+  }
+
   // Entry zone for chart display: ±FIB50_TOLERANCE_ATR around the entry price.
   const entryZoneLow  = round(entryPrice - FIB50_TOLERANCE_ATR * atr);
   const entryZoneHigh = round(entryPrice + FIB50_TOLERANCE_ATR * atr);
@@ -1852,7 +1888,7 @@ type Levels = ReturnType<typeof computeLevels>;
 
 interface ActiveTrade {
   signal: "BUY" | "SELL";
-  signalType?: "FIB50_SWING" | "DOUBLE_TOP";
+  signalType?: "FIB50_SWING" | "DOUBLE_TOP" | "DOUBLE_BOTTOM";
   signalReason: string;
   entryPrice: number;
   stopLoss: number;
@@ -2125,7 +2161,7 @@ async function syncFromDb(): Promise<void> {
       if (activeTrades.has(row.key)) continue; // local file wins for existing keys
       const v = row.data as Partial<ActiveTrade>;
       // Skip trades from previous strategies — they have wrong levels.
-      if (v.signalType !== "FIB50_SWING" && v.signalType !== "DOUBLE_TOP") continue;
+      if (v.signalType !== "FIB50_SWING" && v.signalType !== "DOUBLE_TOP" && v.signalType !== "DOUBLE_BOTTOM") continue;
       activeTrades.set(row.key, {
         ...(v as ActiveTrade),
         signalType: v.signalType,
@@ -2166,7 +2202,7 @@ function loadActiveTradesFromDisk(): void {
     let didMigrate = false;
     for (const [k, v] of Object.entries(obj)) {
       // Skip trades from previous strategies — they have wrong levels.
-      if (v.signalType !== "FIB50_SWING" && v.signalType !== "DOUBLE_TOP") { didMigrate = true; continue; }
+      if (v.signalType !== "FIB50_SWING" && v.signalType !== "DOUBLE_TOP" && v.signalType !== "DOUBLE_BOTTOM") { didMigrate = true; continue; }
       // Backward-compat for snapshots persisted before fill-tracking existed.
       // Default triggered=false; the next tick's candle scan since openedAt
       // will retroactively flip it to true if price actually did tag entry.

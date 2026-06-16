@@ -6,3 +6,4 @@
 - [Duplicate seed alerts on restart](duplicate-seed-alerts.md) — stateMap is in-memory; restarts wipe it and seed re-fires for every pending 1H signal; fix is to persist lastAlertAt+lastAlertSignal to .runtime/notifier-alert-state.json.
 - [FIB50_SWING swing selection](fib50swing-swing-selection.md) — must iterate structural swing points most-recent-first, not absolute extreme; BB30 gate removed (blocks valid setups in trending markets).
 - [1h daily trend gate](1h-daily-trend-gate.md) — 1h FIB50_SWING must gate on daily EMA21/50 trend; active-signals route must fetch daily candles for trending coin 1h combos.
+- [DOUBLE_BOTTOM signal type](double-bottom-signal-type.md) — adding new signalTypes needs 5 parallel updates; stale PENDING trades lock in old labels.

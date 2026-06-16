@@ -76,7 +76,7 @@ interface RowProps {
   symbol: string;
   timeframe: Timeframe;
   signal: "BUY" | "SELL";
-  signalType?: "FIB50_SWING";
+  signalType?: "FIB50_SWING" | "DOUBLE_TOP" | "DOUBLE_BOTTOM";
   signalReason: string;
   tradeState: LevelsDataTradeState;
   currentPrice: number;
@@ -214,6 +214,16 @@ function SignalRow(p: RowProps) {
         {p.signalType === "FIB50_SWING" && (
           <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold tracking-widest bg-amber-500/15 text-amber-300 border border-amber-500/30">
             ◈ FIB
+          </span>
+        )}
+        {p.signalType === "DOUBLE_BOTTOM" && (
+          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold tracking-widest bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+            ⫠ D.BOT
+          </span>
+        )}
+        {p.signalType === "DOUBLE_TOP" && (
+          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold tracking-widest bg-rose-500/15 text-rose-300 border border-rose-500/30">
+            ⫟ D.TOP
           </span>
         )}
         {poorWinRate && btData && (
@@ -507,7 +517,7 @@ export function ActiveSignalsOverview({
                             symbol={s.symbol}
                             timeframe={s.timeframe as Timeframe}
                             signal={s.levels.signal as "BUY" | "SELL"}
-                            signalType={s.levels.signalType as "FIB50_SWING" | undefined}
+                            signalType={s.levels.signalType as "FIB50_SWING" | "DOUBLE_TOP" | "DOUBLE_BOTTOM" | undefined}
                             signalReason={s.levels.signalReason}
                             tradeState={s.levels.tradeState}
                             currentPrice={s.levels.currentPrice}

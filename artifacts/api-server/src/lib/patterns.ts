@@ -301,7 +301,7 @@ export function detectFastDoubleTop(candles: CandleRaw[]): PatternResult | null 
   return null;
 }
 
-function detectDoubleBottom(candles: CandleRaw[]): PatternResult | null {
+export function detectDoubleBottom(candles: CandleRaw[]): PatternResult | null {
   const lows  = findSwingLows(candles,  3, 60);
   const highs = findSwingHighs(candles, 3, 60);
   if (lows.length < 2) return null;
