@@ -92,13 +92,12 @@ export function LevelsChart({
     ? patternUserOverride
     : levels?.patternConfirmed === true;
 
-  // Bollinger Bands toggle — default OFF, opt-in per chart view.
-  const [showBB, setShowBB] = useState(false);
+  // Bollinger Bands toggle — default ON.
+  const [showBB, setShowBB] = useState(true);
 
   // Reset overlays when symbol/timeframe changes so defaults re-evaluate.
   useEffect(() => {
     setPatternUserOverride(null);
-    setShowBB(false);
   }, [symbol, timeframe]);
 
   // ── Create / recreate chart when symbol or timeframe changes ───────────

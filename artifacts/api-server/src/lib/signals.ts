@@ -1586,8 +1586,12 @@ export function computeLevels(
     // does NOT gate the signal. The strategy places a limit at the 50% fib and
     // waits for price to arrive; blocking on weekly trend means missing valid
     // structural setups regardless of the higher-timeframe backdrop.
-    // Local structure (EMA21/50 + ADX) still gates direction: a BUY only fires
-    // when the 1h/1d structure is bullish, and a SELL only when it is bearish.
+    // Local structure gates direction via raw EMA21/50 crossover — NOT the
+    // ADX-gated `trend` variable. ADX measures trend strength and is appropriate
+    // for PIVOT_BOUNCE; the fib strategy only needs structural direction
+    // (EMA21 > EMA50 = bullish structure, EMA21 < EMA50 = bearish structure).
+    // This prevents valid fib setups from being blocked in low-ADX markets
+    // where price is making clear structural swings.
     //
     // For 1h: also gate on the DAILY EMA21/50 trend to prevent a 1h signal
     // firing against the confirmed higher-timeframe direction.  A 1h BUY
@@ -1620,8 +1624,12 @@ export function computeLevels(
         else if (wLast21 < wLast50) weeklyEMATrend = "DOWNTREND";
       }
     }
-    const weeklyAllowsBuy  = trend === "UPTREND"  && (timeframe !== "1h" || dailyEMATrend !== "DOWNTREND") && (timeframe !== "1d" || weeklyEMATrend !== "DOWNTREND");
-    const weeklyAllowsSell = trend === "DOWNTREND" && (timeframe !== "1h" || dailyEMATrend !== "UPTREND")   && (timeframe !== "1d" || weeklyEMATrend !== "UPTREND");
+    // Raw EMA21/50 crossover — no ADX gate, no choppiness gate.
+    const ema5050Warm      = !isNaN(last21) && !isNaN(last50);
+    const fibEmaAllowsBuy  = ema5050Warm && last21 > last50;
+    const fibEmaAllowsSell = ema5050Warm && last21 < last50;
+    const weeklyAllowsBuy  = fibEmaAllowsBuy  && (timeframe !== "1h" || dailyEMATrend !== "DOWNTREND") && (timeframe !== "1d" || weeklyEMATrend !== "DOWNTREND");
+    const weeklyAllowsSell = fibEmaAllowsSell && (timeframe !== "1h" || dailyEMATrend !== "UPTREND")   && (timeframe !== "1d" || weeklyEMATrend !== "UPTREND");
 
     // ── Bollinger Bands (SMA-30 close, 2σ) filter ────────────────────────────
     // BUY: entry must be ≤ BB middle band (price in lower half of channel).
