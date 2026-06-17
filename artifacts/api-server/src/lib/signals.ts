@@ -1543,6 +1543,7 @@ export function computeLevels(
   const SWING_LOOKBACK      = SWING_LOOKBACK_BY_TF[timeframe] ?? 60;
   const MIN_SWING_ATR       = 2.5;  // swing height must be ≥ 2.5 × ATR to be meaningful
   const FIB50_TOLERANCE_ATR = 0.5;  // price must be within ±0.5 × ATR of the 50% fib
+  const FIB50_SL_DISTANCE   = 10;   // fixed $10 stop distance from entry
   const SWING_SL_BUFFER_ATR = 0.5;  // extra buffer below/above swing extreme for SL
 
   let signal: "BUY" | "SELL" | "WAIT" = "WAIT";
@@ -1659,7 +1660,7 @@ export function computeLevels(
           if (Math.abs(currentPrice - fib50Buy) <= FIB50_TOLERANCE_ATR * swingAtr) {
             const ep  = round(fib50Buy);
             const tp1 = round(swingALow + 0.786 * buySwingRange);  // 78.6% fib — TP1
-            const sl  = round(ep - 0.5 * (tp1 - ep));              // 2:1 R:R (risk = reward/2)
+            const sl  = round(ep - FIB50_SL_DISTANCE);             // fixed $10 stop
             const tp2 = round(floorTarget(ep, sl, swingBHigh + buySwingRange, MIN_RR_TP2, "BUY"));
             signal       = "BUY";
             entryPrice   = ep;
@@ -1701,7 +1702,7 @@ export function computeLevels(
           if (Math.abs(currentPrice - fib50Sell) <= FIB50_TOLERANCE_ATR * swingAtr) {
             const ep  = round(fib50Sell);
             const tp1 = round(swingAHigh - 0.786 * sellSwingRange);  // 78.6% fib — TP1
-            const sl  = round(ep + 0.5 * (ep - tp1));                // 2:1 R:R (risk = reward/2)
+            const sl  = round(ep + FIB50_SL_DISTANCE);               // fixed $10 stop
             const tp2 = round(floorTarget(ep, sl, swingBLow - sellSwingRange, MIN_RR_TP2, "SELL"));
             signal       = "SELL";
             entryPrice   = ep;

@@ -633,7 +633,8 @@ function runFib50SwingBacktest(
   const trades: Trade[] = [];
   const maxHold = FIB_MAX_HOLD_BARS[timeframe];
   const SWING_LOOKBACK = timeframe === "1h" ? 120 : 60;
-  const ATR_TOL = 0.5;
+  const ATR_TOL          = 0.5;
+  const FIB50_SL_DISTANCE = 10;   // fixed $10 stop distance from entry
   const SL_BUF  = 0.5;
   const MIN_SWING_ATR = 2.5;
 
@@ -729,7 +730,7 @@ function runFib50SwingBacktest(
           if (bbOk && Math.abs(prevClose - fib50) <= ATR_TOL * atr) {
             const ep   = round(fib50);
             const tp1  = round(swingA + 0.786 * range);           // 78.6% fib — TP1
-            const sl   = round(ep - 0.5 * (tp1 - ep));           // 2:1 R:R (risk = reward/2)
+            const sl   = round(ep - FIB50_SL_DISTANCE);          // fixed $10 stop
             const risk = Math.abs(ep - sl);
             if (risk > 0 && today.low <= ep && today.high >= ep) {
               const tp2 = round(floorTarget(ep, sl, swingB + range, MIN_RR_TP2, "BUY"));
@@ -781,7 +782,7 @@ function runFib50SwingBacktest(
           if (bbOk && Math.abs(prevClose - fib50) <= ATR_TOL * atr) {
             const ep   = round(fib50);
             const tp1  = round(swingA - 0.786 * range);           // 78.6% fib — TP1
-            const sl   = round(ep + 0.5 * (ep - tp1));           // 2:1 R:R (risk = reward/2)
+            const sl   = round(ep + FIB50_SL_DISTANCE);          // fixed $10 stop
             const risk = Math.abs(sl - ep);
             if (risk > 0 && today.high >= ep && today.low <= ep) {
               const tp2 = round(floorTarget(ep, sl, swingB - range, MIN_RR_TP2, "SELL"));
