@@ -399,6 +399,41 @@ export function ActiveSignalsOverview({
     return order.map((tf) => [tf, map.get(tf)!]);
   }
 
+  function TfGroup({ tf, count, sectionKey, children }: { tf: Timeframe; count: number; sectionKey: string; children: React.ReactNode }) {
+    const lsKey = `screener.activeSignals.tf.${sectionKey}.${tf}`;
+    const [open, setOpen] = useState(() => {
+      if (typeof window === "undefined") return true;
+      return window.localStorage.getItem(lsKey) !== "0";
+    });
+    const toggle = () => {
+      const next = !open;
+      setOpen(next);
+      if (typeof window !== "undefined") window.localStorage.setItem(lsKey, next ? "1" : "0");
+    };
+    return (
+      <div>
+        <button
+          type="button"
+          onClick={toggle}
+          className="flex items-center gap-2 w-full px-1 py-1 rounded hover:bg-white/5 transition-colors mb-1"
+        >
+          {open
+            ? <ChevronDown className="w-3 h-3 text-zinc-500 shrink-0" />
+            : <ChevronRight className="w-3 h-3 text-zinc-500 shrink-0" />}
+          <span className="text-[9px] font-bold font-mono tracking-[0.2em] text-zinc-400 bg-zinc-800/70 border border-zinc-700/60 px-1.5 py-0.5 rounded">
+            {TF_LABEL[tf]}
+          </span>
+          <span className="text-[9px] font-mono text-zinc-600">{count} signal{count !== 1 ? "s" : ""}</span>
+        </button>
+        {open && (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
+            {children}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <section
       className="rounded-xl border border-zinc-800 bg-[#0a0a0a]/50 backdrop-blur-md overflow-hidden"
@@ -503,15 +538,8 @@ export function ActiveSignalsOverview({
                 </div>
                 <div className="space-y-3">
                   {groupByTf(list).map(([tf, items]) => (
-                    <div key={tf}>
-                      <div className="flex items-center gap-2 mb-1.5 px-1">
-                        <span className="text-[9px] font-bold font-mono tracking-[0.2em] text-zinc-400 bg-zinc-800/70 border border-zinc-700/60 px-1.5 py-0.5 rounded">
-                          {TF_LABEL[tf]}
-                        </span>
-                        <span className="text-[9px] font-mono text-zinc-600">{items.length} signal{items.length !== 1 ? "s" : ""}</span>
-                      </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
-                        {items.map((s) => (
+                    <TfGroup key={tf} tf={tf} count={items.length} sectionKey={label}>
+                      {items.map((s) => (
                           <SignalRow
                             key={`${s.symbol}-${s.timeframe}`}
                             symbol={s.symbol}
@@ -533,8 +561,7 @@ export function ActiveSignalsOverview({
                             highlighted={s.symbol === selectedSymbol && s.timeframe === selectedTimeframe}
                           />
                         ))}
-                      </div>
-                    </div>
+                    </TfGroup>
                   ))}
                 </div>
               </div>
