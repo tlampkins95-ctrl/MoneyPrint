@@ -728,10 +728,10 @@ function runFib50SwingBacktest(
           const bbOk  = !midBand || fib50 <= midBand;
           if (bbOk && Math.abs(prevClose - fib50) <= ATR_TOL * atr) {
             const ep   = round(fib50);
-            const sl   = round(swingB - 0.786 * range);  // 78.6% retracement
+            const tp1  = round(swingA + 0.786 * range);           // 78.6% fib — TP1
+            const sl   = round(ep - 0.5 * (tp1 - ep));           // 2:1 R:R (risk = reward/2)
             const risk = Math.abs(ep - sl);
             if (risk > 0 && today.low <= ep && today.high >= ep) {
-              const tp1 = round(swingB);                                           // structural: swing high
               const tp2 = round(floorTarget(ep, sl, swingB + range, MIN_RR_TP2, "BUY"));
 
               let exitDate = today.date, exitPrice = ep;
@@ -780,10 +780,10 @@ function runFib50SwingBacktest(
           const bbOk  = !midBand || fib50 >= midBand;
           if (bbOk && Math.abs(prevClose - fib50) <= ATR_TOL * atr) {
             const ep   = round(fib50);
-            const sl   = round(swingB + 0.786 * range);  // 78.6% retracement
+            const tp1  = round(swingA - 0.786 * range);           // 78.6% fib — TP1
+            const sl   = round(ep + 0.5 * (ep - tp1));           // 2:1 R:R (risk = reward/2)
             const risk = Math.abs(sl - ep);
             if (risk > 0 && today.high >= ep && today.low <= ep) {
-              const tp1 = round(swingB);                                           // structural: swing low
               const tp2 = round(floorTarget(ep, sl, swingB - range, MIN_RR_TP2, "SELL"));
 
               let exitDate = today.date, exitPrice = ep;

@@ -1658,21 +1658,21 @@ export function computeLevels(
           const fib50Buy = swingALow + 0.5 * buySwingRange;
           if (Math.abs(currentPrice - fib50Buy) <= FIB50_TOLERANCE_ATR * swingAtr) {
             const ep  = round(fib50Buy);
-            const sl  = round(swingBHigh - 0.786 * buySwingRange);  // 78.6% retracement
-            const tp1 = round(swingBHigh);   // structural target: the swing high itself
+            const tp1 = round(swingALow + 0.786 * buySwingRange);  // 78.6% fib — TP1
+            const sl  = round(ep - 0.5 * (tp1 - ep));              // 2:1 R:R (risk = reward/2)
             const tp2 = round(floorTarget(ep, sl, swingBHigh + buySwingRange, MIN_RR_TP2, "BUY"));
             signal       = "BUY";
             entryPrice   = ep;
             stopLoss     = sl;
             takeProfit1  = tp1;
-            dca1         = round(swingBHigh - 0.618 * buySwingRange);  // 61.8% retracement
+            dca1         = round(swingBHigh - 0.618 * buySwingRange);  // 38.2% fib (add on deeper dip)
             takeProfit2  = tp2;
             displaySwingHigh = swingBHigh;
             displaySwingLow  = swingALow;
             displayFib50     = ep;
             const bbTag     = bb30 ? ` BB-mid ${fmt(bb30.middle)}` : "";
             const weeklyTag = ` | Weekly ${weeklyTrend}`;
-            signalReason = `[${tfLabel}] FIB50 SWING BUY: Swing low ${fmt(swingALow)} → new high ${fmt(swingBHigh)} (range ${fmt(buySwingRange)}). Entry at 50% fib ${fmt(ep)}, SL ${fmt(sl)} (0.786 retracement), TP1 ${fmt(tp1)} (swing high), TP2 ${fmt(tp2)} (measured move).${bbTag}${weeklyTag}`;
+            signalReason = `[${tfLabel}] FIB50 SWING BUY: Swing low ${fmt(swingALow)} → new high ${fmt(swingBHigh)} (range ${fmt(buySwingRange)}). Entry at 50% fib ${fmt(ep)}, TP1 ${fmt(tp1)} (0.786 fib), SL ${fmt(sl)} (2:1 R:R), TP2 ${fmt(tp2)} (measured move).${bbTag}${weeklyTag}`;
             break buySearch;
           }
         }
@@ -1700,21 +1700,21 @@ export function computeLevels(
           const fib50Sell = swingAHigh - 0.5 * sellSwingRange;
           if (Math.abs(currentPrice - fib50Sell) <= FIB50_TOLERANCE_ATR * swingAtr) {
             const ep  = round(fib50Sell);
-            const sl  = round(swingBLow + 0.786 * sellSwingRange);  // 78.6% retracement
-            const tp1 = round(swingBLow);    // structural target: the swing low itself
+            const tp1 = round(swingAHigh - 0.786 * sellSwingRange);  // 78.6% fib — TP1
+            const sl  = round(ep + 0.5 * (ep - tp1));                // 2:1 R:R (risk = reward/2)
             const tp2 = round(floorTarget(ep, sl, swingBLow - sellSwingRange, MIN_RR_TP2, "SELL"));
             signal       = "SELL";
             entryPrice   = ep;
             stopLoss     = sl;
             takeProfit1  = tp1;
-            dca1         = round(swingBLow + 0.618 * sellSwingRange);  // 61.8% retracement
+            dca1         = round(swingBLow + 0.618 * sellSwingRange);  // 61.8% fib (add on higher bounce)
             takeProfit2  = tp2;
             displaySwingHigh = swingAHigh;
             displaySwingLow  = swingBLow;
             displayFib50     = ep;
             const bbTag     = bb30 ? ` BB-mid ${fmt(bb30.middle)}` : "";
             const weeklyTag = ` | Weekly ${weeklyTrend}`;
-            signalReason = `[${tfLabel}] FIB50 SWING SELL: Swing high ${fmt(swingAHigh)} → new low ${fmt(swingBLow)} (range ${fmt(sellSwingRange)}). Entry at 50% fib ${fmt(ep)}, SL ${fmt(sl)} (0.786 retracement), TP1 ${fmt(tp1)} (swing low), TP2 ${fmt(tp2)} (measured move).${bbTag}${weeklyTag}`;
+            signalReason = `[${tfLabel}] FIB50 SWING SELL: Swing high ${fmt(swingAHigh)} → new low ${fmt(swingBLow)} (range ${fmt(sellSwingRange)}). Entry at 50% fib ${fmt(ep)}, TP1 ${fmt(tp1)} (0.786 fib), SL ${fmt(sl)} (2:1 R:R), TP2 ${fmt(tp2)} (measured move).${bbTag}${weeklyTag}`;
             break sellSearch;
           }
         }
