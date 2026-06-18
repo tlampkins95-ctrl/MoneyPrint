@@ -95,10 +95,16 @@ export function LevelsChart({
   // Bollinger Bands toggle — default ON.
   const [showBB, setShowBB] = useState(true);
 
+  // Fib levels toggle — shows swingA, swingB, and 50% fib lines so the user
+  // can verify the app is reading the same swing structure as the chart.
+  // Default OFF to keep the chart clean. Resets on symbol/TF change.
+  const [showFibs, setShowFibs] = useState(false);
+
   // Reset overlays when symbol/timeframe changes so defaults re-evaluate.
   useEffect(() => {
     setPatternUserOverride(null);
     setShowBB(true);
+    setShowFibs(false);
   }, [symbol, timeframe]);
 
   // ── Create / recreate chart when symbol or timeframe changes ───────────
@@ -377,7 +383,17 @@ export function LevelsChart({
 
     // ── Pivot structure (S1–S3, R1–R3, Pivot) ────────────────────────────
     for (const { label, price, type } of levels.levels) {
-      if (label.startsWith("Fib") || label.startsWith("Swing")) continue;
+      if (label.startsWith("Fib") || label.startsWith("Swing")) {
+        // Draw fib / swing lines only when the toggle is ON.
+        if (showFibs && price > 0) {
+          const color =
+            label === "Swing High" ? "#f59e0b" :  // amber — upper swing point
+            label === "Swing Low"  ? "#a855f7" :  // violet — lower swing point
+                                     "#94a3b8";   // slate — 50% fib (entry zone)
+          addLine(price, color, label, LineStyle.Dashed, 1);
+        }
+        continue;
+      }
       addLine(
         price,
         type === "resistance" ? "#f97316" : type === "support" ? "#3b82f6" : "#71717a",
@@ -527,7 +543,7 @@ export function LevelsChart({
         { time: latestTs, value: levels.sellZone.high },
       ]);
     }
-  }, [levels, history, showPatterns]);
+  }, [levels, history, showPatterns, showFibs]);
 
   // ── UI ────────────────────────────────────────────────────────────────
   const meta = getSymbolMeta(symbol);
@@ -575,6 +591,17 @@ export function LevelsChart({
             }`}
           >
             BB(30,2)
+          </button>
+          {/* Fib toggle — swing high/low + 50% fib lines. Default OFF. */}
+          <button
+            onClick={() => setShowFibs(v => !v)}
+            className={`px-2 py-0.5 rounded-sm font-mono text-[10px] border transition-colors cursor-pointer ${
+              showFibs
+                ? "bg-amber-950/90 border-amber-500/60 text-amber-300 hover:bg-amber-900/90"
+                : "bg-zinc-900/80 border-zinc-700 text-zinc-500 hover:text-zinc-300 hover:border-zinc-500"
+            }`}
+          >
+            Fibs
           </button>
           {/* Patterns toggle — always visible when levels are loaded so the user
               can see and control the ON/OFF state. Default is derived from
