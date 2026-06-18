@@ -98,6 +98,7 @@ export function LevelsChart({
   // Reset overlays when symbol/timeframe changes so defaults re-evaluate.
   useEffect(() => {
     setPatternUserOverride(null);
+    setShowBB(true);
   }, [symbol, timeframe]);
 
   // ── Create / recreate chart when symbol or timeframe changes ───────────
@@ -564,7 +565,7 @@ export function LevelsChart({
       {/* Signal + live price badge — top-right */}
       {levels && (
         <div className="absolute top-2 right-2 z-20 flex items-center gap-1 font-mono select-none">
-          {/* BB toggle — Bollinger Bands (SMA-30, 2σ). Default OFF. */}
+          {/* BB toggle — Bollinger Bands (SMA-30, 2σ). Always ON per symbol/TF load. */}
           <button
             onClick={() => setShowBB(v => !v)}
             className={`px-2 py-0.5 rounded-sm font-mono text-[10px] border transition-colors cursor-pointer ${
