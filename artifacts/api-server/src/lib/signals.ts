@@ -1643,17 +1643,16 @@ export function computeLevels(
     // qualifying fib that matches current price wins — prevents an older,
     // deeper extreme from masking a more relevant recent setup.
     if (weeklyAllowsBuy) {
-      const swingLows = findSwingLows(completed, 3, SWING_LOOKBACK);
+      const swingLows        = findSwingLows(completed, 3, SWING_LOOKBACK);
+      const swingHighsForBuy = findSwingHighs(completed, 3, SWING_LOOKBACK);
       buySearch: for (let j = swingLows.length - 1; j >= 0; j--) {
         const { price: swingALow, idx: swingALowIdx } = swingLows[j];
-        let swingBHigh = -Infinity, swingBHighIdx = -1;
-        for (let i = swingALowIdx + 1; i < completed.length; i++) {
-          if (completed[i].high > swingBHigh) { swingBHigh = completed[i].high; swingBHighIdx = i; }
-        }
-        const buySwingRange = swingBHighIdx !== -1 ? swingBHigh - swingALow : 0;
+        // Most-recent confirmed structural swing HIGH after swingA — swingB for BUY
+        const validBuyBs = swingHighsForBuy.filter(s => s.idx > swingALowIdx && s.idx <= completed.length - 4);
+        if (validBuyBs.length === 0) continue;
+        const { price: swingBHigh, idx: swingBHighIdx } = validBuyBs[validBuyBs.length - 1];
+        const buySwingRange = swingBHigh - swingALow;
         if (
-          swingBHighIdx > swingALowIdx &&
-          swingBHighIdx <= completed.length - 4 &&   // ≥3 confirmed bars after swingB (real pullback, not a wick)
           buySwingRange >= MIN_SWING_ATR * swingAtr &&
           currentPrice < swingBHigh
         ) {
@@ -1686,17 +1685,16 @@ export function computeLevels(
     // qualifying fib that matches current price wins — prevents an older,
     // higher extreme from masking a more relevant recent setup.
     if (signal === "WAIT" && !isLongOnly && weeklyAllowsSell) {
-      const swingHighs = findSwingHighs(completed, 3, SWING_LOOKBACK);
+      const swingHighs        = findSwingHighs(completed, 3, SWING_LOOKBACK);
+      const swingLowsForSell  = findSwingLows(completed, 3, SWING_LOOKBACK);
       sellSearch: for (let j = swingHighs.length - 1; j >= 0; j--) {
         const { price: swingAHigh, idx: swingAHighIdx } = swingHighs[j];
-        let swingBLow = Infinity, swingBLowIdx = -1;
-        for (let i = swingAHighIdx + 1; i < completed.length; i++) {
-          if (completed[i].low < swingBLow) { swingBLow = completed[i].low; swingBLowIdx = i; }
-        }
-        const sellSwingRange = swingBLowIdx !== -1 ? swingAHigh - swingBLow : 0;
+        // Most-recent confirmed structural swing LOW after swingA — swingB for SELL
+        const validSellBs = swingLowsForSell.filter(s => s.idx > swingAHighIdx && s.idx <= completed.length - 4);
+        if (validSellBs.length === 0) continue;
+        const { price: swingBLow, idx: swingBLowIdx } = validSellBs[validSellBs.length - 1];
+        const sellSwingRange = swingAHigh - swingBLow;
         if (
-          swingBLowIdx > swingAHighIdx &&
-          swingBLowIdx <= completed.length - 4 &&   // ≥3 confirmed bars after swingB (real bounce, not a wick)
           sellSwingRange >= MIN_SWING_ATR * swingAtr &&
           currentPrice > swingBLow
         ) {

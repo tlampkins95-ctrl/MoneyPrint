@@ -7,6 +7,7 @@ import {
 } from "../lib/yahoo-fetch";
 import { SYMBOLS, makeRounder, type Symbol } from "../lib/symbols";
 import { floorTarget, MIN_RR_TP1, MIN_RR_TP2 } from "../lib/signals";
+import { findSwingHighs, findSwingLows } from "../lib/patterns";
 
 const router: IRouter = Router();
 
@@ -711,18 +712,16 @@ function runFib50SwingBacktest(
     const today = candles[i];
 
     if (allowBuy) {
-      // Find A (lowest low) then B (highest high after A)
-      let aIdx = 0;
-      for (let k = 1; k < win.length; k++) {
-        if (win[k].low < win[aIdx].low) aIdx = k;
-      }
-      let bIdx = -1;
-      for (let k = aIdx + 1; k < win.length; k++) {
-        if (bIdx === -1 || win[k].high > win[bIdx].high) bIdx = k;
-      }
-      if (bIdx > aIdx && bIdx <= win.length - 4) {  // ≥3 bars of pullback confirmation after swingB
-        const swingA = win[aIdx].low;
-        const swingB = win[bIdx].high;
+      // Find A (most-recent structural swing LOW) then B (most-recent structural swing HIGH after A)
+      const _wLowsBuy  = findSwingLows(win, 3, win.length);
+      const _wHighsBuy = findSwingHighs(win, 3, win.length);
+      const _buyAs = _wLowsBuy.filter(s => s.idx <= win.length - 4);
+      const _buyA  = _buyAs.length > 0 ? _buyAs[_buyAs.length - 1] : null;
+      const _buyBs = _buyA ? _wHighsBuy.filter(s => s.idx > _buyA.idx && s.idx <= win.length - 4) : [];
+      const _buyB  = _buyBs.length > 0 ? _buyBs[_buyBs.length - 1] : null;
+      if (_buyA && _buyB) {
+        const swingA = _buyA.price;
+        const swingB = _buyB.price;
         const range  = swingB - swingA;
         if (range >= MIN_SWING_ATR * atr && prevClose < swingB) {
           const fib50 = swingA + 0.5 * range;
@@ -763,18 +762,16 @@ function runFib50SwingBacktest(
     }
 
     if (allowSell) {
-      // Find A (highest high) then B (lowest low after A)
-      let aIdx = 0;
-      for (let k = 1; k < win.length; k++) {
-        if (win[k].high > win[aIdx].high) aIdx = k;
-      }
-      let bIdx = -1;
-      for (let k = aIdx + 1; k < win.length; k++) {
-        if (bIdx === -1 || win[k].low < win[bIdx].low) bIdx = k;
-      }
-      if (bIdx > aIdx && bIdx <= win.length - 4) {  // ≥3 bars of bounce confirmation after swingB
-        const swingA = win[aIdx].high;
-        const swingB = win[bIdx].low;
+      // Find A (most-recent structural swing HIGH) then B (most-recent structural swing LOW after A)
+      const _wHighsSell = findSwingHighs(win, 3, win.length);
+      const _wLowsSell  = findSwingLows(win, 3, win.length);
+      const _sellAs = _wHighsSell.filter(s => s.idx <= win.length - 4);
+      const _sellA  = _sellAs.length > 0 ? _sellAs[_sellAs.length - 1] : null;
+      const _sellBs = _sellA ? _wLowsSell.filter(s => s.idx > _sellA.idx && s.idx <= win.length - 4) : [];
+      const _sellB  = _sellBs.length > 0 ? _sellBs[_sellBs.length - 1] : null;
+      if (_sellA && _sellB) {
+        const swingA = _sellA.price;
+        const swingB = _sellB.price;
         const range  = swingA - swingB;
         if (range >= MIN_SWING_ATR * atr && prevClose > swingB) {
           const fib50 = swingA - 0.5 * range;
