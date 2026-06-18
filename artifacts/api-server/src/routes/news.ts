@@ -15,6 +15,15 @@ function stripHtml(s: string): string {
   return s.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
 }
 
+function decodeEntities(s: string): string {
+  return s
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'");
+}
+
 interface CoinGeckoMarket {
   symbol: string;
   name: string;
@@ -74,7 +83,7 @@ async function fetchNews() {
     while ((match = itemRe.exec(xml)) !== null && articles.length < 20) {
       const block = match[1];
       const title = stripHtml(extractTag(block, "title"));
-      const url = extractTag(block, "link") || extractTag(block, "guid");
+      const url = decodeEntities(extractTag(block, "link") || extractTag(block, "guid"));
       const publishedAt = extractTag(block, "pubDate");
       const description = stripHtml(extractTag(block, "description")).slice(0, 200);
       if (title && url) {
