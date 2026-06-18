@@ -633,7 +633,12 @@ function runFib50SwingBacktest(
   const round = makeRounder(meta.decimals);
   const trades: Trade[] = [];
   const maxHold = FIB_MAX_HOLD_BARS[timeframe];
-  const SWING_LOOKBACK = timeframe === "1h" ? 120 : 60;
+  const SWING_LOOKBACK =
+    timeframe === "1h" ? 60  :   // ~2.5 days
+    timeframe === "4h" ? 40  :   // ~1 week
+    timeframe === "1d" ? 30  :   // ~1 month
+    timeframe === "1w" ? 16  :   // ~4 months
+    40;
   const ATR_TOL          = 0.5;
   const FIB50_SL_DISTANCE = 10;   // fixed $10 stop distance from entry
   const SL_BUF  = 0.5;

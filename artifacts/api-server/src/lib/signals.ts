@@ -1539,8 +1539,13 @@ export function computeLevels(
   //   • Bollinger Bands (SMA-30 close, 2σ): BUY entry ≤ BB mid, SELL entry ≥ BB mid
   // ────────────────────────────────────────────────────────────────────────────
   // Lookback: 1D uses 60 completed bars; 1H uses 120 bars (≈ 5 trading days).
-  const SWING_LOOKBACK_BY_TF: Partial<Record<Timeframe, number>> = { "1d": 60, "1h": 120, "1w": 52 };
-  const SWING_LOOKBACK      = SWING_LOOKBACK_BY_TF[timeframe] ?? 60;
+  const SWING_LOOKBACK_BY_TF: Partial<Record<Timeframe, number>> = {
+    "1h": 60,   // ~2.5 days  — recent hourly swing structure
+    "4h": 40,   // ~1 week    — recent 4h swing structure
+    "1d": 30,   // ~1 month   — recent daily swing structure
+    "1w": 16,   // ~4 months  — recent weekly swing structure
+  };
+  const SWING_LOOKBACK = SWING_LOOKBACK_BY_TF[timeframe] ?? 40;
   const MIN_SWING_ATR       = 2.5;  // swing height must be ≥ 2.5 × ATR to be meaningful
   const FIB50_TOLERANCE_ATR = 0.5;  // price must be within ±0.5 × ATR of the 50% fib
   const FIB50_SL_DISTANCE   = 10;   // fixed $10 stop distance from entry
