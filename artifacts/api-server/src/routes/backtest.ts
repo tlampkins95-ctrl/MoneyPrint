@@ -720,7 +720,7 @@ function runFib50SwingBacktest(
       for (let k = aIdx + 1; k < win.length; k++) {
         if (bIdx === -1 || win[k].high > win[bIdx].high) bIdx = k;
       }
-      if (bIdx > aIdx) {
+      if (bIdx > aIdx && bIdx <= win.length - 4) {  // ≥3 bars of pullback confirmation after swingB
         const swingA = win[aIdx].low;
         const swingB = win[bIdx].high;
         const range  = swingB - swingA;
@@ -772,7 +772,7 @@ function runFib50SwingBacktest(
       for (let k = aIdx + 1; k < win.length; k++) {
         if (bIdx === -1 || win[k].low < win[bIdx].low) bIdx = k;
       }
-      if (bIdx > aIdx) {
+      if (bIdx > aIdx && bIdx <= win.length - 4) {  // ≥3 bars of bounce confirmation after swingB
         const swingA = win[aIdx].high;
         const swingB = win[bIdx].low;
         const range  = swingA - swingB;

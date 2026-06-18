@@ -1653,6 +1653,7 @@ export function computeLevels(
         const buySwingRange = swingBHighIdx !== -1 ? swingBHigh - swingALow : 0;
         if (
           swingBHighIdx > swingALowIdx &&
+          swingBHighIdx <= completed.length - 4 &&   // ≥3 confirmed bars after swingB (real pullback, not a wick)
           buySwingRange >= MIN_SWING_ATR * swingAtr &&
           currentPrice < swingBHigh
         ) {
@@ -1695,6 +1696,7 @@ export function computeLevels(
         const sellSwingRange = swingBLowIdx !== -1 ? swingAHigh - swingBLow : 0;
         if (
           swingBLowIdx > swingAHighIdx &&
+          swingBLowIdx <= completed.length - 4 &&   // ≥3 confirmed bars after swingB (real bounce, not a wick)
           sellSwingRange >= MIN_SWING_ATR * swingAtr &&
           currentPrice > swingBLow
         ) {
