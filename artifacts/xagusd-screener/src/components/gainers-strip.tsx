@@ -25,6 +25,9 @@ export function GainersStrip({ selectedSymbol, onSelect }: GainersStripProps) {
   const gainers = data?.gainers ?? [];
   if (!isLoading && gainers.length === 0) return null;
 
+  const allNegative = gainers.length > 0 && gainers.every((g) => g.priceChange24h < 0);
+  const stripLabel = allNegative ? "TOP MOVERS · 24H" : "TOP GAINERS · 24H";
+
   return (
     <div className="rounded-xl border border-border/60 bg-card/60 backdrop-blur-md overflow-hidden">
       <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border/40 shrink-0">
@@ -33,7 +36,7 @@ export function GainersStrip({ selectedSymbol, onSelect }: GainersStripProps) {
           className="text-[11px] font-bold tracking-[0.15em] text-foreground"
           style={{ fontFamily: "var(--app-font-display)" }}
         >
-          TOP GAINERS · 24H
+          {stripLabel}
         </span>
       </div>
 
@@ -48,6 +51,9 @@ export function GainersStrip({ selectedSymbol, onSelect }: GainersStripProps) {
           : gainers.map((g) => {
               const symKey = `${g.symbol}USDT`;
               const isSelected = selectedSymbol === symKey;
+              const isPositive = g.priceChange24h >= 0;
+              const pctColor = isPositive ? "text-emerald-400" : "text-rose-400";
+              const pctLabel = `${isPositive ? "+" : ""}${g.priceChange24h.toFixed(1)}%`;
               return (
                 <button
                   key={g.symbol}
@@ -74,8 +80,8 @@ export function GainersStrip({ selectedSymbol, onSelect }: GainersStripProps) {
                     <span className="text-[11px] font-bold text-foreground">
                       {g.symbol}
                     </span>
-                    <span className="text-[10px] font-bold text-emerald-400">
-                      +{g.priceChange24h.toFixed(1)}%
+                    <span className={cn("text-[10px] font-bold", pctColor)}>
+                      {pctLabel}
                     </span>
                   </div>
                   <span className="text-[10px] font-mono text-muted-foreground">

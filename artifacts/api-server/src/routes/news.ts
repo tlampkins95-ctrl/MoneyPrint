@@ -45,11 +45,7 @@ async function fetchTopGainers() {
     if (!res.ok) return [];
     const data = (await res.json()) as CoinGeckoMarket[];
     return data
-      .filter(
-        (c) =>
-          (c.price_change_percentage_24h ?? 0) > 3 &&
-          (c.total_volume ?? 0) > 500_000,
-      )
+      .filter((c) => (c.total_volume ?? 0) > 500_000)
       .slice(0, 10)
       .map((c) => ({
         symbol: c.symbol.toUpperCase(),
