@@ -1648,7 +1648,7 @@ export function computeLevels(
     // Iterates structural swing lows from most-recent to oldest so the first
     // qualifying fib that matches current price wins — prevents an older,
     // deeper extreme from masking a more relevant recent setup.
-    if (weeklyAllowsBuy) {
+    if (weeklyAllowsBuy && macdBuyOk) {
       const swingLows        = findSwingLows(completed, 3, SWING_LOOKBACK);
       const swingHighsForBuy = findSwingHighs(completed, 3, SWING_LOOKBACK);
       buySearch: for (let j = swingLows.length - 1; j >= 0; j--) {
@@ -1690,7 +1690,7 @@ export function computeLevels(
     // Iterates structural swing highs from most-recent to oldest so the first
     // qualifying fib that matches current price wins — prevents an older,
     // higher extreme from masking a more relevant recent setup.
-    if (signal === "WAIT" && !isLongOnly && weeklyAllowsSell) {
+    if (signal === "WAIT" && !isLongOnly && weeklyAllowsSell && macdSellOk) {
       const swingHighs        = findSwingHighs(completed, 3, SWING_LOOKBACK);
       const swingLowsForSell  = findSwingLows(completed, 3, SWING_LOOKBACK);
       sellSearch: for (let j = swingHighs.length - 1; j >= 0; j--) {
