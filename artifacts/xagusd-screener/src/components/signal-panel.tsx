@@ -233,11 +233,33 @@ export function SignalPanel({
           >
             {data.signal}
           </div>
-          {(data.signal === "BUY" || data.signal === "SELL") && (
-            <span className="mt-1 px-3 py-0.5 text-[10px] font-bold tracking-widest rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40">
-              ◈ FIB50 SWING
-            </span>
-          )}
+          {(data.signal === "BUY" || data.signal === "SELL") && (() => {
+            const st = data.signalType;
+            if (st === "DOUBLE_TOP")
+              return (
+                <span className="mt-1 px-3 py-0.5 text-[10px] font-bold tracking-widest rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/40">
+                  ⫟ DOUBLE TOP
+                </span>
+              );
+            if (st === "DOUBLE_BOTTOM")
+              return (
+                <span className="mt-1 px-3 py-0.5 text-[10px] font-bold tracking-widest rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                  ⫠ DOUBLE BOTTOM
+                </span>
+              );
+            if (st === "BB_REJECTION")
+              return (
+                <span className="mt-1 px-3 py-0.5 text-[10px] font-bold tracking-widest rounded-full bg-sky-500/20 text-sky-300 border border-sky-500/40">
+                  ⊛ BB REJECTION
+                </span>
+              );
+            // Default: FIB50_SWING
+            return (
+              <span className="mt-1 px-3 py-0.5 text-[10px] font-bold tracking-widest rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                ◈ FIB50 SWING
+              </span>
+            );
+          })()}
           {data.detectedPattern && (
             <span className={[
               "mt-1 px-2 py-0.5 text-[9px] font-bold tracking-widest rounded-full border",
