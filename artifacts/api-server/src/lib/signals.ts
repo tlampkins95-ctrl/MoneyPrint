@@ -1552,7 +1552,7 @@ export function computeLevels(
   const SWING_SL_BUFFER_ATR = 0.5;  // extra buffer below/above swing extreme for SL
 
   let signal: "BUY" | "SELL" | "WAIT" = "WAIT";
-  let signalType: "FIB50_SWING" | "DOUBLE_TOP" | "DOUBLE_BOTTOM" = "FIB50_SWING";
+  let signalType: "FIB50_SWING" | "DOUBLE_TOP" | "DOUBLE_BOTTOM" | "BB_REJECTION" = "FIB50_SWING";
   let signalReason = "";
   let patternResult: PatternResult | null = null;
   let entryPrice = currentPrice;
@@ -1802,6 +1802,124 @@ export function computeLevels(
     }
   }
 
+  // ── BB_REJECTION detection (Bollinger Band exhaustion reversal) ─────────────
+  // Fires when FIB50_SWING, DOUBLE_TOP, and DOUBLE_BOTTOM are all WAIT.
+  // Catches: price pumps to upper BB → MACD fades from green → volume dries up → short.
+  // Mirror for buys at the lower band (selling exhaustion).
+  //
+  // SELL:  price ≤ 0.5 ATR from upper BB(30,2σ)
+  //        + MACD histogram was positive last bar but now declining
+  //        + last bar volume < prior bar volume
+  // BUY:   price ≤ 0.5 ATR from lower BB(30,2σ)
+  //        + MACD histogram was negative last bar but now recovering
+  //        + last bar volume < prior bar volume
+  //
+  //   Entry:  BB upper (SELL) / BB lower (BUY)
+  //   TP1:    50% fib midpoint of the most-recent structural swing
+  //   SL:     2:1 R:R  →  entry ± 0.5 × (entry − TP1)
+  //   TP2:    measured move (floored at MIN_RR_TP2)
+  if (signal === "WAIT" && macdWarm) {
+    const bbrCompleted = candles.slice(0, candles.length - 1);
+    const bb30r = calcBollingerBands(bbrCompleted.map((c) => c.close), 30, 2);
+
+    if (bb30r) {
+      const BBR_LOOKBACK = SWING_LOOKBACK_BY_TF[timeframe] ?? 40;
+      const BBR_TOL_ATR  = 0.5;
+
+      // Volume fading: last completed bar volume < the bar before it
+      const volLast  = bbrCompleted[bbrCompleted.length - 1]?.volume ?? 0;
+      const volPrior = bbrCompleted[bbrCompleted.length - 2]?.volume ?? 0;
+      const volFading = volLast < volPrior;
+
+      const bbrSwingHighs = findSwingHighs(bbrCompleted, 3, BBR_LOOKBACK);
+      const bbrSwingLows  = findSwingLows(bbrCompleted,  3, BBR_LOOKBACK);
+
+      // ── SELL: upper band rejection ──────────────────────────────────────
+      // MACD: was green (histPrev2 > 0) and is now ticking down (histPrev1 < histPrev2)
+      const bbrSellMacd = histPrev1 < histPrev2 && histPrev2 > 0;
+      if (
+        !isLongOnly &&
+        bbrSellMacd &&
+        volFading &&
+        Math.abs(currentPrice - bb30r.upper) <= BBR_TOL_ATR * atr
+      ) {
+        // Find most-recent structural swing HIGH (pump top) + swing LOW before it (pump base)
+        const sellHighs = [...bbrSwingHighs].reverse();
+        const sellLows  = [...bbrSwingLows].reverse();
+        let swingTop: number | null  = null;
+        let swingBase: number | null = null;
+        for (const sh of sellHighs) {
+          const base = sellLows.find((sl) => sl.idx < sh.idx);
+          if (!base) continue;
+          if (sh.price - base.price < MIN_SWING_ATR * atr) continue;
+          swingTop  = sh.price;
+          swingBase = base.price;
+          break;
+        }
+        if (swingTop !== null && swingBase !== null) {
+          const tp1Raw = (swingTop + swingBase) / 2; // 50% retracement midpoint
+          if (tp1Raw < currentPrice) {
+            const ep  = round(bb30r.upper);
+            const tp1 = round(tp1Raw);
+            const sl  = round(ep + 0.5 * (ep - tp1));   // 2:1 R:R
+            const tp2 = round(floorTarget(ep, sl, tp1 - (ep - tp1), MIN_RR_TP2, "SELL"));
+            signal      = "SELL";
+            signalType  = "BB_REJECTION";
+            entryPrice  = ep;
+            stopLoss    = sl;
+            takeProfit1 = tp1;
+            takeProfit2 = tp2;
+            dca1        = undefined;
+            patternResult = null;
+            signalReason = `[${tfLabel}] BB REJECTION SELL: Price at upper BB30 ${fmt(bb30r.upper)}, MACD fading (${histPrev2.toFixed(4)}→${histPrev1.toFixed(4)}), volume declining. Swing ${fmt(swingBase)}–${fmt(swingTop)}. Entry ${fmt(ep)}, TP1 ${fmt(tp1)} (50% fib), SL ${fmt(sl)} (2:1 R:R), TP2 ${fmt(tp2)}.`;
+          }
+        }
+      }
+
+      // ── BUY: lower band rejection ───────────────────────────────────────
+      // MACD: was red (histPrev2 < 0) and is now ticking up (histPrev1 > histPrev2)
+      const bbrBuyMacd = histPrev1 > histPrev2 && histPrev2 < 0;
+      if (
+        signal === "WAIT" &&
+        bbrBuyMacd &&
+        volFading &&
+        Math.abs(currentPrice - bb30r.lower) <= BBR_TOL_ATR * atr
+      ) {
+        // Find most-recent structural swing LOW (dump bottom) + swing HIGH before it (dump origin)
+        const buyLows  = [...bbrSwingLows].reverse();
+        const buyHighs = [...bbrSwingHighs].reverse();
+        let swingBottom: number | null = null;
+        let swingCeiling: number | null = null;
+        for (const sl of buyLows) {
+          const top = buyHighs.find((sh) => sh.idx < sl.idx);
+          if (!top) continue;
+          if (top.price - sl.price < MIN_SWING_ATR * atr) continue;
+          swingBottom  = sl.price;
+          swingCeiling = top.price;
+          break;
+        }
+        if (swingBottom !== null && swingCeiling !== null) {
+          const tp1Raw = (swingCeiling + swingBottom) / 2; // 50% fib midpoint
+          if (tp1Raw > currentPrice) {
+            const ep  = round(bb30r.lower);
+            const tp1 = round(tp1Raw);
+            const sl  = round(ep - 0.5 * (tp1 - ep));   // 2:1 R:R
+            const tp2 = round(floorTarget(ep, sl, tp1 + (tp1 - ep), MIN_RR_TP2, "BUY"));
+            signal      = "BUY";
+            signalType  = "BB_REJECTION";
+            entryPrice  = ep;
+            stopLoss    = sl;
+            takeProfit1 = tp1;
+            takeProfit2 = tp2;
+            dca1        = undefined;
+            patternResult = null;
+            signalReason = `[${tfLabel}] BB REJECTION BUY: Price at lower BB30 ${fmt(bb30r.lower)}, MACD recovering (${histPrev2.toFixed(4)}→${histPrev1.toFixed(4)}), volume declining. Swing ${fmt(swingBottom)}–${fmt(swingCeiling)}. Entry ${fmt(ep)}, TP1 ${fmt(tp1)} (50% fib), SL ${fmt(sl)} (2:1 R:R), TP2 ${fmt(tp2)}.`;
+          }
+        }
+      }
+    }
+  }
+
   // Entry zone for chart display: ±FIB50_TOLERANCE_ATR around the entry price.
   const entryZoneLow  = round(entryPrice - FIB50_TOLERANCE_ATR * atr);
   const entryZoneHigh = round(entryPrice + FIB50_TOLERANCE_ATR * atr);
@@ -1902,7 +2020,7 @@ type Levels = ReturnType<typeof computeLevels>;
 
 interface ActiveTrade {
   signal: "BUY" | "SELL";
-  signalType?: "FIB50_SWING" | "DOUBLE_TOP" | "DOUBLE_BOTTOM";
+  signalType?: "FIB50_SWING" | "DOUBLE_TOP" | "DOUBLE_BOTTOM" | "BB_REJECTION";
   signalReason: string;
   entryPrice: number;
   stopLoss: number;
@@ -2175,7 +2293,7 @@ async function syncFromDb(): Promise<void> {
       if (activeTrades.has(row.key)) continue; // local file wins for existing keys
       const v = row.data as Partial<ActiveTrade>;
       // Skip trades from previous strategies — they have wrong levels.
-      if (v.signalType !== "FIB50_SWING" && v.signalType !== "DOUBLE_TOP" && v.signalType !== "DOUBLE_BOTTOM") continue;
+      if (v.signalType !== "FIB50_SWING" && v.signalType !== "DOUBLE_TOP" && v.signalType !== "DOUBLE_BOTTOM" && v.signalType !== "BB_REJECTION") continue;
       activeTrades.set(row.key, {
         ...(v as ActiveTrade),
         signalType: v.signalType,
@@ -2216,7 +2334,7 @@ function loadActiveTradesFromDisk(): void {
     let didMigrate = false;
     for (const [k, v] of Object.entries(obj)) {
       // Skip trades from previous strategies — they have wrong levels.
-      if (v.signalType !== "FIB50_SWING" && v.signalType !== "DOUBLE_TOP" && v.signalType !== "DOUBLE_BOTTOM") { didMigrate = true; continue; }
+      if (v.signalType !== "FIB50_SWING" && v.signalType !== "DOUBLE_TOP" && v.signalType !== "DOUBLE_BOTTOM" && v.signalType !== "BB_REJECTION") { didMigrate = true; continue; }
       // Backward-compat for snapshots persisted before fill-tracking existed.
       // Default triggered=false; the next tick's candle scan since openedAt
       // will retroactively flip it to true if price actually did tag entry.

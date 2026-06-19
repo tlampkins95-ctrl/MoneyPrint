@@ -12,4 +12,6 @@ export type SignalLogEntrySignalType =
 export const SignalLogEntrySignalType = {
   FIB50_SWING: "FIB50_SWING",
   DOUBLE_TOP: "DOUBLE_TOP",
+  DOUBLE_BOTTOM: "DOUBLE_BOTTOM",
+  BB_REJECTION: "BB_REJECTION",
 } as const;

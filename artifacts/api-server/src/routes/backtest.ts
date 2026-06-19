@@ -1141,7 +1141,7 @@ router.get("/backtest", async (req: Request, res: Response) => {
     const query = queryParsed.success ? queryParsed.data : null;
     const symbol = (query?.symbol ?? rawSymbol) as Symbol;
     const timeframe = (query?.timeframe ?? rawTimeframe) as Timeframe;
-    const signalType: "PIVOT_BOUNCE" | "BREAKOUT" | "FIB_BOUNCE" | "FIB50_SWING" = (query?.signalType ?? rawSignalType) as "PIVOT_BOUNCE" | "BREAKOUT" | "FIB_BOUNCE" | "FIB50_SWING";
+    const signalType: "PIVOT_BOUNCE" | "BREAKOUT" | "FIB_BOUNCE" | "FIB50_SWING" | "BB_REJECTION" = (query?.signalType ?? rawSignalType) as "PIVOT_BOUNCE" | "BREAKOUT" | "FIB_BOUNCE" | "FIB50_SWING" | "BB_REJECTION";
 
     // Dynamic/trending symbols are not supported by the backtest engine — return empty.
     const KNOWN_SYMBOLS = new Set<string>(["XAGUSD","XAUUSD","EURUSD","GBPUSD","AUDUSD","USDCHF","BTCUSD","ETHUSD","SOLUSD","SKYAIUSDT","ZECUSD"]);
