@@ -24,36 +24,51 @@ function decodeEntities(s: string): string {
     .replace(/&apos;/g, "'");
 }
 
-interface CoinGeckoMarket {
+interface CmcQuote {
+  price: number;
+  percent_change_24h: number;
+  volume_24h: number;
+}
+
+interface CmcCoin {
+  id: number;
   symbol: string;
   name: string;
-  current_price: number;
-  price_change_percentage_24h: number;
-  total_volume: number;
-  image: string;
+  quote: { USD: CmcQuote };
+}
+
+interface CmcResponse {
+  data: CmcCoin[];
 }
 
 async function fetchTopGainers() {
+  const apiKey = process.env["COINMARKETCAP_API_KEY"];
+  if (!apiKey) return [];
   try {
     const res = await fetch(
-      "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=price_change_percentage_24h_desc&per_page=50&page=1&sparkline=false",
+      "https://pro-api.coinmarketcap.com/v1/cryptocurrency/listings/latest" +
+        "?sort=percent_change_24h&sort_dir=desc&limit=50&convert=USD",
       {
-        headers: { "User-Agent": "Mozilla/5.0 (compatible; Forex-Screener/1.0)" },
+        headers: {
+          "X-CMC_PRO_API_KEY": apiKey,
+          "Accept": "application/json",
+        },
         signal: AbortSignal.timeout(10_000),
       },
     );
     if (!res.ok) return [];
-    const data = (await res.json()) as CoinGeckoMarket[];
-    return data
-      .filter((c) => (c.total_volume ?? 0) > 500_000)
+    const body = (await res.json()) as CmcResponse;
+    return (body.data ?? [])
+      .filter((c) => (c.quote?.USD?.volume_24h ?? 0) > 500_000)
       .slice(0, 10)
       .map((c) => ({
         symbol: c.symbol.toUpperCase(),
         name: c.name,
-        priceChange24h: c.price_change_percentage_24h,
-        price: c.current_price,
-        volume24h: c.total_volume,
-        imageUrl: c.image,
+        priceChange24h: c.quote.USD.percent_change_24h,
+        price: c.quote.USD.price,
+        volume24h: c.quote.USD.volume_24h,
+        // CMC provides logos at a stable CDN URL keyed by their internal coin ID
+        imageUrl: `https://s2.coinmarketcap.com/static/img/coins/64x64/${c.id}.png`,
       }));
   } catch {
     return [];
