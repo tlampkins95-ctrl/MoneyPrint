@@ -1387,6 +1387,7 @@ export function computeLevels(
   const macdHist = calcMACDHist(closes);
   const histPrev1 = macdHist[closes.length - 2]; // last completed bar
   const histPrev2 = macdHist[closes.length - 3]; // bar before that
+  const histPrev3 = macdHist[closes.length - 4]; // two bars before last (for 2-bar fade check)
   const macdWarm = Number.isFinite(histPrev1) && Number.isFinite(histPrev2);
   // Fail-CLOSED: if MACD is not warm (insufficient history), the gate rejects.
   // The old fail-open (!macdWarm || ...) silently let all signals through on symbols
@@ -1835,8 +1836,15 @@ export function computeLevels(
       const bbrSwingLows  = findSwingLows(bbrCompleted,  3, BBR_LOOKBACK);
 
       // ── SELL: upper band rejection ──────────────────────────────────────
-      // MACD: was green (histPrev2 > 0) and is now ticking down (histPrev1 < histPrev2)
-      const bbrSellMacd = histPrev1 < histPrev2 && histPrev2 > 0;
+      // MACD: 2 consecutive completed bars of decline while histogram is still green.
+      // histPrev3 > histPrev2 > histPrev1 with histPrev2 > 0 ensures the fade
+      // is established (not just a single-bar blip) and still in positive territory.
+      const bbrSellMacd =
+        Number.isFinite(histPrev3) &&
+        histPrev3 > 0 &&
+        histPrev2 > 0 &&
+        histPrev2 < histPrev3 &&   // bar 2 already declining from bar 3
+        histPrev1 < histPrev2;     // bar 1 still declining from bar 2
       if (
         !isLongOnly &&
         bbrSellMacd &&
@@ -1871,14 +1879,21 @@ export function computeLevels(
             takeProfit2 = tp2;
             dca1        = undefined;
             patternResult = null;
-            signalReason = `[${tfLabel}] BB REJECTION SELL: Price at upper BB30 ${fmt(bb30r.upper)}, MACD fading (${histPrev2.toFixed(4)}→${histPrev1.toFixed(4)}), volume declining. Swing ${fmt(swingBase)}–${fmt(swingTop)}. Entry ${fmt(ep)}, TP1 ${fmt(tp1)} (50% fib), SL ${fmt(sl)} (2:1 R:R), TP2 ${fmt(tp2)}.`;
+            signalReason = `[${tfLabel}] BB REJECTION SELL: Price at upper BB30 ${fmt(bb30r.upper)}, MACD fading 2 bars (${histPrev3.toFixed(4)}→${histPrev2.toFixed(4)}→${histPrev1.toFixed(4)}), volume declining. Swing ${fmt(swingBase)}–${fmt(swingTop)}. Entry ${fmt(ep)}, TP1 ${fmt(tp1)} (50% fib), SL ${fmt(sl)} (2:1 R:R), TP2 ${fmt(tp2)}.`;
           }
         }
       }
 
       // ── BUY: lower band rejection ───────────────────────────────────────
-      // MACD: was red (histPrev2 < 0) and is now ticking up (histPrev1 > histPrev2)
-      const bbrBuyMacd = histPrev1 > histPrev2 && histPrev2 < 0;
+      // MACD: 2 consecutive completed bars of recovery while histogram is still red.
+      // histPrev3 < histPrev2 < histPrev1 with histPrev2 < 0 ensures the recovery
+      // is established and still in negative territory (mirror of the SELL condition).
+      const bbrBuyMacd =
+        Number.isFinite(histPrev3) &&
+        histPrev3 < 0 &&
+        histPrev2 < 0 &&
+        histPrev2 > histPrev3 &&   // bar 2 already recovering from bar 3
+        histPrev1 > histPrev2;     // bar 1 still recovering from bar 2
       if (
         signal === "WAIT" &&
         bbrBuyMacd &&
@@ -1913,7 +1928,7 @@ export function computeLevels(
             takeProfit2 = tp2;
             dca1        = undefined;
             patternResult = null;
-            signalReason = `[${tfLabel}] BB REJECTION BUY: Price at lower BB30 ${fmt(bb30r.lower)}, MACD recovering (${histPrev2.toFixed(4)}→${histPrev1.toFixed(4)}), volume declining. Swing ${fmt(swingBottom)}–${fmt(swingCeiling)}. Entry ${fmt(ep)}, TP1 ${fmt(tp1)} (50% fib), SL ${fmt(sl)} (2:1 R:R), TP2 ${fmt(tp2)}.`;
+            signalReason = `[${tfLabel}] BB REJECTION BUY: Price at lower BB30 ${fmt(bb30r.lower)}, MACD recovering 2 bars (${histPrev3.toFixed(4)}→${histPrev2.toFixed(4)}→${histPrev1.toFixed(4)}), volume declining. Swing ${fmt(swingBottom)}–${fmt(swingCeiling)}. Entry ${fmt(ep)}, TP1 ${fmt(tp1)} (50% fib), SL ${fmt(sl)} (2:1 R:R), TP2 ${fmt(tp2)}.`;
           }
         }
       }
