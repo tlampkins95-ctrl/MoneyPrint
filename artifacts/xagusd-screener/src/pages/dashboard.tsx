@@ -163,7 +163,7 @@ export default function Dashboard() {
         {tab === "signals" && (
           <>
             {/* Chart + signal panel */}
-            <div className="flex flex-col lg:flex-row gap-2 md:gap-3 lg:h-[1080px]">
+            <div className="flex flex-col lg:flex-row gap-2 md:gap-3 lg:h-[calc(100dvh-7rem)]">
               <div className="w-full h-[420px] md:h-[480px] lg:w-[58%] lg:h-auto lg:flex-1 lg:min-h-0">
                 <LevelsChart symbol={symbol} timeframe={timeframe} />
               </div>
