@@ -33,11 +33,13 @@ export function SignalPanel({
   timeframe,
   expanded,
   onExpandedChange,
+  onUnknownSymbol,
 }: {
   symbol: string;
   timeframe: Timeframe;
   expanded: boolean;
   onExpandedChange: (v: boolean) => void;
+  onUnknownSymbol?: () => void;
 }) {
   const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
   const [accountSize, setAccountSize] = useState<number>(() => readNumber(ACCOUNT_KEY, 500));
@@ -78,6 +80,10 @@ export function SignalPanel({
       query: {
         queryKey: getGetLevelsQueryKey(params),
         refetchInterval: 10000,
+        // Don't retry client errors (4xx) — they won't succeed on retry and
+        // cause long delays before the "Unknown symbol" auto-reset fires.
+        retry: (count, err) =>
+          count < 3 && !err.message.includes("Bad Request"),
       },
     },
   );
@@ -100,6 +106,14 @@ export function SignalPanel({
     if (data?.lastUpdated) setLastRefreshed(new Date(data.lastUpdated));
   }, [data?.lastUpdated]);
 
+  // Auto-reset to XAGUSD when the symbol is unknown (e.g. expired trending coin
+  // still in URL query param from a previous session).
+  useEffect(() => {
+    if (!isError || !error?.message?.includes("Unknown symbol") || !onUnknownSymbol) return;
+    const timer = setTimeout(onUnknownSymbol, 1500);
+    return () => clearTimeout(timer);
+  }, [isError, error?.message, onUnknownSymbol]);
+
   if (isLoading) {
     return (
       <div className="flex flex-col h-full bg-[#0a0a0a]/50 rounded-xl border border-zinc-800 p-5 animate-pulse space-y-4">
@@ -112,20 +126,25 @@ export function SignalPanel({
   }
 
   if (isError || !data) {
+    const isUnknown = error?.message?.includes("Unknown symbol");
     return (
       <div className="flex flex-col items-center justify-center h-full bg-[#0a0a0a]/50 rounded-xl border border-red-500/20 p-6 text-center">
         <AlertTriangle className="w-8 h-8 text-red-500 mb-3" />
         <div className="text-red-500 mb-2 font-bold">Signal data unavailable</div>
         <p className="text-sm text-zinc-400 mb-6">
-          {error?.message ?? "Connection to trading terminal lost."}
+          {isUnknown
+            ? "This coin's signal data has expired. Returning to XAG/USD…"
+            : (error?.message ?? "Connection to trading terminal lost.")}
         </p>
-        <button
-          onClick={handleRefresh}
-          className="px-6 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-md transition-colors text-sm font-mono flex items-center gap-2"
-        >
-          <RefreshCw className="w-4 h-4" />
-          Retry
-        </button>
+        {!isUnknown && (
+          <button
+            onClick={handleRefresh}
+            className="px-6 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-md transition-colors text-sm font-mono flex items-center gap-2"
+          >
+            <RefreshCw className="w-4 h-4" />
+            Retry
+          </button>
+        )}
       </div>
     );
   }
