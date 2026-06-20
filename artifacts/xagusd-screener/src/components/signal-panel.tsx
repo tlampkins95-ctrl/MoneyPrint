@@ -33,13 +33,11 @@ export function SignalPanel({
   timeframe,
   expanded,
   onExpandedChange,
-  onUnknownSymbol,
 }: {
   symbol: string;
   timeframe: Timeframe;
   expanded: boolean;
   onExpandedChange: (v: boolean) => void;
-  onUnknownSymbol?: () => void;
 }) {
   const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
   const [accountSize, setAccountSize] = useState<number>(() => readNumber(ACCOUNT_KEY, 500));
@@ -106,13 +104,6 @@ export function SignalPanel({
     if (data?.lastUpdated) setLastRefreshed(new Date(data.lastUpdated));
   }, [data?.lastUpdated]);
 
-  // Auto-reset to XAGUSD when the symbol is unknown (e.g. expired trending coin
-  // still in URL query param from a previous session).
-  useEffect(() => {
-    if (!isError || !error?.message?.includes("Unknown symbol") || !onUnknownSymbol) return;
-    const timer = setTimeout(onUnknownSymbol, 1500);
-    return () => clearTimeout(timer);
-  }, [isError, error?.message, onUnknownSymbol]);
 
   if (isLoading) {
     return (
@@ -133,18 +124,16 @@ export function SignalPanel({
         <div className="text-red-500 mb-2 font-bold">Signal data unavailable</div>
         <p className="text-sm text-zinc-400 mb-6">
           {isUnknown
-            ? "This coin's signal data has expired. Returning to XAG/USD…"
+            ? "This coin isn't listed on OKX perpetuals — no candle data to compute signals from."
             : (error?.message ?? "Connection to trading terminal lost.")}
         </p>
-        {!isUnknown && (
-          <button
-            onClick={handleRefresh}
-            className="px-6 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-md transition-colors text-sm font-mono flex items-center gap-2"
-          >
-            <RefreshCw className="w-4 h-4" />
-            Retry
-          </button>
-        )}
+        <button
+          onClick={handleRefresh}
+          className="px-6 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-md transition-colors text-sm font-mono flex items-center gap-2"
+        >
+          <RefreshCw className="w-4 h-4" />
+          Retry
+        </button>
       </div>
     );
   }

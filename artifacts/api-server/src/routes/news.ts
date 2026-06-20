@@ -1,5 +1,4 @@
 import { Router, type IRouter } from "express";
-import { getTrendingSymbols, fetchSpotForDynamic } from "../lib/trending-discovery";
 
 const router: IRouter = Router();
 
@@ -23,6 +22,57 @@ function decodeEntities(s: string): string {
     .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
     .replace(/&apos;/g, "'");
+}
+
+interface CmcQuote {
+  price: number;
+  percent_change_24h: number;
+  volume_24h: number;
+}
+
+interface CmcCoin {
+  id: number;
+  symbol: string;
+  name: string;
+  quote: { USD: CmcQuote };
+}
+
+interface CmcResponse {
+  data: CmcCoin[];
+}
+
+async function fetchTopGainers() {
+  const apiKey = process.env["COINMARKETCAP_API_KEY"];
+  if (!apiKey) return [];
+  try {
+    const res = await fetch(
+      "https://pro-api.coinmarketcap.com/v1/cryptocurrency/listings/latest" +
+        "?sort=percent_change_24h&sort_dir=desc&limit=50&convert=USD",
+      {
+        headers: {
+          "X-CMC_PRO_API_KEY": apiKey,
+          "Accept": "application/json",
+        },
+        signal: AbortSignal.timeout(10_000),
+      },
+    );
+    if (!res.ok) return [];
+    const body = (await res.json()) as CmcResponse;
+    return (body.data ?? [])
+      .filter((c) => (c.quote?.USD?.volume_24h ?? 0) > 500_000)
+      .slice(0, 10)
+      .map((c) => ({
+        symbol: c.symbol.toUpperCase(),
+        name: c.name,
+        priceChange24h: c.quote.USD.percent_change_24h,
+        price: c.quote.USD.price,
+        volume24h: c.quote.USD.volume_24h,
+        imageUrl: `https://s2.coinmarketcap.com/static/img/coins/64x64/${c.id}.png`,
+        hasSignalData: false as const,
+      }));
+  } catch {
+    return [];
+  }
 }
 
 async function fetchNews() {
@@ -58,39 +108,7 @@ async function fetchNews() {
 }
 
 router.get("/news", async (_req, res) => {
-  // Use trending_symbols as the gainers source. These coins are already
-  // validated against OKX perp by the discovery system, so every entry
-  // has real candle data and will work when clicked. Sort by 24h change
-  // descending, cap at 10, and fetch current spot prices in parallel.
-  const trending = getTrendingSymbols()
-    .slice()
-    .sort((a, b) => b.priceChange24h - a.priceChange24h)
-    .slice(0, 10);
-
-  const [articles, gainers] = await Promise.all([
-    fetchNews(),
-    Promise.all(
-      trending.map(async (t) => {
-        let price = 0;
-        try {
-          const p = t.okxPerp ? await fetchSpotForDynamic(t.okxPerp) : null;
-          price = p ?? 0;
-        } catch {
-          price = 0;
-        }
-        return {
-          symbol: t.baseAsset,
-          name: t.baseAsset,
-          priceChange24h: t.priceChange24h,
-          price,
-          volume24h: 0,
-          imageUrl: "",
-          hasSignalData: true as const,
-        };
-      }),
-    ),
-  ]);
-
+  const [articles, gainers] = await Promise.all([fetchNews(), fetchTopGainers()]);
   res.json({ articles, gainers });
 });
 

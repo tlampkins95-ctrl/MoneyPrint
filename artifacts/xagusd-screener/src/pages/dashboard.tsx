@@ -185,7 +185,7 @@ export default function Dashboard() {
                   timeframe={timeframe}
                   expanded={signalExpanded}
                   onExpandedChange={setSignalExpanded}
-                  onUnknownSymbol={() => setSymbol("XAGUSD")}
+
                 />
               </div>
             </div>
