@@ -162,6 +162,15 @@ export default function Dashboard() {
       <main className="flex-1 p-2 md:p-3 flex flex-col gap-2 md:gap-3">
         {tab === "signals" && (
           <>
+            {/* Top gainers — clickable to navigate to that coin's signals */}
+            <GainersStrip
+              selectedSymbol={symbol}
+              onSelect={(s, t) => {
+                setSymbol(s);
+                setTimeframe(t as Timeframe);
+              }}
+            />
+
             {/* Chart + signal panel */}
             <div className="flex flex-col lg:flex-row gap-2 md:gap-3 lg:h-[calc(100dvh-7rem)]">
               <div className="w-full h-[420px] md:h-[480px] lg:w-[58%] lg:h-auto lg:flex-1 lg:min-h-0">
@@ -187,15 +196,6 @@ export default function Dashboard() {
               onSelect={(s, t) => {
                 setSymbol(s);
                 setTimeframe(t);
-              }}
-            />
-
-            {/* Top gainers — clickable to navigate to that coin's signals */}
-            <GainersStrip
-              selectedSymbol={symbol}
-              onSelect={(s, t) => {
-                setSymbol(s);
-                setTimeframe(t as Timeframe);
               }}
             />
 
