@@ -2071,6 +2071,17 @@ interface ActiveTrade {
 
 const activeTrades = new Map<string, ActiveTrade>();
 
+// Tracks the bar-open timestamp (ms) of the candle on which a 1D/1W trade
+// last closed. Used to suppress immediate re-staging on the same live bar —
+// a trade that stops out on a forming daily candle should not be re-entered
+// until the next bar opens.
+const lastClosedBarTs = new Map<string, number>();
+
+function getBarOpenTs(candles: CandleRaw[]): number {
+  const last = candles[candles.length - 1];
+  return last ? Date.parse(last.date) : 0;
+}
+
 // ─── Disk persistence for active trades ──────────────────────────────────────
 // The freeze-on-signal logic keeps entry/SL/TP stable from the moment a BUY
 // or SELL fires until SL or TP2 hits. Without disk persistence, every server
@@ -2717,6 +2728,7 @@ export function computeLevelsStable(
     logClosedTrade(existing, symbolKey, timeframe, exitAtLevel);
     activeTrades.delete(k);
     persistActiveTrades();
+    if (timeframe === "1d" || timeframe === "1w") lastClosedBarTs.set(k, getBarOpenTs(candles));
   }
 
   // Invalidate when the live signal flips to the opposite direction. The
@@ -2732,6 +2744,7 @@ export function computeLevelsStable(
     logClosedTrade(stillActiveBeforeFlip, symbolKey, timeframe, fresh.currentPrice, "REVERSED");
     activeTrades.delete(k);
     persistActiveTrades();
+    if (timeframe === "1d" || timeframe === "1w") lastClosedBarTs.set(k, getBarOpenTs(candles));
   }
 
   // Candle-wick exit detection for triggered trades.
@@ -2749,12 +2762,14 @@ export function computeLevelsStable(
       logClosedTrade(wickScanTrade, symbolKey, timeframe, wickScanTrade.takeProfit2);
       activeTrades.delete(k);
       persistActiveTrades();
+      if (timeframe === "1d" || timeframe === "1w") lastClosedBarTs.set(k, getBarOpenTs(candles));
     } else if (hitSl) {
       // SL (or BE trail after TP1) reached via candle wick — log and delete.
       // logClosedTrade auto-derives BE_TRAIL vs SL from trade.tp1Hit + stopLoss.
       logClosedTrade(wickScanTrade, symbolKey, timeframe, wickScanTrade.stopLoss);
       activeTrades.delete(k);
       persistActiveTrades();
+      if (timeframe === "1d" || timeframe === "1w") lastClosedBarTs.set(k, getBarOpenTs(candles));
     } else if (hitTp1 && !wickScanTrade.tp1Hit) {
       // TP1 tagged via wick but price has since retreated — trail stop to BE
       // so the trade stays alive as a risk-free runner.
@@ -2891,6 +2906,19 @@ export function computeLevelsStable(
 
   // No active trade. If fresh is BUY/SELL, snapshot it as the new active trade.
   if (fresh.signal === "BUY" || fresh.signal === "SELL") {
+    // For 1D and 1W: don't re-stage a new trade on the same bar that just
+    // closed one. A daily/weekly candle is live all day/week — a stop-out
+    // followed by an immediate re-entry on the still-forming bar is the
+    // mechanical cause of 400+ SL hits per 2-day window. Wait for the next
+    // completed bar before treating a fresh signal as actionable.
+    if (timeframe === "1d" || timeframe === "1w") {
+      const currentBarTs = getBarOpenTs(candles);
+      const closedBarTs  = lastClosedBarTs.get(k);
+      if (closedBarTs !== undefined && closedBarTs >= currentBarTs) {
+        return fresh; // signal visible but not staged — wait for next bar
+      }
+    }
+
     // Market entries (DAGGER, PATTERN_BREAKOUT) fill immediately — no limit
     // to wait for. Set triggered=true on creation so the dashboard shows
     // the correct FILLED state from the first tick and `spotTagged` / candle

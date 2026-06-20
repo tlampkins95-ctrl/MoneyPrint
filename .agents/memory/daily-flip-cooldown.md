@@ -1,14 +1,18 @@
 ---
 name: Daily flip cooldown
-description: The 1d candle is live/incomplete intraday; direction-flip bypass produces SELL→BUY noise within minutes on Gold; MIN_FLIP_COOLDOWN_MS added per timeframe.
+description: 1D/1W trades must not re-stage on the same live bar after closing — lastClosedBarTs map guards this in computeLevelsStable.
 ---
 
-The notifier's direction-flip logic bypasses the per-direction cooldown entirely (SELL→BUY is treated as a new setup). For intraday TFs this is correct. For 4h and 1d, the current candle is incomplete during the session — a $50 Gold move intraday tips the pivot calculation from SELL → BUY zone and can produce a SELL→BUY flip within 20 minutes of the original SELL alert.
+**The problem:** The 1D timeframe was producing 400+ SL hits per 2-day window. A daily trade closes (SL), the next poll immediately re-stages a new trade on the same still-forming daily candle, that trade fills, gets stopped again, repeat — all within the same calendar day.
 
-**Why:** The BUY alert firing 20 minutes after the SELL was not a genuine daily structure change — it was the live candle's close price oscillating inside the session.
+**Root cause:** `computeLevelsStable` had no guard against re-staging after a close on a live bar. Daily candles are incomplete intraday; the signal, entry, and SL levels all shift as the live bar forms, producing setup→SL→setup→SL loops.
 
-**How to apply:** `MIN_FLIP_COOLDOWN_MS` constant in `notifier.ts` defines per-TF minimum between direction flips:
-- 15m, 30m, 1h: 0 (no minimum — intraday flips are genuine)
-- 4h: 1 hour
-- 1d: 4 hours
-Both `checkSymbol` and `checkTrendingSymbol` enforce this. Filled trades are always exempt.
+**Fix implemented:** `lastClosedBarTs: Map<string, number>` (in-memory, keyed by trade key) records the bar-open timestamp (ms) of the candle on which each 1D/1W trade closed. At staging time, if `lastClosedBarTs.get(k) >= getBarOpenTs(candles)`, staging is suppressed and `fresh` is returned without calling `activeTrades.set` — signal remains visible in UI as PENDING but no trade is frozen until the next bar opens.
+
+**Which close paths record to the map:** all four — isInvalidated (SL/TP2 via live spot), REVERSED (direction flip), wick scan hitTp2, wick scan hitSl.
+
+**Why:** `closedBarTs >= currentBarTs` — if the bar open timestamp hasn't advanced, we're still on the same forming bar.
+
+**How to apply:** Only applies to `timeframe === "1d" || timeframe === "1w"`. The map is in-memory only — on restart it's empty and the first poll can stage freely, which is acceptable (restarts are rare vs the intraday loop problem).
+
+**Notifier cooldown (separate, older):** `MIN_FLIP_COOLDOWN_MS` in `notifier.ts` throttles direction-flip *alerts* on 4h/1d. This is a different layer — it controls Telegram/Push notification frequency, not trade staging. Both guards coexist.
