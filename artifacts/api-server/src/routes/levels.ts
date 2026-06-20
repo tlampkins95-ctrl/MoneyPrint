@@ -17,6 +17,7 @@ import { getBtcMacroTrend, isBtcMacroGated } from "../lib/btc-filter";
 import { getNotifierStatus } from "../lib/notifier";
 import {
   getTrendingSymbols,
+  findTrendingSymbolByKey,
   fetchCandlesForDynamic,
   fetchSpotForDynamic,
 } from "../lib/trending-discovery";
@@ -181,9 +182,13 @@ router.get("/levels", async (req: Request, res: Response) => {
     const maxLeverage = Math.max(1, Math.min(200, Number(req.query.maxLeverage) || 50));
     const mt5Lots = Math.max(0.01, Math.min(100, Number(req.query.mt5Lots) || 0.01));
 
-    // Resolve meta — check static symbols first, then trending cache.
+    // Resolve meta — check static symbols first, then live trending cache,
+    // then fall back to the DB (handles coins that recently expired from the
+    // in-memory TTL window but are still valid on OKX).
     const isStaticSymbol = rawSymbol in SYMBOLS;
-    const trendingMeta = isStaticSymbol ? null : getTrendingSymbols().find((t) => t.symbolKey === rawSymbol) ?? null;
+    const trendingMeta = isStaticSymbol
+      ? null
+      : (getTrendingSymbols().find((t) => t.symbolKey === rawSymbol) ?? await findTrendingSymbolByKey(rawSymbol));
     if (!isStaticSymbol && !trendingMeta) {
       res.status(400).json({ error: `Unknown symbol: ${rawSymbol}` });
       return;
@@ -354,11 +359,11 @@ router.get("/price-history", async (req: Request, res: Response) => {
     const requestedBars = Number(req.query.bars) || 200;
     const bars = Math.max(1, Math.min(2000, Math.floor(requestedBars)));
 
-    // Resolve symbol — static or trending.
+    // Resolve symbol — static or trending (with DB fallback for expired coins).
     const isStaticSymbol = rawSymbol in SYMBOLS;
     const trendingMeta = isStaticSymbol
       ? null
-      : getTrendingSymbols().find((t) => t.symbolKey === rawSymbol) ?? null;
+      : (getTrendingSymbols().find((t) => t.symbolKey === rawSymbol) ?? await findTrendingSymbolByKey(rawSymbol));
     if (!isStaticSymbol && !trendingMeta) {
       res.status(400).json({ error: `Unknown symbol: ${rawSymbol}` });
       return;

@@ -17,10 +17,54 @@ export interface TrendingMeta extends SymbolMeta {
 
 // In-memory cache of currently-trending coins (loaded from DB on boot, refreshed every 4h).
 const trendingCache: TrendingMeta[] = [];
+// Module-level pool reference so findTrendingSymbolByKey can fall back to the DB.
+let _pool: Pool | null = null;
 
 export function getTrendingSymbols(): TrendingMeta[] {
   const now = Date.now();
   return trendingCache.filter((t) => t.expiresAt > now);
+}
+
+// Look up a trending coin by symbolKey. Checks the live in-memory cache first,
+// then falls back to the DB (including recently-expired rows) so that a coin
+// that just dropped out of the 8-hour TTL window still returns data rather than
+// a 400 error.
+export async function findTrendingSymbolByKey(symbolKey: string): Promise<TrendingMeta | null> {
+  const live = trendingCache.find((t) => t.symbolKey === symbolKey);
+  if (live) return live;
+  if (!_pool) return null;
+  try {
+    const res = await _pool.query<{
+      symbol_key: string;
+      base_asset: string;
+      okx_symbol: string;
+      phemex_symbol: string;
+      decimals: number;
+      min_qty: number;
+      qty_step: number;
+      price_change_24h: number;
+      rank: number;
+      discovered_at: Date;
+      expires_at: Date;
+    }>("SELECT * FROM trending_symbols WHERE symbol_key = $1 LIMIT 1", [symbolKey]);
+    if (res.rows.length === 0) return null;
+    const row = res.rows[0];
+    return buildDynamicMeta(
+      row.symbol_key,
+      row.base_asset,
+      row.okx_symbol,
+      row.phemex_symbol,
+      row.decimals,
+      row.min_qty,
+      row.qty_step,
+      row.price_change_24h,
+      row.rank,
+      new Date(row.expires_at).getTime(),
+      new Date(row.discovered_at).getTime(),
+    );
+  } catch {
+    return null;
+  }
 }
 
 // ─── Candle cache for dynamic symbols ────────────────────────────────────────
@@ -563,6 +607,7 @@ export function startTrendingDiscovery(): void {
   }
 
   const pool = new Pool({ connectionString: poolUrl });
+  _pool = pool;
 
   // Load existing rows from DB immediately (so the API can serve them on boot).
   void loadTrendingFromDb(pool).then(() => {
