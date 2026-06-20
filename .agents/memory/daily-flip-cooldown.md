@@ -1,18 +1,25 @@
 ---
-name: Daily flip cooldown
-description: 1D/1W trades must not re-stage on the same live bar after closing — lastClosedBarTs map guards this in computeLevelsStable.
+name: Same-bar re-staging cooldown
+description: After any trade closes, lastClosedBarTs prevents re-staging on the same bar for ALL timeframes — was producing 68 SL hits in a single 1h bar.
 ---
 
-**The problem:** The 1D timeframe was producing 400+ SL hits per 2-day window. A daily trade closes (SL), the next poll immediately re-stages a new trade on the same still-forming daily candle, that trade fills, gets stopped again, repeat — all within the same calendar day.
+**The problem:** After a trade closed (SL/TP/REVERSED), the next poll immediately re-staged a new trade on the same still-forming bar. This produced:
+- 68 SL hits inside a single 1h bar (Jun 19 17:00 UTC)
+- 400+ 1D SL hits over 2 days
+- 15% win rate on 1h, 0% on 1D
 
-**Root cause:** `computeLevelsStable` had no guard against re-staging after a close on a live bar. Daily candles are incomplete intraday; the signal, entry, and SL levels all shift as the live bar forms, producing setup→SL→setup→SL loops.
+**Root cause:** `computeLevelsStable` had no guard against re-staging after a close. `fresh` (with signal=BUY/SELL) was computed from the still-live bar, and with no `activeTrades` entry, it staged immediately on every poll until the bar closed.
 
-**Fix implemented:** `lastClosedBarTs: Map<string, number>` (in-memory, keyed by trade key) records the bar-open timestamp (ms) of the candle on which each 1D/1W trade closed. At staging time, if `lastClosedBarTs.get(k) >= getBarOpenTs(candles)`, staging is suppressed and `fresh` is returned without calling `activeTrades.set` — signal remains visible in UI as PENDING but no trade is frozen until the next bar opens.
+**Fix:** `lastClosedBarTs: Map<string, number>` (in-memory, keyed by trade key). After any trade close, records `getBarOpenTs(candles)` = `Date.parse(candles[last].date)` — the bar's open timestamp in ms. At staging, if `lastClosedBarTs.get(k) >= getBarOpenTs(candles)`, staging is suppressed and `fresh` is returned without calling `activeTrades.set`. Signal stays visible as PENDING in UI but no trade is frozen until the next bar opens.
 
-**Which close paths record to the map:** all four — isInvalidated (SL/TP2 via live spot), REVERSED (direction flip), wick scan hitTp2, wick scan hitSl.
+**Applies to ALL timeframes** (1h, 4h, 1d, 1w) — not just daily. Re-entering on the same bar that just stopped you out is never valid strategy regardless of timeframe.
 
-**Why:** `closedBarTs >= currentBarTs` — if the bar open timestamp hasn't advanced, we're still on the same forming bar.
+**Which close paths record to the map:** all four —
+1. `isInvalidated` (SL/TP2 via live spot check)
+2. Direction flip → REVERSED
+3. Candle wick scan → hitTp2
+4. Candle wick scan → hitSl
 
-**How to apply:** Only applies to `timeframe === "1d" || timeframe === "1w"`. The map is in-memory only — on restart it's empty and the first poll can stage freely, which is acceptable (restarts are rare vs the intraday loop problem).
+**Map is in-memory only** — resets on restart. First poll after restart can stage freely, which is acceptable since restarts are rare vs the intraday loop.
 
-**Notifier cooldown (separate, older):** `MIN_FLIP_COOLDOWN_MS` in `notifier.ts` throttles direction-flip *alerts* on 4h/1d. This is a different layer — it controls Telegram/Push notification frequency, not trade staging. Both guards coexist.
+**Notifier cooldown (separate):** `MIN_FLIP_COOLDOWN_MS` in `notifier.ts` throttles Telegram/Push alert frequency on direction flips. Different layer — controls notifications, not trade staging. Both coexist.
