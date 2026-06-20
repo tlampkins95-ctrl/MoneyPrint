@@ -2886,6 +2886,12 @@ export function computeLevelsStable(
       sellZone: stillActive.sellZone,
       pivot: stillActive.pivot,
       levels: stillActive.levelsArr,
+      // DCA from ...fresh is relative to the fresh signal's entry, NOT the
+      // frozen trade's entry. Showing it against the frozen entry causes
+      // directionally wrong displays (e.g. DCA below entry on a SELL).
+      // Suppress it for all active trades — the DCA was only meaningful at
+      // the moment the original signal fired.
+      dca1: undefined,
       // Recompute sizing fresh against the (possibly updated) account/risk
       // inputs but using the FROZEN entry, stop loss and TP levels.
       positionSizing: computePositionSizing(
