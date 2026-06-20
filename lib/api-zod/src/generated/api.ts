@@ -1324,6 +1324,11 @@ export const GetNewsResponse = zod.object({
       price: zod.number(),
       volume24h: zod.number(),
       imageUrl: zod.string(),
+      hasSignalData: zod
+        .boolean()
+        .describe(
+          "True if this coin has signal data available (static symbol or live trending coin). False means clicking would return no data.",
+        ),
     }),
   ),
 });

@@ -698,6 +698,8 @@ export interface TopGainer {
   price: number;
   volume24h: number;
   imageUrl: string;
+  /** True if this coin has signal data available (static symbol or live trending coin). False means clicking would return no data. */
+  hasSignalData: boolean;
 }
 
 export interface NewsResponse {

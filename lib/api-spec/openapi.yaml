@@ -1267,7 +1267,10 @@ components:
           type: number
         imageUrl:
           type: string
-      required: [symbol, name, priceChange24h, price, volume24h, imageUrl]
+        hasSignalData:
+          type: boolean
+          description: True if this coin has signal data available (static symbol or live trending coin). False means clicking would return no data.
+      required: [symbol, name, priceChange24h, price, volume24h, imageUrl, hasSignalData]
 
     NewsResponse:
       type: object

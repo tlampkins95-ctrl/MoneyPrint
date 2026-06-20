@@ -54,16 +54,21 @@ export function GainersStrip({ selectedSymbol, onSelect }: GainersStripProps) {
               const isPositive = g.priceChange24h >= 0;
               const pctColor = isPositive ? "text-emerald-400" : "text-rose-400";
               const pctLabel = `${isPositive ? "+" : ""}${g.priceChange24h.toFixed(1)}%`;
+              const hasData = g.hasSignalData;
               return (
                 <button
                   key={g.symbol}
                   type="button"
-                  onClick={() => onSelect(symKey, "1h")}
+                  onClick={hasData ? () => onSelect(symKey, "1h") : undefined}
+                  disabled={!hasData}
+                  title={hasData ? undefined : "No signal data available yet"}
                   className={cn(
                     "flex-shrink-0 flex flex-col items-start gap-1 px-3 py-2 rounded-lg border transition-all text-left",
-                    isSelected
-                      ? "border-emerald-500/60 bg-emerald-500/10"
-                      : "border-border/40 bg-card/40 hover:border-emerald-500/30 hover:bg-emerald-500/5",
+                    !hasData
+                      ? "border-border/20 bg-card/20 opacity-40 cursor-not-allowed"
+                      : isSelected
+                        ? "border-emerald-500/60 bg-emerald-500/10"
+                        : "border-border/40 bg-card/40 hover:border-emerald-500/30 hover:bg-emerald-500/5",
                   )}
                 >
                   <div className="flex items-center gap-1.5">

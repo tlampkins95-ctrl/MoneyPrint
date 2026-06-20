@@ -1,4 +1,6 @@
 import { Router, type IRouter } from "express";
+import { SYMBOLS } from "../lib/symbols";
+import { getTrendingSymbols } from "../lib/trending-discovery";
 
 const router: IRouter = Router();
 
@@ -110,7 +112,20 @@ async function fetchNews() {
 router.get("/news", async (_req, res) => {
   const [articles, gainers] = await Promise.all([fetchNews(), fetchTopGainers()]);
 
-  res.json({ articles, gainers });
+  // Tag each gainer with whether it has signal data (static symbol or live
+  // trending coin). Coins that aren't in either set would return 400 if clicked,
+  // so the frontend uses this flag to disable the click handler.
+  const knownStaticKeys = new Set(Object.keys(SYMBOLS));
+  const knownTrendingKeys = new Set(getTrendingSymbols().map((t) => t.symbolKey));
+  const taggedGainers = gainers.map((g) => {
+    const symKey = `${g.symbol}USDT`;
+    return {
+      ...g,
+      hasSignalData: knownStaticKeys.has(symKey) || knownTrendingKeys.has(symKey),
+    };
+  });
+
+  res.json({ articles, gainers: taggedGainers });
 });
 
 export default router;
