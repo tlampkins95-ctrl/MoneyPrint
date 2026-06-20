@@ -629,13 +629,14 @@ async function checkTrendingSymbol(
     );
     const now = Date.now();
 
-    // Seed only for PENDING limit orders (not yet filled). Already-running
-    // positions are recorded silently — re-alerting a filled trade after a
-    // restart looks like a stale "new entry" to the user.
-    const isSeedSnapshot = !prev && SEED_TIMEFRAMES.has(timeframe) && (levels.signal === "BUY" || levels.signal === "SELL") && (levels.tradeState === "WAIT" || levels.tradeState === "PENDING");
+    // Trending coins never auto-seed on server restart. They are lower-priority
+    // instruments — the user doesn't need a "catch-up" alert every time the
+    // process restarts. Seeding (isSeedSnapshot) is reserved for ALERT_SYMBOLS
+    // (XAGUSD, EURUSD) in checkSymbol. Here we only alert on genuine live
+    // signal transitions that happen while the server is running.
+    const isSeedSnapshot = false;
     const transitioned =
-      isSeedSnapshot ||
-      (!!prev && prev.signal !== levels.signal && (levels.signal === "BUY" || levels.signal === "SELL"));
+      !!prev && prev.signal !== levels.signal && (levels.signal === "BUY" || levels.signal === "SELL");
 
     if (!prev && !isSeedSnapshot) {
       const isAlreadyFilled = levels.tradeState !== "WAIT" && levels.tradeState !== "PENDING";
