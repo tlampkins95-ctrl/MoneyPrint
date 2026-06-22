@@ -1679,6 +1679,19 @@ export function computeLevels(
             (c) => c.high >= swingBHigh - 0.5 * swingAtr && c.close < swingBHigh,
           ).length;
           if (resistanceTouches >= 2) continue;
+          // Trend structure guard (higher-high requirement): swingBHigh must be a
+          // NEW high relative to the swing highs that existed BEFORE swingALow.
+          // If swingBHigh is at or below the prior ceiling, price is ranging —
+          // no directional impulse, no valid FIB50_SWING entry.
+          // Tolerance: 0.25 ATR to handle measurement noise without letting clear
+          // range-tops through.
+          const priorHighsBeforeA = swingHighsForBuy
+            .filter(s => s.idx < swingALowIdx)
+            .map(s => s.price);
+          if (priorHighsBeforeA.length > 0) {
+            const prevHighCeiling = Math.max(...priorHighsBeforeA);
+            if (swingBHigh <= prevHighCeiling + 0.25 * swingAtr) continue;
+          }
           if (Math.abs(currentPrice - fib50Buy) <= FIB50_TOLERANCE_ATR * swingAtr) {
             const ep  = round(fib50Buy);
             const tp1 = round(swingALow + 0.786 * buySwingRange);  // 78.6% fib — TP1
@@ -1737,6 +1750,17 @@ export function computeLevels(
             (c) => c.low <= swingBLow + 0.5 * swingAtr && c.close > swingBLow,
           ).length;
           if (supportTouches >= 2) continue;
+          // Trend structure guard (lower-low requirement): swingBLow must be a
+          // NEW low relative to the swing lows that existed BEFORE swingAHigh.
+          // If swingBLow is at or above the prior floor, price is ranging —
+          // no directional impulse, no valid FIB50_SWING SELL entry.
+          const priorLowsBeforeA = swingLowsForSell
+            .filter(s => s.idx < swingAHighIdx)
+            .map(s => s.price);
+          if (priorLowsBeforeA.length > 0) {
+            const prevLowFloor = Math.min(...priorLowsBeforeA);
+            if (swingBLow >= prevLowFloor - 0.25 * swingAtr) continue;
+          }
           if (Math.abs(currentPrice - fib50Sell) <= FIB50_TOLERANCE_ATR * swingAtr) {
             const ep  = round(fib50Sell);
             const tp1 = round(swingAHigh - 0.786 * sellSwingRange);  // 78.6% fib — TP1
