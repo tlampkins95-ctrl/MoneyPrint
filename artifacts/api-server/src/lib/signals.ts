@@ -1694,7 +1694,7 @@ export function computeLevels(
           }
           if (Math.abs(currentPrice - fib50Buy) <= FIB50_TOLERANCE_ATR * swingAtr) {
             const ep  = round(fib50Buy);
-            const tp1 = round(swingALow + 0.782 * buySwingRange);  // 78.2% fib — TP1
+            const tp1 = round(swingALow + 0.786 * buySwingRange);  // 78.6% fib — TP1
             const sl  = round(ep - 0.5 * (tp1 - ep));              // 2:1 R:R (risk = reward/2)
             const tp2 = round(floorTarget(ep, sl, swingBHigh, MIN_RR_TP2, "BUY")); // swing high
             signal       = "BUY";
@@ -1708,7 +1708,7 @@ export function computeLevels(
             displayFib50     = ep;
             const bbTag     = bb30 ? ` BB-mid ${fmt(bb30.middle)}` : "";
             const weeklyTag = ` | Weekly ${weeklyTrend}`;
-            signalReason = `[${tfLabel}] FIB50 SWING BUY: Swing low ${fmt(swingALow)} → new high ${fmt(swingBHigh)} (range ${fmt(buySwingRange)}). Entry at 50% fib ${fmt(ep)}, TP1 ${fmt(tp1)} (78.2% fib), SL ${fmt(sl)} (2:1 R:R), TP2 ${fmt(tp2)} (swing high).${bbTag}${weeklyTag}`;
+            signalReason = `[${tfLabel}] FIB50 SWING BUY: Swing low ${fmt(swingALow)} → new high ${fmt(swingBHigh)} (range ${fmt(buySwingRange)}). Entry at 50% fib ${fmt(ep)}, TP1 ${fmt(tp1)} (78.6% fib), SL ${fmt(sl)} (2:1 R:R), TP2 ${fmt(tp2)} (swing high).${bbTag}${weeklyTag}`;
             break buySearch;
           }
         }
@@ -1763,7 +1763,7 @@ export function computeLevels(
           }
           if (Math.abs(currentPrice - fib50Sell) <= FIB50_TOLERANCE_ATR * swingAtr) {
             const ep  = round(fib50Sell);
-            const tp1 = round(swingAHigh - 0.782 * sellSwingRange);  // 78.2% fib — TP1
+            const tp1 = round(swingAHigh - 0.786 * sellSwingRange);  // 78.6% fib — TP1
             const sl  = round(ep + 0.5 * (ep - tp1));                // 2:1 R:R (risk = reward/2)
             const tp2 = round(floorTarget(ep, sl, swingBLow, MIN_RR_TP2, "SELL")); // swing low
             signal       = "SELL";
@@ -1777,7 +1777,7 @@ export function computeLevels(
             displayFib50     = ep;
             const bbTag     = bb30 ? ` BB-mid ${fmt(bb30.middle)}` : "";
             const weeklyTag = ` | Weekly ${weeklyTrend}`;
-            signalReason = `[${tfLabel}] FIB50 SWING SELL: Swing high ${fmt(swingAHigh)} → new low ${fmt(swingBLow)} (range ${fmt(sellSwingRange)}). Entry at 50% fib ${fmt(ep)}, TP1 ${fmt(tp1)} (78.2% fib), SL ${fmt(sl)} (2:1 R:R), TP2 ${fmt(tp2)} (swing low).${bbTag}${weeklyTag}`;
+            signalReason = `[${tfLabel}] FIB50 SWING SELL: Swing high ${fmt(swingAHigh)} → new low ${fmt(swingBLow)} (range ${fmt(sellSwingRange)}). Entry at 50% fib ${fmt(ep)}, TP1 ${fmt(tp1)} (78.6% fib), SL ${fmt(sl)} (2:1 R:R), TP2 ${fmt(tp2)} (swing low).${bbTag}${weeklyTag}`;
             break sellSearch;
           }
         }
