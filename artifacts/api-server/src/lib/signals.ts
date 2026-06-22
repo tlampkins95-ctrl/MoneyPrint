@@ -1670,6 +1670,15 @@ export function computeLevels(
             .slice(swingBHighIdx + 1)
             .some((c) => c.close < fib50Buy);
           if (fibViolatedBuy) continue;
+          // Resistance-exhaustion guard: if swingBHigh has been wicked ≥ 2 times
+          // without a close above it, the ceiling is proven overhead resistance and
+          // the fib-bounce setup is exhausted. A "touch" is any candle whose HIGH
+          // reached within 0.5 ATR of swingBHigh but whose CLOSE stayed below it.
+          const candlesAfterB = completed.slice(swingBHighIdx + 1);
+          const resistanceTouches = candlesAfterB.filter(
+            (c) => c.high >= swingBHigh - 0.5 * swingAtr && c.close < swingBHigh,
+          ).length;
+          if (resistanceTouches >= 2) continue;
           if (Math.abs(currentPrice - fib50Buy) <= FIB50_TOLERANCE_ATR * swingAtr) {
             const ep  = round(fib50Buy);
             const tp1 = round(swingALow + 0.786 * buySwingRange);  // 78.6% fib — TP1
@@ -1719,6 +1728,15 @@ export function computeLevels(
             .slice(swingBLowIdx + 1)
             .some((c) => c.close > fib50Sell);
           if (fibViolatedSell) continue;
+          // Support-exhaustion guard: if swingBLow has been wicked ≥ 2 times
+          // without a close below it, the floor is proven support and the
+          // fib-rejection setup is exhausted. A "touch" is any candle whose LOW
+          // reached within 0.5 ATR of swingBLow but whose CLOSE stayed above it.
+          const candlesAfterBSell = completed.slice(swingBLowIdx + 1);
+          const supportTouches = candlesAfterBSell.filter(
+            (c) => c.low <= swingBLow + 0.5 * swingAtr && c.close > swingBLow,
+          ).length;
+          if (supportTouches >= 2) continue;
           if (Math.abs(currentPrice - fib50Sell) <= FIB50_TOLERANCE_ATR * swingAtr) {
             const ep  = round(fib50Sell);
             const tp1 = round(swingAHigh - 0.786 * sellSwingRange);  // 78.6% fib — TP1
