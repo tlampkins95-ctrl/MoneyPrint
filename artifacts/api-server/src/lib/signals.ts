@@ -1663,6 +1663,13 @@ export function computeLevels(
           currentPrice < swingBHigh
         ) {
           const fib50Buy = swingALow + 0.5 * buySwingRange;
+          // Fib-violation guard: if any candle after swingB closed BELOW the
+          // 50% fib, price already blew through the level. The setup is
+          // invalid — a re-visit after a violation is not a fresh bounce.
+          const fibViolatedBuy = completed
+            .slice(swingBHighIdx + 1)
+            .some((c) => c.close < fib50Buy);
+          if (fibViolatedBuy) continue;
           if (Math.abs(currentPrice - fib50Buy) <= FIB50_TOLERANCE_ATR * swingAtr) {
             const ep  = round(fib50Buy);
             const tp1 = round(swingALow + 0.786 * buySwingRange);  // 78.6% fib — TP1
@@ -1705,6 +1712,13 @@ export function computeLevels(
           currentPrice > swingBLow
         ) {
           const fib50Sell = swingAHigh - 0.5 * sellSwingRange;
+          // Fib-violation guard: if any candle after swingB closed ABOVE the
+          // 50% fib, price already blew through the level. The setup is
+          // invalid — a re-visit after a violation is not a fresh rejection.
+          const fibViolatedSell = completed
+            .slice(swingBLowIdx + 1)
+            .some((c) => c.close > fib50Sell);
+          if (fibViolatedSell) continue;
           if (Math.abs(currentPrice - fib50Sell) <= FIB50_TOLERANCE_ATR * swingAtr) {
             const ep  = round(fib50Sell);
             const tp1 = round(swingAHigh - 0.786 * sellSwingRange);  // 78.6% fib — TP1
