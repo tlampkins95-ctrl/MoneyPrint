@@ -1099,7 +1099,7 @@ function computeAchievable(
   };
 }
 
-function computePositionSizing(
+export function computePositionSizing(
   symbolKey: string,
   meta: SymbolMeta,
   entry: number,

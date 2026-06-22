@@ -7,13 +7,22 @@ import {
   fetchCandlesForTimeframe,
   type Timeframe,
 } from "./yahoo-fetch";
-import { computeLevelsStable, fetchSpotPrice, getActiveTrade, applyFuturesBasis, registerOnTradeClosedCallback, calcMACDHist, DEFAULT_ACCOUNT_SIZE, DEFAULT_RISK_PCT, DEFAULT_MIN_COLLATERAL, DEFAULT_MAX_LEVERAGE, DEFAULT_MT5_LOTS, type ClosedOutcome } from "./signals";
+import { computeLevelsStable, fetchSpotPrice, getActiveTrade, applyFuturesBasis, registerOnTradeClosedCallback, calcMACDHist, computePositionSizing, DEFAULT_ACCOUNT_SIZE, DEFAULT_RISK_PCT, DEFAULT_MIN_COLLATERAL, DEFAULT_MAX_LEVERAGE, DEFAULT_MT5_LOTS, type ClosedOutcome } from "./signals";
 import {
   buildAlertContext,
   sendTelegramAlert,
   isTelegramEnabled,
 } from "./telegram-notifier";
 import { broadcastWebPush } from "./web-push-notifier";
+import {
+  isPhemexTradingEnabled,
+  getUSDTBalance,
+  placeOrder,
+  cancelOrder,
+  cancelAllOrders,
+  phemexRiskPct,
+  phemexMaxLeverage,
+} from "./phemex-trader";
 
 type SignalKind = "BUY" | "SELL" | "WAIT";
 
@@ -162,6 +171,93 @@ const TIMEFRAME_LABEL: Record<Timeframe, string> = {
 };
 
 const stateMap = new Map<string, TrackedState>();
+
+// ─── Phemex open-order tracking ───────────────────────────────────────────────
+// Maps stateMap key → { orderId, phemexSymbol } for any pending limit order that
+// has been placed but not yet confirmed filled. Cancelled / filled orders are
+// removed from this map as soon as we learn of the transition.
+interface OpenPhemexOrder {
+  orderId:      string;
+  phemexSymbol: string;
+}
+const openPhemexOrders = new Map<string, OpenPhemexOrder>();
+
+/**
+ * Compute sizing against the real Phemex balance and place a limit order with
+ * an attached SL + TP1 bracket.  Stores the returned orderId in openPhemexOrders
+ * so a subsequent WAIT/flip transition can cancel it.
+ */
+async function executePhemexTrade(
+  symbol: string,
+  timeframe: Timeframe,
+  levels: ReturnType<typeof computeLevelsStable>,
+  phemexSymbol: string,
+): Promise<void> {
+  const k = key(symbol, timeframe);
+  const meta = SYMBOLS[symbol as Symbol];
+  if (!meta) return;
+
+  // Cancel any existing pending order for this slot before placing a new one.
+  const existing = openPhemexOrders.get(k);
+  if (existing) {
+    await cancelOrder(existing.phemexSymbol, existing.orderId);
+    openPhemexOrders.delete(k);
+  }
+
+  const realBalance = await getUSDTBalance();
+  const accountSize = realBalance ?? DEFAULT_ACCOUNT_SIZE;
+
+  const sizing = computePositionSizing(
+    symbol,
+    meta,
+    levels.entryPrice,
+    levels.stopLoss,
+    levels.takeProfit1,
+    levels.takeProfit2,
+    accountSize,
+    phemexRiskPct(),
+    DEFAULT_MIN_COLLATERAL,
+    phemexMaxLeverage(),
+    DEFAULT_MT5_LOTS,
+  );
+
+  if (!sizing) {
+    logger.warn({ symbol, timeframe }, "phemex-trader: sizing returned undefined — skipping order");
+    return;
+  }
+
+  const rawQty = sizing.achievable?.positionSize ?? sizing.positionSize;
+  if (!rawQty || rawQty <= 0) {
+    logger.warn({ symbol, timeframe, sizing }, "phemex-trader: zero qty — skipping order");
+    return;
+  }
+
+  // Format qty and prices to reasonable string precision.
+  // Use phemexQtyStep to determine decimal places for qty.
+  const qtyStep    = meta.phemexQtyStep ?? 0.001;
+  const qtyDecimals = Math.max(0, -Math.floor(Math.log10(qtyStep)));
+  const pxDecimals  = meta.decimals ?? 2;
+
+  const side: "Buy" | "Sell" = levels.signal === "BUY" ? "Buy" : "Sell";
+
+  const orderId = await placeOrder({
+    phemexSymbol,
+    side,
+    qtyRq:        rawQty.toFixed(qtyDecimals),
+    priceRp:      levels.entryPrice.toFixed(pxDecimals),
+    stopLossRp:   levels.stopLoss.toFixed(pxDecimals),
+    takeProfitRp: levels.takeProfit1.toFixed(pxDecimals),
+    clOrdID:      `phx-${symbol}-${timeframe}-${Date.now()}`,
+  });
+
+  if (orderId) {
+    openPhemexOrders.set(k, { orderId, phemexSymbol });
+    logger.info(
+      { symbol, timeframe, side, qty: rawQty, entry: levels.entryPrice, sl: levels.stopLoss, tp: levels.takeProfit1, orderId, accountSize },
+      "phemex-trader: order tracked",
+    );
+  }
+}
 
 // ─── Alert State Persistence ──────────────────────────────────────────────────
 // stateMap is in-memory only — a process restart wipes it and the seed logic
@@ -537,6 +633,21 @@ async function checkSymbol(
           "Signal alert dispatched",
         );
       }
+
+      // Phemex auto-trade: fire alongside (or independently of) notifications.
+      // Only BUY/SELL signals on symbols with a Phemex perp contract.
+      // Seed snapshots do NOT trigger orders — they are catch-up state only.
+      if (
+        !isSeedSnapshot &&
+        (levels.signal === "BUY" || levels.signal === "SELL") &&
+        isPhemexTradingEnabled()
+      ) {
+        const phemexSymbol = SYMBOLS[symbol as Symbol]?.phemexPerp;
+        if (phemexSymbol) {
+          void executePhemexTrade(symbol, timeframe, levels, phemexSymbol);
+        }
+      }
+
       const newPatternKey = prev?.lastPatternKey;
       stateMap.set(k, { ...(prev ?? {}), signal: levels.signal, lastAlertAt: now, lastAlertSignal: levels.signal, lastPatternKey: newPatternKey });
       persistAlertEntry(k, levels.signal as SignalKind, now);
@@ -570,6 +681,24 @@ async function checkSymbol(
         },
         "Signal alert suppressed (already in active trade same direction)",
       );
+    }
+
+    // Cancel any tracked Phemex pending order when signal returns to WAIT.
+    // This fires for all non-alert transitions (cooldown, alreadyInSameDirection,
+    // etc.) where the signal moves away from BUY/SELL — letting the bracket
+    // orders that are already filled through Phemex's own SL/TP is safe, since
+    // cancelOrder ignores "already filled" errors gracefully.
+    if (
+      levels.signal === "WAIT" &&
+      prev?.signal !== "WAIT" &&
+      isPhemexTradingEnabled()
+    ) {
+      const openOrder = openPhemexOrders.get(k);
+      if (openOrder) {
+        void cancelOrder(openOrder.phemexSymbol, openOrder.orderId).then(() => {
+          openPhemexOrders.delete(k);
+        });
+      }
     }
 
     // Track new signal but preserve lastAlertAt and streak so cooldown still ticks.
