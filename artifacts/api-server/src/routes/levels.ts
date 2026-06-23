@@ -13,7 +13,6 @@ import {
 } from "../lib/yahoo-fetch";
 import { SYMBOLS, makeRounder, ALL_SYMBOLS, type Symbol } from "../lib/symbols";
 import { computeLevelsStable, fetchSpotPrice, applyFuturesBasis, seedActiveTrades, clearActiveTrade, calcMACDHist } from "../lib/signals";
-import { getBtcMacroTrend, isBtcMacroGated } from "../lib/btc-filter";
 import { getNotifierStatus } from "../lib/notifier";
 import {
   getTrendingSymbols,
@@ -330,24 +329,6 @@ router.get("/levels", async (req: Request, res: Response) => {
       }
     }
 
-    // BTC macro gate: suppress BUY signals on crypto altcoins when BTC daily
-    // is in confirmed DOWNTREND. Filled trades are exempt — the trade is already open.
-    if (!isFilledTrade && result.signal === "BUY" && isBtcMacroGated(rawSymbol, meta.category)) {
-      const btcTrend = await getBtcMacroTrend("1d");
-      if (btcTrend === "DOWNTREND") {
-        const data = GetLevelsResponse.parse({
-          ...result,
-          signal: "WAIT",
-          signalReason:
-            `[${timeframe}] BUY setup suppressed — BTC daily trend is DOWNTREND. ` +
-            `Going long in a confirmed BTC downtrend carries outsized risk. ` +
-            `Wait for BTC to reclaim its EMA alignment before taking longs.`,
-        });
-        res.json(data);
-        return;
-      }
-    }
-
     const data = GetLevelsResponse.parse(result);
     res.json(data);
   } catch (err) {
@@ -574,24 +555,6 @@ router.get("/active-signals", async (req: Request, res: Response) => {
               }
             }
 
-            // BTC macro gate: suppress BUY signals on crypto altcoins in a BTC DOWNTREND.
-            if (!isFilledTrade && levels.signal === "BUY" && isBtcMacroGated(symbol, SYMBOLS[symbol].category)) {
-              const btcTrend = await getBtcMacroTrend("1d");
-              if (btcTrend === "DOWNTREND") {
-                return {
-                  ok: true,
-                  symbolKey,
-                  timeframe,
-                  levels: {
-                    ...levels,
-                    signal: "WAIT" as const,
-                    tradeState: "WAIT" as const,
-                    signalReason: `[${timeframe}] BUY suppressed — BTC daily DOWNTREND. Wait for BTC macro to improve.`,
-                  },
-                };
-              }
-            }
-
             return { ok: true, symbolKey, timeframe, levels };
           } else {
             // Dynamic trending coin — same gate logic as static.
@@ -623,24 +586,6 @@ router.get("/active-signals", async (req: Request, res: Response) => {
 
             const dynFilledTrade =
               levels.tradeState !== "WAIT" && levels.tradeState !== "PENDING";
-
-            // BTC macro gate: trending coins are always crypto altcoins.
-            if (!dynFilledTrade && levels.signal === "BUY") {
-              const btcTrend = await getBtcMacroTrend("1d");
-              if (btcTrend === "DOWNTREND") {
-                return {
-                  ok: true,
-                  symbolKey,
-                  timeframe,
-                  levels: {
-                    ...levels,
-                    signal: "WAIT" as const,
-                    tradeState: levels.tradeState === "WAIT" ? "WAIT" as const : levels.tradeState,
-                    signalReason: `[${timeframe}] BUY suppressed — BTC daily DOWNTREND. Wait for BTC macro to improve.`,
-                  },
-                };
-              }
-            }
 
             return { ok: true, symbolKey, timeframe, levels };
           }

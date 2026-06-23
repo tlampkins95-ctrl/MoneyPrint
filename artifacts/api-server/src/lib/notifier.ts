@@ -1,7 +1,6 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { logger } from "./logger";
-import { getBtcMacroTrend, isBtcMacroGated } from "./btc-filter";
 import { SYMBOLS, makeRounder, type Symbol, ALL_SYMBOLS } from "./symbols";
 import {
   fetchCandlesForTimeframe,
@@ -29,10 +28,7 @@ type SignalKind = "BUY" | "SELL" | "WAIT";
 interface TrackedState {
   signal: SignalKind;
   lastAlertAt: number;
-  // Set when a BUY is actively suppressed by the BTC macro gate.  Cleared the
-  // moment BTC recovers.  Used to deduplicate the suppression log — we log once
-  // on the first suppression cycle, not on every subsequent poll.
-  btcSuppressed?: boolean;
+
   // Direction of the last alert actually sent. Used to make the cooldown
   // direction-aware: a BUY→SELL flip bypasses the cooldown entirely because
   // it's a new setup in the opposite direction, not a repeat alert.
@@ -576,32 +572,6 @@ async function checkSymbol(
         }
       }
 
-      // BTC macro gate: suppress BUY signals on crypto altcoins when BTC daily is
-      // in confirmed DOWNTREND (EMA21 < EMA50 + ADX ≥ 25). Filled trades are
-      // exempt. Bypassed entirely when the Phemex auto-trader is on — the user has
-      // explicitly opted in and both the notification and the trade must be
-      // consistent (either both suppressed or both through).
-      if (
-        levels.signal === "BUY" &&
-        !isFilledTrade &&
-        !phemexAutoTraderEnabled &&
-        isBtcMacroGated(symbol, SYMBOLS[symbol].category)
-      ) {
-        const btcTrend = await getBtcMacroTrend("1d");
-        if (btcTrend === "DOWNTREND") {
-          if (!prev?.btcSuppressed) {
-            logger.info({ symbol, timeframe, btcTrend }, "BUY alert suppressed (BTC macro DOWNTREND)");
-          }
-          stateMap.set(k, {
-            ...(prev ?? {}),
-            signal: prev?.signal ?? "WAIT",
-            lastAlertAt: prev?.lastAlertAt ?? 0,
-            btcSuppressed: true,
-          });
-          return;
-        }
-      }
-
       const tfLabel = TIMEFRAME_LABEL[timeframe];
       const link = buildAppLink(symbol, timeframe);
       const ctx = buildAlertContext(symbol, SYMBOLS[symbol], timeframe, tfLabel, levels, link);
@@ -917,24 +887,6 @@ async function checkTrendingSymbol(
         const phemexSymbol = SYMBOLS[symbolKey as Symbol]?.phemexPerp;
         if (phemexSymbol) {
           void executePhemexTrade(symbolKey, timeframe, levels, phemexSymbol);
-        }
-      }
-
-      // BTC macro gate: trending coins are always crypto altcoins. Bypassed when
-      // auto-trader is on — notification and trade stay consistent.
-      if (levels.signal === "BUY" && !isFilledTrade && !phemexAutoTraderEnabled) {
-        const btcTrend = await getBtcMacroTrend("1d");
-        if (btcTrend === "DOWNTREND") {
-          if (!prev?.btcSuppressed) {
-            logger.info({ symbolKey, timeframe, btcTrend }, "BUY alert suppressed (BTC macro DOWNTREND — trending coin)");
-          }
-          stateMap.set(k, {
-            ...(prev ?? {}),
-            signal: prev?.signal ?? "WAIT",
-            lastAlertAt: prev?.lastAlertAt ?? 0,
-            btcSuppressed: true,
-          });
-          return;
         }
       }
 
