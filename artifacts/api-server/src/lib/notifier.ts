@@ -172,6 +172,20 @@ const TIMEFRAME_LABEL: Record<Timeframe, string> = {
 
 const stateMap = new Map<string, TrackedState>();
 
+// ─── Phemex auto-trader runtime toggle ────────────────────────────────────────
+// Defaults OFF on every restart — the operator must explicitly re-enable it.
+// This prevents surprise orders after a server restart or deployment.
+let phemexAutoTraderEnabled = false;
+
+export function setPhemexAutoTraderEnabled(enabled: boolean): void {
+  phemexAutoTraderEnabled = enabled;
+  logger.info({ enabled }, `phemex-trader: auto-trader ${enabled ? "ENABLED" : "DISABLED"}`);
+}
+
+export function getPhemexAutoTraderEnabled(): boolean {
+  return phemexAutoTraderEnabled;
+}
+
 // ─── Phemex open-order tracking ───────────────────────────────────────────────
 // Maps stateMap key → { orderId, phemexSymbol } for any pending limit order that
 // has been placed but not yet confirmed filled. Cancelled / filled orders are
@@ -637,10 +651,12 @@ async function checkSymbol(
       // Phemex auto-trade: fire alongside (or independently of) notifications.
       // Only BUY/SELL signals on symbols with a Phemex perp contract.
       // Seed snapshots do NOT trigger orders — they are catch-up state only.
+      // phemexAutoTraderEnabled must be toggled ON explicitly via the UI.
       if (
         !isSeedSnapshot &&
         (levels.signal === "BUY" || levels.signal === "SELL") &&
-        isPhemexTradingEnabled()
+        isPhemexTradingEnabled() &&
+        phemexAutoTraderEnabled
       ) {
         const phemexSymbol = SYMBOLS[symbol as Symbol]?.phemexPerp;
         if (phemexSymbol) {
@@ -688,6 +704,8 @@ async function checkSymbol(
     // etc.) where the signal moves away from BUY/SELL — letting the bracket
     // orders that are already filled through Phemex's own SL/TP is safe, since
     // cancelOrder ignores "already filled" errors gracefully.
+    // Always attempt cancel regardless of autoTraderEnabled — if orders were
+    // placed before a disable, we still want to clean them up.
     if (
       levels.signal === "WAIT" &&
       prev?.signal !== "WAIT" &&

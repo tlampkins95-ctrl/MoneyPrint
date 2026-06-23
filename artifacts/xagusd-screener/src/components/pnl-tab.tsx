@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   useGetActiveSignals, getGetActiveSignalsQueryKey,
   useGetTradeHistory, getGetTradeHistoryQueryKey,
@@ -7,7 +7,7 @@ import type { LevelsDataTradeState, ClosedTrade } from "@workspace/api-client-re
 import {
   TrendingUp, TrendingDown, RefreshCw, AlertTriangle,
   DollarSign, TrendingUp as UpIcon, Wallet,
-  CheckCircle2, XCircle, MinusCircle, Trophy,
+  CheckCircle2, XCircle, MinusCircle, Trophy, Zap, ZapOff,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getSymbolMeta } from "@/lib/symbols";
@@ -313,6 +313,35 @@ export function PnlTab({ onSelect }: { onSelect: (s: string, t: Timeframe) => vo
     if (data?.lastUpdated) setLastFetched(new Date(data.lastUpdated));
   }, [data?.lastUpdated]);
 
+  // ── Phemex auto-trader status ────────────────────────────────────────────
+  interface PhemexStatus { keysPresent: boolean; enabled: boolean; usdtBalance: number | null; testnet: boolean }
+  const [phemex, setPhemex] = useState<PhemexStatus | null>(null);
+  const [phemexToggling, setPhemexToggling] = useState(false);
+
+  const fetchPhemexStatus = useCallback(async () => {
+    try {
+      const r = await fetch("/api/phemex/status");
+      if (r.ok) setPhemex(await r.json() as PhemexStatus);
+    } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => { void fetchPhemexStatus(); }, [fetchPhemexStatus]);
+
+  const togglePhemex = useCallback(async () => {
+    if (!phemex || phemexToggling) return;
+    setPhemexToggling(true);
+    try {
+      const r = await fetch("/api/phemex/toggle", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: !phemex.enabled }),
+      });
+      if (r.ok) await fetchPhemexStatus();
+    } finally {
+      setPhemexToggling(false);
+    }
+  }, [phemex, phemexToggling, fetchPhemexStatus]);
+
   const signals = data?.signals ?? [];
   const rows: PnlRow[] = signals
     .filter((s) => s.levels.signal === "BUY" || s.levels.signal === "SELL")
@@ -374,6 +403,52 @@ export function PnlTab({ onSelect }: { onSelect: (s: string, t: Timeframe) => vo
 
   return (
     <div className="flex flex-col gap-6 max-w-4xl mx-auto w-full pb-6">
+
+      {/* ── PHEMEX AUTO-TRADER ──────────────────────────────────────── */}
+      {phemex?.keysPresent && (
+        <div className={cn(
+          "rounded-xl border px-4 py-3 flex items-center gap-3 transition-colors",
+          phemex.enabled
+            ? "border-emerald-500/40 bg-emerald-500/5"
+            : "border-zinc-700/60 bg-zinc-900/40",
+        )}>
+          {phemex.enabled
+            ? <Zap className="w-4 h-4 text-emerald-400 shrink-0" />
+            : <ZapOff className="w-4 h-4 text-zinc-500 shrink-0" />
+          }
+          <div className="flex flex-col gap-0.5 flex-1 min-w-0">
+            <span className={cn(
+              "text-[11px] font-bold tracking-wider",
+              phemex.enabled ? "text-emerald-300" : "text-zinc-400",
+            )}>
+              PHEMEX AUTO-TRADER {phemex.enabled ? "ON" : "OFF"}
+              {phemex.testnet && <span className="ml-1.5 text-amber-400">TESTNET</span>}
+            </span>
+            <span className="text-[10px] font-mono text-zinc-500 truncate">
+              {phemex.enabled
+                ? "Placing live orders on BUY/SELL signals · trending markets only"
+                : "No orders will be placed until enabled"}
+              {phemex.usdtBalance !== null && (
+                <span className="ml-2 text-zinc-400">${phemex.usdtBalance.toFixed(2)} USDT available</span>
+              )}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => void togglePhemex()}
+            disabled={phemexToggling}
+            className={cn(
+              "shrink-0 px-3 py-1.5 rounded-lg text-[11px] font-bold tracking-wider transition-colors disabled:opacity-50",
+              phemex.enabled
+                ? "bg-rose-500/15 text-rose-300 border border-rose-500/30 hover:bg-rose-500/25"
+                : "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/25",
+            )}
+          >
+            {phemexToggling ? "..." : phemex.enabled ? "DISABLE" : "ENABLE"}
+          </button>
+        </div>
+      )}
+
       {/* ── UNREALIZED ─────────────────────────────────────────────── */}
       <div className="flex flex-col gap-4">
         <div className="flex items-center justify-between">
