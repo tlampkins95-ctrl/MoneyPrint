@@ -1636,7 +1636,11 @@ export function computeLevels(
     const fibEmaAllowsBuy  = ema5050Warm && last21 > last50;
     const fibEmaAllowsSell = ema5050Warm && last21 < last50;
     const weeklyAllowsBuy  = fibEmaAllowsBuy  && (timeframe !== "1h" || dailyEMATrend !== "DOWNTREND") && (timeframe !== "1d" || weeklyEMATrend !== "DOWNTREND");
-    const weeklyAllowsSell = fibEmaAllowsSell && (timeframe !== "1h" || dailyEMATrend !== "UPTREND")   && (timeframe !== "1d" || weeklyEMATrend !== "UPTREND");
+    // 1h SELL also requires weekly trend to be DOWN — daily EMA crossover alone
+    // is too loose (fires during bull-market corrections that always recover).
+    // With weekly not confirming, FIB50_SWING SELL stays WAIT and PATTERN_BREAKOUT
+    // gets a chance to fire instead.
+    const weeklyAllowsSell = fibEmaAllowsSell && (timeframe !== "1h" || (dailyEMATrend !== "UPTREND" && weeklyTrend === "DOWN")) && (timeframe !== "1d" || weeklyEMATrend !== "UPTREND");
 
     // ── Bollinger Bands (SMA-30 close, 2σ) filter ────────────────────────────
     // BUY: entry must be ≤ BB middle band (price in lower half of channel).
