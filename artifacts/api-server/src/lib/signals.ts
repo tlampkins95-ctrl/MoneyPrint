@@ -2007,8 +2007,8 @@ export function computeLevels(
   // TP1:    entry ± 2×risk  (2:1 R:R enforced)
   // TP2:    entry ± pattern height (measured move), floored at MIN_RR_TP2
   //
-  // Auto-traded via Phemex — notifier.ts allows PATTERN_BREAKOUT alongside
-  // FIB50_SWING, DOUBLE_TOP, DOUBLE_BOTTOM, and BB_REJECTION.
+  // Not auto-traded via Phemex — notifier.ts gates auto-trading to FIB50_SWING,
+  // DOUBLE_TOP, DOUBLE_BOTTOM, and BB_REJECTION only.
   if (signal === "WAIT") {
     const pbCompleted = candles.slice(0, candles.length - 1);
     const pbPattern   = detectChartPattern(pbCompleted);
