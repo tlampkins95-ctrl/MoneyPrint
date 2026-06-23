@@ -6,6 +6,7 @@ import pushRouter from "./push";
 import tradeHistoryRouter from "./trade-history";
 import signalLogRouter from "./signal-log";
 import newsRouter from "./news";
+import phemexRouter from "./phemex";
 
 const router: IRouter = Router();
 
@@ -16,5 +17,6 @@ router.use(pushRouter);
 router.use(tradeHistoryRouter);
 router.use(signalLogRouter);
 router.use(newsRouter);
+router.use(phemexRouter);
 
 export default router;
