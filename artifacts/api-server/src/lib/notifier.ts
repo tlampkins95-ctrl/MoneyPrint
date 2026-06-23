@@ -192,6 +192,12 @@ interface OpenPhemexOrder {
 }
 const openPhemexOrders = new Map<string, OpenPhemexOrder>();
 
+// Tracks the last failed placeOrder attempt per slot (symbol+timeframe key).
+// Catch-up retries are suppressed for 5 minutes after a failure so a persistent
+// exchange rejection doesn't spam a new attempt every poll cycle.
+const failedOrderAt = new Map<string, number>();
+const FAILED_ORDER_RETRY_MS = 5 * 60_000;
+
 /**
  * Compute sizing against the real Phemex balance and place a limit order with
  * an attached SL + TP1 bracket.  Stores the returned orderId in openPhemexOrders
@@ -261,11 +267,14 @@ async function executePhemexTrade(
   });
 
   if (orderId) {
+    failedOrderAt.delete(k);
     openPhemexOrders.set(k, { orderId, phemexSymbol });
     logger.info(
       { symbol, timeframe, side, qty: rawQty, entry: levels.entryPrice, sl: levels.stopLoss, tp: levels.takeProfit1, orderId, accountSize },
       "phemex-trader: order tracked",
     );
+  } else {
+    failedOrderAt.set(k, Date.now());
   }
 }
 
@@ -708,12 +717,15 @@ async function checkSymbol(
     // This handles the case where the trader was enabled (or the server restarted)
     // while a signal was already live — the transition block above was skipped
     // because there was no state change, but the order still needs to be placed.
+    const lastFailed = failedOrderAt.get(k) ?? 0;
+    const recentlyFailed = Date.now() - lastFailed < FAILED_ORDER_RETRY_MS;
     if (
       (levels.signal === "BUY" || levels.signal === "SELL") &&
       levels.tradeState === "PENDING" &&
       isPhemexTradingEnabled() &&
       phemexAutoTraderEnabled &&
-      !openPhemexOrders.has(k)
+      !openPhemexOrders.has(k) &&
+      !recentlyFailed
     ) {
       const phemexSymbol = SYMBOLS[symbol as Symbol]?.phemexPerp;
       if (phemexSymbol) {

@@ -157,9 +157,10 @@ export async function placeOrder(params: PlaceOrderParams): Promise<string | nul
     priceRp:      params.priceRp,
     stopLossRp:   params.stopLossRp,
     takeProfitRp: params.takeProfitRp,
-    slOrdPxRp:    "0",            // market execution for SL
-    tpOrdPxRp:    "0",            // market execution for TP
-    triggerType:  "ByLastPrice",
+    slOrdPxRp:    "0",            // market SL execution
+    tpOrdPxRp:    "0",            // market TP execution
+    // NOTE: triggerType is for conditional/stop orders only — do NOT include it
+    // on a plain Limit order with bracket SL/TP. Phemex rejects with code 39999.
     reduceOnly:   false,
   };
 
