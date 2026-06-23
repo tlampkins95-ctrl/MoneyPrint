@@ -576,28 +576,17 @@ async function checkSymbol(
         }
       }
 
-      // Phemex auto-trade: fires before notification gates so that the BTC macro
-      // gate (notifications-only filter) cannot block a trade the user opted into.
-      // Higher-TF gate above still applies — we don't trade when 1d actively
-      // opposes 1h. Seed snapshots are excluded (catch-up state, not live signals).
+      // BTC macro gate: suppress BUY signals on crypto altcoins when BTC daily is
+      // in confirmed DOWNTREND (EMA21 < EMA50 + ADX ≥ 25). Filled trades are
+      // exempt. Bypassed entirely when the Phemex auto-trader is on — the user has
+      // explicitly opted in and both the notification and the trade must be
+      // consistent (either both suppressed or both through).
       if (
-        !isSeedSnapshot &&
-        (levels.signal === "BUY" || levels.signal === "SELL") &&
-        isPhemexTradingEnabled() &&
-        phemexAutoTraderEnabled
+        levels.signal === "BUY" &&
+        !isFilledTrade &&
+        !phemexAutoTraderEnabled &&
+        isBtcMacroGated(symbol, SYMBOLS[symbol].category)
       ) {
-        const phemexSymbol = SYMBOLS[symbol as Symbol]?.phemexPerp;
-        if (phemexSymbol) {
-          void executePhemexTrade(symbol, timeframe, levels, phemexSymbol);
-        }
-      }
-
-      // BTC macro gate: suppress BUY *notifications* on crypto altcoins when BTC
-      // daily is in confirmed DOWNTREND (EMA21 < EMA50 + ADX ≥ 25). Filled trades
-      // are exempt. Phemex auto-trade has already fired above — this only silences
-      // the Telegram/WebPush alert. Preserve prev signal so the transition re-fires
-      // the moment BTC trend recovers.
-      if (levels.signal === "BUY" && !isFilledTrade && isBtcMacroGated(symbol, SYMBOLS[symbol].category)) {
         const btcTrend = await getBtcMacroTrend("1d");
         if (btcTrend === "DOWNTREND") {
           if (!prev?.btcSuppressed) {
@@ -931,9 +920,9 @@ async function checkTrendingSymbol(
         }
       }
 
-      // BTC macro gate: trending coins are always crypto altcoins.
-      // Only suppresses notifications — auto-trade already fired above.
-      if (levels.signal === "BUY" && !isFilledTrade) {
+      // BTC macro gate: trending coins are always crypto altcoins. Bypassed when
+      // auto-trader is on — notification and trade stay consistent.
+      if (levels.signal === "BUY" && !isFilledTrade && !phemexAutoTraderEnabled) {
         const btcTrend = await getBtcMacroTrend("1d");
         if (btcTrend === "DOWNTREND") {
           if (!prev?.btcSuppressed) {
