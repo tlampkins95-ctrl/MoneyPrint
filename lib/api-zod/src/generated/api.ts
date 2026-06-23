@@ -266,6 +266,12 @@ export const GetLevelsResponse = zod.object({
     .describe(
       "ISO date string of the last completed bar (n-2) used as the right anchor of the diagonal trendlines. Price is always within the rails at this bar — the current in-progress bar (n-1) is deliberately excluded to prevent confirmed-breakout price from floating outside the lines.",
     ),
+  openedAt: zod
+    .number()
+    .optional()
+    .describe(
+      "Unix ms timestamp when this signal's trade was first staged (present on active BUY\/SELL trades, absent on WAIT)",
+    ),
   lastUpdated: zod.string(),
   positionSizing: zod
     .object({
@@ -790,6 +796,12 @@ export const GetActiveSignalsResponse = zod.object({
               .optional()
               .describe(
                 "ISO date string of the last completed bar (n-2) used as the right anchor of the diagonal trendlines. Price is always within the rails at this bar — the current in-progress bar (n-1) is deliberately excluded to prevent confirmed-breakout price from floating outside the lines.",
+              ),
+            openedAt: zod
+              .number()
+              .optional()
+              .describe(
+                "Unix ms timestamp when this signal's trade was first staged (present on active BUY\/SELL trades, absent on WAIT)",
               ),
             lastUpdated: zod.string(),
             positionSizing: zod

@@ -210,14 +210,14 @@ router.get("/levels", async (req: Request, res: Response) => {
         fetchCandlesForTimeframe(symbol, timeframe),
         fetchSpotPrice(symbol),
       ];
-      if (timeframe === "1h") fetches.push(fetchCandlesForTimeframe(symbol, "1d"));
+      if (timeframe === "1h" || timeframe === "4h") fetches.push(fetchCandlesForTimeframe(symbol, "1d"));
       const [c, sp, dc] = await Promise.all(fetches);
       candles = c as typeof candles;
       spotPrice = sp as typeof spotPrice;
       if (dc) dailyForWeekly = dc as typeof candles;
     } else {
       // Dynamic trending coin — use OKX candles and spot price.
-      const needDailyForWeekly = timeframe === "1h";
+      const needDailyForWeekly = timeframe === "1h" || timeframe === "4h";
       const fetches: Promise<unknown>[] = [
         fetchCandlesForDynamic(trendingMeta!.okxPerp!, timeframe),
         fetchSpotForDynamic(trendingMeta!.okxPerp!),
@@ -292,16 +292,28 @@ router.get("/levels", async (req: Request, res: Response) => {
         );
         const higherSignal = higherResult.signal;
 
+        // For 4h: also suppress when the higher-TF ADX trend directly opposes
+        // the signal even if no active setup is on the higher TF yet.
+        // e.g. 4h BUY blocked when daily is in confirmed DOWNTREND (and vice-versa).
+        const trendOpposes4h =
+          timeframe === "4h" && (
+            (result.signal === "BUY"  && higherResult.trend === "DOWNTREND") ||
+            (result.signal === "SELL" && higherResult.trend === "UPTREND")
+          );
+
         const blocked =
           gate.mode === "require_agree"
             ? higherSignal !== result.signal
-            : higherSignal === (result.signal === "BUY" ? "SELL" : "BUY");
+            : higherSignal === (result.signal === "BUY" ? "SELL" : "BUY") || trendOpposes4h;
 
         if (blocked) {
           const higherLabel = higherSignal === "BUY" || higherSignal === "SELL"
             ? higherSignal : "WAIT";
+          const trendNote = trendOpposes4h && higherSignal === "WAIT"
+            ? ` (daily trend is ${higherResult.trend} — opposing the 4h signal)`
+            : "";
           const modeNote =
-            gate.mode === "block_oppose"
+            !trendOpposes4h && gate.mode === "block_oppose"
               ? ` (daily WAIT is fine — only blocks when daily opposes)`
               : "";
           const data = GetLevelsResponse.parse({
@@ -310,7 +322,7 @@ router.get("/levels", async (req: Request, res: Response) => {
             signalReason:
               `[${timeframe}] ${result.signal} setup suppressed — ` +
               `${gate.higherTf} says ${higherLabel}. ` +
-              `Wait for ${gate.higherTf} to align before entering.${modeNote}`,
+              `Wait for ${gate.higherTf} to align before entering.${modeNote}${trendNote}`,
           });
           res.json(data);
           return;
@@ -483,12 +495,12 @@ router.get("/active-signals", async (req: Request, res: Response) => {
               fetchCandlesForTimeframe(symbol, timeframe),
               spotPromises.get(symbol)!,
             ];
-            if (timeframe === "1h") fetches.push(fetchCandlesForTimeframe(symbol, "1d"));
+            if (timeframe === "1h" || timeframe === "4h") fetches.push(fetchCandlesForTimeframe(symbol, "1d"));
             if (timeframe === "1d") fetches.push(fetchCandlesForTimeframe(symbol, "1w"));
             const [candlesRaw, spotRaw, extraRaw] = await Promise.all(fetches);
             const candles = candlesRaw as Awaited<ReturnType<typeof fetchCandlesForTimeframe>>;
             const spot = spotRaw as number | null;
-            const dailyForWeekly = timeframe === "1h" && extraRaw ? (extraRaw as typeof candles) : undefined;
+            const dailyForWeekly = (timeframe === "1h" || timeframe === "4h") && extraRaw ? (extraRaw as typeof candles) : undefined;
             const weeklyCandlesForDailyStatic = timeframe === "1d" && extraRaw ? (extraRaw as typeof candles) : undefined;
             if (candles.length < 2) return { ok: false, symbolKey, timeframe };
             const adjRound = makeRounder(SYMBOLS[symbol].decimals);
@@ -530,11 +542,19 @@ router.get("/active-signals", async (req: Request, res: Response) => {
                       accountSize, riskPct / 100, minCollateral, maxLeverage, mt5Lots,
                     );
                     const opposite = levels.signal === "BUY" ? "SELL" : "BUY";
+                    const trendOpposes4h =
+                      timeframe === "4h" && (
+                        (levels.signal === "BUY"  && higherResult.trend === "DOWNTREND") ||
+                        (levels.signal === "SELL" && higherResult.trend === "UPTREND")
+                      );
                     const suppressed =
                       gate.mode === "require_agree"
                         ? higherResult.signal !== levels.signal
-                        : higherResult.signal === opposite;
+                        : higherResult.signal === opposite || trendOpposes4h;
                     if (suppressed) {
+                      const trendNote = trendOpposes4h && higherResult.signal === "WAIT"
+                        ? ` (daily trend is ${higherResult.trend})`
+                        : "";
                       return {
                         ok: true,
                         symbolKey,
@@ -543,7 +563,7 @@ router.get("/active-signals", async (req: Request, res: Response) => {
                           ...levels,
                           signal: "WAIT" as const,
                           tradeState: "WAIT" as const,
-                          signalReason: `[${timeframe}] ${levels.signal} suppressed — ${gate.higherTf} says ${higherResult.signal ?? "WAIT"}. Wait for alignment.`,
+                          signalReason: `[${timeframe}] ${levels.signal} suppressed — ${gate.higherTf} says ${higherResult.signal ?? "WAIT"}. Wait for alignment.${trendNote}`,
                         },
                       };
                     }
@@ -577,7 +597,7 @@ router.get("/active-signals", async (req: Request, res: Response) => {
             // Dynamic trending coin — same gate logic as static.
             const tMeta = trendingNow.find((t) => t.symbolKey === combo.symbolKey);
             if (!tMeta) return { ok: false, symbolKey, timeframe };
-            const needDailyForWeekly = timeframe === "1h";
+            const needDailyForWeekly = timeframe === "1h" || timeframe === "4h";
             const [candles, spot, rawDailyForWeekly] = await Promise.all([
               fetchCandlesForDynamic(tMeta.okxPerp!, timeframe),
               spotPromises.get(combo.symbolKey)!,

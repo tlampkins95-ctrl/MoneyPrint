@@ -155,6 +155,7 @@ interface PnlRow {
   collateral: number | null;
   leverage: number | null;
   venue: "PHEMEX" | "MT5" | "PHEMEX_SPOT";
+  openedAt?: number;
 }
 
 function SignalPnlRow({ r, onClick }: { r: PnlRow; onClick: () => void }) {
@@ -212,6 +213,11 @@ function SignalPnlRow({ r, onClick }: { r: PnlRow; onClick: () => void }) {
         )}
         {tp1 !== null && (
           <span className="text-[9px] font-mono text-zinc-500">TP1 {fmtUsd(tp1, true)}</span>
+        )}
+        {r.openedAt != null && (
+          <span className="text-[9px] font-mono text-zinc-600">
+            {fmtDate(r.openedAt)} {new Date(r.openedAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}
+          </span>
         )}
       </div>
     </button>
@@ -360,6 +366,7 @@ export function PnlTab({ onSelect }: { onSelect: (s: string, t: Timeframe) => vo
         collateral:   sizing.collateral,
         leverage:     sizing.leverage,
         venue:        sizing.venue,
+        openedAt:     s.levels.openedAt ?? undefined,
       };
     })
     .sort((a, b) => {

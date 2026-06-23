@@ -2845,7 +2845,7 @@ export function computeLevelsStable(
   mt5Lots: number = DEFAULT_MT5_LOTS,
   dailyCandlesForWeekly?: CandleRaw[],
   weeklyCandlesForDaily?: CandleRaw[],
-): Levels {
+): Levels & { openedAt?: number } {
   const fresh = computeLevels(candles, spotPrice, timeframe, symbolKey, meta, accountSize, riskPct, minCollateral, maxLeverage, mt5Lots, dailyCandlesForWeekly, weeklyCandlesForDaily);
   const k = tradeKey(symbolKey, timeframe);
   const existing = activeTrades.get(k);
@@ -3013,6 +3013,7 @@ export function computeLevelsStable(
       // Typed mirror of the same classification — consumers should branch on
       // this, not parse the prose above.
       tradeState: classifyTradeState(stillActive, fresh.currentPrice),
+      openedAt: stillActive.openedAt,
       entryPrice: stillActive.entryPrice,
       stopLoss: stillActive.stopLoss,
       takeProfit1: stillActive.takeProfit1,
