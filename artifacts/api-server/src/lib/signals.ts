@@ -1553,7 +1553,7 @@ export function computeLevels(
   const SWING_SL_BUFFER_ATR = 0.5;  // extra buffer below/above swing extreme for SL
 
   let signal: "BUY" | "SELL" | "WAIT" = "WAIT";
-  let signalType: "FIB50_SWING" | "DOUBLE_TOP" | "DOUBLE_BOTTOM" | "BB_REJECTION" = "FIB50_SWING";
+  let signalType: "FIB50_SWING" | "DOUBLE_TOP" | "DOUBLE_BOTTOM" | "BB_REJECTION" | "PATTERN_BREAKOUT" = "FIB50_SWING";
   let signalReason = "";
   let patternResult: PatternResult | null = null;
   let entryPrice = currentPrice;
@@ -1995,6 +1995,69 @@ export function computeLevels(
     }
   }
 
+  // ── PATTERN_BREAKOUT detection (confirmed chart pattern breakout) ────────────
+  // Last in the cascade — fires only when all other signal types are WAIT.
+  // Detects confirmed breakouts from triangles, wedges, flags, pennants, H&S/IHS.
+  // Skips DOUBLE_TOP / DOUBLE_BOTTOM (already handled as their own signal types).
+  // Only two-rail patterns (necklinePrice + upperBound both defined) are used so
+  // the SL can be anchored to the pattern structure.
+  //
+  // Entry:  market order at current price (breakout confirmed on bar n-2 close)
+  // SL:     below lower rail (BUY) / above upper rail (SELL) + 0.3×ATR buffer
+  // TP1:    entry ± 2×risk  (2:1 R:R enforced)
+  // TP2:    entry ± pattern height (measured move), floored at MIN_RR_TP2
+  //
+  // Not auto-traded via Phemex — notifier.ts gates auto-trading to FIB50_SWING
+  // and DOUBLE_TOP only.
+  if (signal === "WAIT") {
+    const pbCompleted = candles.slice(0, candles.length - 1);
+    const pbPattern   = detectChartPattern(pbCompleted);
+    if (
+      pbPattern?.confirmed &&
+      pbPattern.necklinePrice != null &&
+      pbPattern.upperBound   != null &&
+      pbPattern.pattern !== "DOUBLE_TOP" &&
+      pbPattern.pattern !== "DOUBLE_BOTTOM"
+    ) {
+      const patternHeight = pbPattern.upperBound - pbPattern.necklinePrice;
+      if (pbPattern.direction === "bullish") {
+        const ep   = round(currentPrice);
+        const sl   = round(pbPattern.necklinePrice - 0.3 * atr);
+        const risk = ep - sl;
+        if (risk > 0) {
+          const tp1 = round(ep + 2 * risk);
+          const tp2 = round(floorTarget(ep, sl, ep + patternHeight, MIN_RR_TP2, "BUY"));
+          signal       = "BUY";
+          signalType   = "PATTERN_BREAKOUT";
+          entryPrice   = ep;
+          stopLoss     = sl;
+          takeProfit1  = tp1;
+          takeProfit2  = tp2;
+          dca1         = undefined;
+          patternResult = pbPattern;
+          signalReason  = `[${tfLabel}] PATTERN BREAKOUT BUY: ${pbPattern.pattern} confirmed. Entry ${fmt(ep)}, SL ${fmt(sl)} (below ${fmt(pbPattern.necklinePrice)} rail − 0.3×ATR), TP1 ${fmt(tp1)} (2:1 R:R), TP2 ${fmt(tp2)} (measured move).`;
+        }
+      } else if (!isLongOnly) {
+        const ep   = round(currentPrice);
+        const sl   = round(pbPattern.upperBound + 0.3 * atr);
+        const risk = sl - ep;
+        if (risk > 0) {
+          const tp1 = round(ep - 2 * risk);
+          const tp2 = round(floorTarget(ep, sl, ep - patternHeight, MIN_RR_TP2, "SELL"));
+          signal       = "SELL";
+          signalType   = "PATTERN_BREAKOUT";
+          entryPrice   = ep;
+          stopLoss     = sl;
+          takeProfit1  = tp1;
+          takeProfit2  = tp2;
+          dca1         = undefined;
+          patternResult = pbPattern;
+          signalReason  = `[${tfLabel}] PATTERN BREAKOUT SELL: ${pbPattern.pattern} confirmed breakdown. Entry ${fmt(ep)}, SL ${fmt(sl)} (above ${fmt(pbPattern.upperBound)} rail + 0.3×ATR), TP1 ${fmt(tp1)} (2:1 R:R), TP2 ${fmt(tp2)} (measured move).`;
+        }
+      }
+    }
+  }
+
   // Entry zone for chart display: ±FIB50_TOLERANCE_ATR around the entry price.
   const entryZoneLow  = round(entryPrice - FIB50_TOLERANCE_ATR * atr);
   const entryZoneHigh = round(entryPrice + FIB50_TOLERANCE_ATR * atr);
@@ -2095,7 +2158,7 @@ type Levels = ReturnType<typeof computeLevels>;
 
 interface ActiveTrade {
   signal: "BUY" | "SELL";
-  signalType?: "FIB50_SWING" | "DOUBLE_TOP" | "DOUBLE_BOTTOM" | "BB_REJECTION";
+  signalType?: "FIB50_SWING" | "DOUBLE_TOP" | "DOUBLE_BOTTOM" | "BB_REJECTION" | "PATTERN_BREAKOUT";
   signalReason: string;
   entryPrice: number;
   stopLoss: number;
@@ -2391,7 +2454,7 @@ async function syncFromDb(): Promise<void> {
       if (activeTrades.has(row.key)) continue; // local file wins for existing keys
       const v = row.data as Partial<ActiveTrade>;
       // Skip trades from previous strategies — they have wrong levels.
-      if (v.signalType !== "FIB50_SWING" && v.signalType !== "DOUBLE_TOP" && v.signalType !== "DOUBLE_BOTTOM" && v.signalType !== "BB_REJECTION") continue;
+      if (v.signalType !== "FIB50_SWING" && v.signalType !== "DOUBLE_TOP" && v.signalType !== "DOUBLE_BOTTOM" && v.signalType !== "BB_REJECTION" && v.signalType !== "PATTERN_BREAKOUT") continue;
       activeTrades.set(row.key, {
         ...(v as ActiveTrade),
         signalType: v.signalType,
@@ -2432,7 +2495,7 @@ function loadActiveTradesFromDisk(): void {
     let didMigrate = false;
     for (const [k, v] of Object.entries(obj)) {
       // Skip trades from previous strategies — they have wrong levels.
-      if (v.signalType !== "FIB50_SWING" && v.signalType !== "DOUBLE_TOP" && v.signalType !== "DOUBLE_BOTTOM" && v.signalType !== "BB_REJECTION") { didMigrate = true; continue; }
+      if (v.signalType !== "FIB50_SWING" && v.signalType !== "DOUBLE_TOP" && v.signalType !== "DOUBLE_BOTTOM" && v.signalType !== "BB_REJECTION" && v.signalType !== "PATTERN_BREAKOUT") { didMigrate = true; continue; }
       // Backward-compat for snapshots persisted before fill-tracking existed.
       // Default triggered=false; the next tick's candle scan since openedAt
       // will retroactively flip it to true if price actually did tag entry.

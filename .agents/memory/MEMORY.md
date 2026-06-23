@@ -7,5 +7,6 @@
 - [FIB50_SWING swing selection](fib50swing-swing-selection.md) — must iterate structural swing points most-recent-first, not absolute extreme; BB30 gate removed (blocks valid setups in trending markets).
 - [1h daily trend gate](1h-daily-trend-gate.md) — 1h FIB50_SWING SELL needs BOTH daily EMA bearish AND weeklyTrend==="DOWN"; daily EMA alone fires 20x/day in bull corrections at 1.4% win rate.
 - [Signal slot priority](signal-slot-priority.md) — FIB50_SWING runs before PATTERN_BREAKOUT; if FIB50_SWING floods (fire→SL→fire), PATTERN_BREAKOUT never fires. Fix the upstream signal, not the downstream one.
+- [PATTERN_BREAKOUT removed and restored](pattern-breakout-removed.md) — signal was deleted (detectChartPattern imported but never called); restored last in cascade; Phemex auto-trade already gated to FIB50_SWING/DOUBLE_TOP only.
 - [DOUBLE_BOTTOM signal type](double-bottom-signal-type.md) — adding new signalTypes needs 5 parallel updates; stale PENDING trades lock in old labels.
 - [Resistance/support exhaustion guard](resistance-exhaustion-guard.md) — FIB50_SWING invalidates when swingB wicked ≥2 times without close-through; threshold=2 so signal dies before 3rd failed attempt.
