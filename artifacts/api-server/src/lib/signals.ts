@@ -2228,7 +2228,7 @@ const DB_NAMESPACE = process.env["NODE_ENV"] === "production" ? "production" : "
 let _pgPool: Pool | null = null;
 function getPool(): Pool | null {
   if (!process.env["DATABASE_URL"]) return null;
-  if (!_pgPool) _pgPool = new Pool({ connectionString: process.env["DATABASE_URL"] });
+  if (!_pgPool) _pgPool = new Pool({ connectionString: process.env["DATABASE_URL"], ssl: { rejectUnauthorized: false } });
   return _pgPool;
 }
 
