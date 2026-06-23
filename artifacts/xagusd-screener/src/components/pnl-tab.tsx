@@ -361,6 +361,17 @@ export function PnlTab({ onSelect }: { onSelect: (s: string, t: Timeframe) => vo
   const totalClosed  = winCount + lossCount;
   const winRate      = totalClosed > 0 ? (winCount / totalClosed) * 100 : null;
 
+  // Per-timeframe breakdown
+  const TF_LIST = ["1h", "4h", "1d", "1w"] as const;
+  const tfStats = TF_LIST.map((tf) => {
+    const tfTrades = realTrades.filter((t) => t.timeframe === tf);
+    const wins  = tfTrades.filter((t) => t.outcome === "TP2" || t.outcome === "BE_TRAIL").length;
+    const losses = tfTrades.filter((t) => t.outcome === "SL").length;
+    const totalR = tfTrades.reduce((s, t) => s + t.rMultiple, 0);
+    const pnl    = tfTrades.reduce((s, t) => s + t.rMultiple * dollarRisk, 0);
+    return { tf, trades: tfTrades.length, wins, losses, totalR, pnl };
+  }).filter((s) => s.trades > 0);
+
   return (
     <div className="flex flex-col gap-6 max-w-4xl mx-auto w-full pb-6">
       {/* ── UNREALIZED ─────────────────────────────────────────────── */}
@@ -517,6 +528,39 @@ export function PnlTab({ onSelect }: { onSelect: (s: string, t: Timeframe) => vo
             }
           />
         </div>
+
+        {/* per-timeframe breakdown */}
+        {tfStats.length > 0 && (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+            {tfStats.map(({ tf, wins, losses, totalR, pnl }) => {
+              const wr = wins + losses > 0 ? Math.round((wins / (wins + losses)) * 100) : null;
+              const positive = totalR >= 0;
+              return (
+                <div
+                  key={tf}
+                  className="rounded-lg border border-zinc-800/70 bg-zinc-900/30 px-3 py-2.5 flex flex-col gap-1"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-mono font-bold text-zinc-400 bg-zinc-800 px-1.5 py-0.5 rounded">
+                      {TF_LABEL[tf] ?? tf.toUpperCase()}
+                    </span>
+                    <span className={cn("text-[12px] font-bold font-mono", positive ? "text-emerald-400" : "text-rose-400")}>
+                      {positive ? "+" : ""}{totalR.toFixed(2)}R
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-mono text-zinc-500">
+                      {wins}W / {losses}L{wr !== null ? ` · ${wr}%` : ""}
+                    </span>
+                    <span className={cn("text-[11px] font-mono font-semibold", positive ? "text-emerald-400" : "text-rose-400")}>
+                      {fmtUsd(pnl, true)}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
 
         {/* closed trade list */}
         {histLoading && (
