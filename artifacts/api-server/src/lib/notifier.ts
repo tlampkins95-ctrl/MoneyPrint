@@ -572,6 +572,21 @@ async function checkSymbol(
         }
       }
 
+      // Phemex auto-trade: place order on every fresh signal transition that
+      // passes all gates above. Seed snapshots are excluded — they represent
+      // catch-up state on restart, not live signals.
+      if (
+        !isSeedSnapshot &&
+        (levels.signal === "BUY" || levels.signal === "SELL") &&
+        isPhemexTradingEnabled() &&
+        phemexAutoTraderEnabled
+      ) {
+        const phemexSymbol = SYMBOLS[symbol as Symbol]?.phemexPerp;
+        if (phemexSymbol) {
+          void executePhemexTrade(symbol, timeframe, levels, phemexSymbol);
+        }
+      }
+
       const tfLabel = TIMEFRAME_LABEL[timeframe];
       const link = buildAppLink(symbol, timeframe);
       const ctx = buildAlertContext(symbol, SYMBOLS[symbol], timeframe, tfLabel, levels, link);
