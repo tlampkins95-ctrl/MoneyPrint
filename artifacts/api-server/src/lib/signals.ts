@@ -2311,7 +2311,19 @@ function logClosedTrade(
       ? Math.abs(trade.takeProfit1 - trade.entryPrice) / trade.riskRewardRatio
       : Math.abs(trade.entryPrice - trade.stopLoss);
   const rawPnl = isBuy ? exitPrice - trade.entryPrice : trade.entryPrice - exitPrice;
-  const rMultiple = outcome === "MISSED" ? 0 : originalRisk > 0 ? rawPnl / originalRisk : 0;
+  // BE_TRAIL: half the position was closed at TP1 (locking in profit), the other
+  // half came back and closed at breakeven (entry). Net R = TP1_gain × 0.5 / originalRisk.
+  // exitPrice for BE_TRAIL equals entryPrice, so rawPnl is always 0 — we must
+  // use the stored TP1 distance instead of exitPrice to get the true R.
+  let rMultiple: number;
+  if (outcome === "MISSED") {
+    rMultiple = 0;
+  } else if (outcome === "BE_TRAIL" && trade.tp1Hit && originalRisk > 0) {
+    const tp1Dist = Math.abs(trade.takeProfit1 - trade.entryPrice);
+    rMultiple = (tp1Dist * 0.5) / originalRisk;
+  } else {
+    rMultiple = originalRisk > 0 ? rawPnl / originalRisk : 0;
+  }
 
   const k = tradeKey(symbolKey, timeframe);
 

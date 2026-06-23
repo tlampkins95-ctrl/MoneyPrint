@@ -66,7 +66,23 @@ router.get("/trade-history", async (req: Request, res: Response) => {
       riskRewardRatio: row.risk_reward_ratio as number,
       exitPrice: row.exit_price as number,
       outcome: row.outcome as "SL" | "BE_TRAIL" | "TP2" | "REVERSED" | "MISSED",
-      rMultiple: row.r_multiple as number,
+      // Backfill: early BE_TRAIL records stored r_multiple=0 because the exit
+      // price (breakeven) was used directly, zeroing rawPnl. The correct R for
+      // BE_TRAIL with tp1Hit is riskRewardRatio × 0.5 — because
+      // riskRewardRatio = tp1Dist / originalRisk, so
+      // (tp1Dist × 0.5) / originalRisk = riskRewardRatio × 0.5.
+      // Note: stop_loss in the DB is already entryPrice (trailed to BE), so we
+      // cannot reconstruct originalRisk from stop_loss; rratio is the safe path.
+      rMultiple: (() => {
+        const stored = row.r_multiple as number;
+        const tp1Hit = row.tp1_hit as boolean;
+        const rratio = row.risk_reward_ratio as number;
+        if (row.outcome === "BE_TRAIL" && tp1Hit && rratio > 0) {
+          const correct = rratio * 0.5;
+          return Math.max(stored, correct);
+        }
+        return stored;
+      })(),
       tp1Hit: row.tp1_hit as boolean,
       openedAt: row.opened_at != null ? Number(row.opened_at) : undefined,
       closedAt: Number(row.closed_at),
