@@ -3060,6 +3060,13 @@ export function computeLevelsStable(
       }
     }
 
+    // PATTERN_BREAKOUT is display-only — the signal fires but is never staged
+    // into activeTrades. No P&L tracking, no Phemex order, no position entry.
+    // Remove this guard when PATTERN_BREAKOUT is cleared for live trading.
+    if (fresh.signalType === "PATTERN_BREAKOUT") {
+      return fresh;
+    }
+
     // Market entries (DAGGER, PATTERN_BREAKOUT) fill immediately — no limit
     // to wait for. Set triggered=true on creation so the dashboard shows
     // the correct FILLED state from the first tick and `spotTagged` / candle
