@@ -576,10 +576,27 @@ async function checkSymbol(
         }
       }
 
-      // BTC macro gate: suppress BUY alerts on crypto altcoins when BTC daily
-      // is in confirmed DOWNTREND (EMA21 < EMA50 + ADX ≥ 25). Filled trades
-      // are exempt — the position is already open. Preserve prev signal so the
-      // transition re-fires the moment BTC trend recovers.
+      // Phemex auto-trade: fires before notification gates so that the BTC macro
+      // gate (notifications-only filter) cannot block a trade the user opted into.
+      // Higher-TF gate above still applies — we don't trade when 1d actively
+      // opposes 1h. Seed snapshots are excluded (catch-up state, not live signals).
+      if (
+        !isSeedSnapshot &&
+        (levels.signal === "BUY" || levels.signal === "SELL") &&
+        isPhemexTradingEnabled() &&
+        phemexAutoTraderEnabled
+      ) {
+        const phemexSymbol = SYMBOLS[symbol as Symbol]?.phemexPerp;
+        if (phemexSymbol) {
+          void executePhemexTrade(symbol, timeframe, levels, phemexSymbol);
+        }
+      }
+
+      // BTC macro gate: suppress BUY *notifications* on crypto altcoins when BTC
+      // daily is in confirmed DOWNTREND (EMA21 < EMA50 + ADX ≥ 25). Filled trades
+      // are exempt. Phemex auto-trade has already fired above — this only silences
+      // the Telegram/WebPush alert. Preserve prev signal so the transition re-fires
+      // the moment BTC trend recovers.
       if (levels.signal === "BUY" && !isFilledTrade && isBtcMacroGated(symbol, SYMBOLS[symbol].category)) {
         const btcTrend = await getBtcMacroTrend("1d");
         if (btcTrend === "DOWNTREND") {
@@ -646,22 +663,6 @@ async function checkSymbol(
           },
           "Signal alert dispatched",
         );
-      }
-
-      // Phemex auto-trade: fire alongside (or independently of) notifications.
-      // Only BUY/SELL signals on symbols with a Phemex perp contract.
-      // Seed snapshots do NOT trigger orders — they are catch-up state only.
-      // phemexAutoTraderEnabled must be toggled ON explicitly via the UI.
-      if (
-        !isSeedSnapshot &&
-        (levels.signal === "BUY" || levels.signal === "SELL") &&
-        isPhemexTradingEnabled() &&
-        phemexAutoTraderEnabled
-      ) {
-        const phemexSymbol = SYMBOLS[symbol as Symbol]?.phemexPerp;
-        if (phemexSymbol) {
-          void executePhemexTrade(symbol, timeframe, levels, phemexSymbol);
-        }
       }
 
       const newPatternKey = prev?.lastPatternKey;
@@ -896,7 +897,23 @@ async function checkTrendingSymbol(
         }
       }
 
+      // Phemex auto-trade for trending coins — fires before the BTC notification gate.
+      // Trending coins don't have static phemexPerp entries, so this is a no-op for
+      // most of them, but the check is symmetric with the static-symbol path.
+      if (
+        !isSeedSnapshot &&
+        (levels.signal === "BUY" || levels.signal === "SELL") &&
+        isPhemexTradingEnabled() &&
+        phemexAutoTraderEnabled
+      ) {
+        const phemexSymbol = SYMBOLS[symbolKey as Symbol]?.phemexPerp;
+        if (phemexSymbol) {
+          void executePhemexTrade(symbolKey, timeframe, levels, phemexSymbol);
+        }
+      }
+
       // BTC macro gate: trending coins are always crypto altcoins.
+      // Only suppresses notifications — auto-trade already fired above.
       if (levels.signal === "BUY" && !isFilledTrade) {
         const btcTrend = await getBtcMacroTrend("1d");
         if (btcTrend === "DOWNTREND") {
