@@ -10,3 +10,4 @@
 - [PATTERN_BREAKOUT removed and restored](pattern-breakout-removed.md) — signal was deleted (detectChartPattern imported but never called); restored last in cascade; Phemex auto-trade already gated to FIB50_SWING/DOUBLE_TOP only.
 - [DOUBLE_BOTTOM signal type](double-bottom-signal-type.md) — adding new signalTypes needs 5 parallel updates; stale PENDING trades lock in old labels.
 - [Resistance/support exhaustion guard](resistance-exhaustion-guard.md) — FIB50_SWING invalidates when swingB wicked ≥2 times without close-through; threshold=2 so signal dies before 3rd failed attempt.
+- [Production startup race](production-startup-race.md) — syncFromDb must be awaited before startSignalNotifier; fire-and-forget wiped all production:: DB rows on every restart.

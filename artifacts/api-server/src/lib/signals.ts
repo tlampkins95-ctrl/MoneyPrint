@@ -2587,10 +2587,11 @@ function persistActiveTrades(): void {
   })();
 }
 
-// Eager load on module init: JSON file first (fast), then DB in background
-// to recover any trades that are missing from the file (e.g. fresh deployment).
+// Eager load on module init: JSON file first (fast), then DB sync is exported
+// so index.ts can await it before starting the notifier — prevents a race where
+// the notifier seeds new trades and the cleanup DELETE wipes production rows.
 loadActiveTradesFromDisk();
-void syncFromDb();
+export { syncFromDb };
 
 function tradeKey(symbolKey: string, timeframe: Timeframe): string {
   return `${DB_NAMESPACE}::${symbolKey}::${timeframe}`;
