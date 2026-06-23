@@ -2093,6 +2093,15 @@ export function computeLevels(
     .filter((l) => l.price > 0)
     .sort((a, b) => b.price - a.price);
 
+  // Ranging market filter: ADX < 25 means no directional energy — suppress any
+  // fresh signal. Active trades (handled by computeLevelsStable above this call)
+  // are unaffected; this only blocks new entries in choppy, low-momentum markets.
+  if (adxWarm && adx < 25 && (signal === "BUY" || signal === "SELL")) {
+    signal = "WAIT";
+    signalReason = `[${timeframe}] RANGING — ADX ${adx.toFixed(1)} below 25. No directional energy.`;
+    signalType = "FIB50_SWING";
+  }
+
   // Default tradeState for a fresh (no active snapshot) result. WAIT signals
   // are WAIT; new BUY/SELL is PENDING by default — computeLevelsStable upgrades
   // this to a triggered state if the snapshot fired with price already at/past

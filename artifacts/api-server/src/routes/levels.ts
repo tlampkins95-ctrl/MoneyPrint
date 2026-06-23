@@ -152,8 +152,8 @@ interface TfGate {
 }
 const TF_GATES: Partial<Record<Timeframe, TfGate[]>> = {
   "1h": [
-    { higherTf: "4h", mode: "block_oppose"  }, // 4h must not oppose 1h signal
-    { higherTf: "1d", mode: "block_oppose"  }, // daily must not oppose 1h signal
+    { higherTf: "1d", mode: "block_oppose"  }, // daily trend must not oppose 1h signal
+    { higherTf: "1w", mode: "block_oppose"  }, // weekly confluence must not oppose 1h signal
   ],
   "4h": [
     { higherTf: "1d", mode: "block_oppose"  }, // daily must not oppose 4h signal
