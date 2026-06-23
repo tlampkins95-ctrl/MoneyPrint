@@ -728,6 +728,25 @@ async function checkSymbol(
       lastAlertAt: prev?.lastAlertAt ?? 0,
       lastPatternKey: levels.signal === "WAIT" ? undefined : prev?.lastPatternKey,
     });
+
+    // Catch-up auto-trade: if the auto-trader is on, signal is active, and no
+    // Phemex order is currently tracked for this slot, place one now.
+    // This handles the case where the trader was enabled (or the server restarted)
+    // while a signal was already live — the transition block above was skipped
+    // because there was no state change, but the order still needs to be placed.
+    if (
+      (levels.signal === "BUY" || levels.signal === "SELL") &&
+      levels.tradeState === "PENDING" &&
+      isPhemexTradingEnabled() &&
+      phemexAutoTraderEnabled &&
+      !openPhemexOrders.has(k)
+    ) {
+      const phemexSymbol = SYMBOLS[symbol as Symbol]?.phemexPerp;
+      if (phemexSymbol) {
+        logger.info({ symbol, timeframe, signal: levels.signal }, "phemex-trader: catch-up order — no tracked order for active signal");
+        void executePhemexTrade(symbol, timeframe, levels, phemexSymbol);
+      }
+    }
   } catch (err) {
     logger.warn({ err, symbol, timeframe }, "Notifier check failed");
   }

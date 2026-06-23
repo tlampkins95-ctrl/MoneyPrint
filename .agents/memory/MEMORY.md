@@ -11,3 +11,4 @@
 - [DOUBLE_BOTTOM signal type](double-bottom-signal-type.md) — adding new signalTypes needs 5 parallel updates; stale PENDING trades lock in old labels.
 - [Resistance/support exhaustion guard](resistance-exhaustion-guard.md) — FIB50_SWING invalidates when swingB wicked ≥2 times without close-through; threshold=2 so signal dies before 3rd failed attempt.
 - [Production startup race](production-startup-race.md) — syncFromDb must be awaited before startSignalNotifier; fire-and-forget wiped all production:: DB rows on every restart.
+- [Auto-trader catch-up on restart](auto-trader-catchup.md) — Phemex auto-trade only fires on signal transitions; server restart wipes openPhemexOrders so BUY→BUY (no transition) never re-places the order. Fix: catch-up block at bottom of checkSymbol places order when signal=PENDING and no order tracked.
