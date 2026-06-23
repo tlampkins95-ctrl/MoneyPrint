@@ -92,7 +92,13 @@ export const GetLevelsResponse = zod.object({
     .enum(["BUY", "SELL", "WAIT"])
     .describe("Single clear trade signal"),
   signalType: zod
-    .enum(["FIB50_SWING", "DOUBLE_TOP", "DOUBLE_BOTTOM", "BB_REJECTION"])
+    .enum([
+      "FIB50_SWING",
+      "DOUBLE_TOP",
+      "DOUBLE_BOTTOM",
+      "BB_REJECTION",
+      "PATTERN_BREAKOUT",
+    ])
     .describe(
       "Which signal mode generated this signal. FIB50_SWING = swing fibonacci retracement: enter at 50% fib of recent swing, TP1 at 78.6% fib, SL 2:1 R:R. DOUBLE_TOP = bearish reversal; entry at resistance, TP1 at neckline. DOUBLE_BOTTOM = bullish reversal; entry at support, TP1 at neckline. BB_REJECTION = Bollinger Band exhaustion reversal; entry at BB30 extreme, TP1 at 50% fib of recent swing, SL 2:1 R:R.",
     ),
@@ -608,6 +614,7 @@ export const GetActiveSignalsResponse = zod.object({
                 "DOUBLE_TOP",
                 "DOUBLE_BOTTOM",
                 "BB_REJECTION",
+                "PATTERN_BREAKOUT",
               ])
               .describe(
                 "Which signal mode generated this signal. FIB50_SWING = swing fibonacci retracement: enter at 50% fib of recent swing, TP1 at 78.6% fib, SL 2:1 R:R. DOUBLE_TOP = bearish reversal; entry at resistance, TP1 at neckline. DOUBLE_BOTTOM = bullish reversal; entry at support, TP1 at neckline. BB_REJECTION = Bollinger Band exhaustion reversal; entry at BB30 extreme, TP1 at 50% fib of recent swing, SL 2:1 R:R.",
@@ -1164,6 +1171,7 @@ export const GetTradeHistoryResponse = zod.object({
         "DOUBLE_TOP",
         "DOUBLE_BOTTOM",
         "BB_REJECTION",
+        "PATTERN_BREAKOUT",
       ]),
       entryPrice: zod.number(),
       stopLoss: zod.number(),
@@ -1239,6 +1247,7 @@ export const GetSignalLogResponse = zod.object({
         "DOUBLE_TOP",
         "DOUBLE_BOTTOM",
         "BB_REJECTION",
+        "PATTERN_BREAKOUT",
       ]),
       entryPrice: zod.number(),
       stopLoss: zod.number(),

@@ -14,4 +14,5 @@ export const ClosedTradeSignalType = {
   DOUBLE_TOP: "DOUBLE_TOP",
   DOUBLE_BOTTOM: "DOUBLE_BOTTOM",
   BB_REJECTION: "BB_REJECTION",
+  PATTERN_BREAKOUT: "PATTERN_BREAKOUT",
 } as const;

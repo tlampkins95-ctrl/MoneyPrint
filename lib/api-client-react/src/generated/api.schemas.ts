@@ -99,6 +99,7 @@ export const LevelsDataSignalType = {
   DOUBLE_TOP: "DOUBLE_TOP",
   DOUBLE_BOTTOM: "DOUBLE_BOTTOM",
   BB_REJECTION: "BB_REJECTION",
+  PATTERN_BREAKOUT: "PATTERN_BREAKOUT",
 } as const;
 
 /**
@@ -554,6 +555,7 @@ export const ClosedTradeSignalType = {
   DOUBLE_TOP: "DOUBLE_TOP",
   DOUBLE_BOTTOM: "DOUBLE_BOTTOM",
   BB_REJECTION: "BB_REJECTION",
+  PATTERN_BREAKOUT: "PATTERN_BREAKOUT",
 } as const;
 
 /**
@@ -624,6 +626,7 @@ export const SignalLogEntrySignalType = {
   DOUBLE_TOP: "DOUBLE_TOP",
   DOUBLE_BOTTOM: "DOUBLE_BOTTOM",
   BB_REJECTION: "BB_REJECTION",
+  PATTERN_BREAKOUT: "PATTERN_BREAKOUT",
 } as const;
 
 export interface SignalLogEntry {

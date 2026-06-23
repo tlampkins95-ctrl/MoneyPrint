@@ -10,11 +10,12 @@ When adding a new `signalType` value, update ALL of these in lockstep:
 3. `syncFromDb` whitelist check (signals.ts)
 4. `loadActiveTradesFromDisk` whitelist check (signals.ts)
 5. `RowProps.signalType` union + badge display in `active-signals-overview.tsx`
+6. **OpenAPI spec** — all `signalType` enum arrays in `lib/api-spec/openapi.yaml` (3 locations); then run `pnpm --filter @workspace/api-spec run codegen`
 
 `seedActiveTrades` has NO whitelist — it trusts the caller.
 
 ## Why
-Missing any of these causes: silent trade drops on restart (whitelist), TS errors (type), or wrong badge in UI.
+Missing the OpenAPI spec causes a hard Zod `.parse()` crash in `/api/levels` → HTTP 500 in production. The generated `GetLevelsResponse` schema rejects any signalType value not in its enum. PATTERN_BREAKOUT produced exactly this failure when it was re-added to the signal cascade without updating the spec.
 
 ## How to apply
 `detectDoubleBottom` is already exported from patterns.ts and used in signals.ts.
