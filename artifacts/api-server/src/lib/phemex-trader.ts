@@ -224,19 +224,43 @@ export async function placeOrder(params: PlaceOrderParams): Promise<string | nul
   const hedgeMode = resolveHedgeMode();
   const isTestnet = process.env["PHEMEX_TESTNET"] === "true";
 
-  // Clamp priceRp to minPriceRp when the signal entry is below the exchange
-  // floor (e.g. SOLUSDT minPriceRp=100 with SOL at $69). A limit BUY above
-  // the current market price fills immediately as a taker at the real market
-  // price. SL/TP are absolute prices and are accepted regardless of minPriceRp.
-  const rawPrice   = parseFloat(params.priceRp);
-  const minPrice   = getMinPriceRp(params.phemexSymbol);
-  const spec       = contractSpecCache.get(params.phemexSymbol);
-  const tickSize   = spec?.tickSize ?? 0.01;
-  const pxPrec     = Math.max(0, -Math.floor(Math.log10(tickSize)));
-  const clampedPrice = minPrice > 0 && rawPrice < minPrice
+  const rawPrice = parseFloat(params.priceRp);
+  const minPrice = getMinPriceRp(params.phemexSymbol);
+  const spec     = contractSpecCache.get(params.phemexSymbol);
+
+  // If contract specs are loaded but this symbol isn't in them, it's not a
+  // listed Phemex perp — skip immediately rather than getting code 39999.
+  if (contractSpecCache.size > 0 && !spec) {
+    logger.warn(
+      { symbol: params.phemexSymbol },
+      "phemex-trader: symbol not in contract spec cache — not a listed Phemex perp, skipping",
+    );
+    return null;
+  }
+
+  const tickSize = spec?.tickSize ?? 0.01;
+  const pxPrec   = Math.max(0, -Math.floor(Math.log10(tickSize)));
+
+  // Price-floor handling differs by side:
+  //   BUY  — clamp UP to minPriceRp. A limit BUY above market fills immediately
+  //           as a taker at the real market price. ✓
+  //   SELL — clamping UP does NOT help: a limit SELL above market sits resting
+  //           waiting for price to rise, and Phemex rejects it because SL
+  //           (above signal entry) is below the clamped limit price
+  //           (TE_SELL_SL_SHOULD_GT_BASE). Use a Market IOC order instead so
+  //           the SELL fills at the current bid immediately.
+  const belowFloor = minPrice > 0 && rawPrice < minPrice;
+  const useMarket  = belowFloor && params.side === "Sell";
+  const clampedPrice = (!useMarket && belowFloor)
     ? minPrice.toFixed(pxPrec)
     : params.priceRp;
-  if (clampedPrice !== params.priceRp) {
+
+  if (useMarket) {
+    logger.info(
+      { symbol: params.phemexSymbol, signalEntry: rawPrice, minPriceRp: minPrice },
+      "phemex-trader: SELL below minPriceRp — using Market IOC",
+    );
+  } else if (clampedPrice !== params.priceRp) {
     logger.info(
       { symbol: params.phemexSymbol, signalEntry: rawPrice, clampedTo: clampedPrice, minPriceRp: minPrice },
       "phemex-trader: priceRp clamped to minPriceRp — will fill at market",
@@ -247,10 +271,9 @@ export async function placeOrder(params: PlaceOrderParams): Promise<string | nul
     symbol:       params.phemexSymbol,
     clOrdID:      params.clOrdID,
     side:         params.side,
-    ordType:      "Limit",
-    timeInForce:  "GoodTillCancel",
+    ordType:      useMarket ? "Market" : "Limit",
+    timeInForce:  useMarket ? "ImmediateOrCancel" : "GoodTillCancel",
     orderQtyRq:   params.qtyRq,
-    priceRp:      clampedPrice,
     stopLossRp:   params.stopLossRp,
     takeProfitRp: params.takeProfitRp,
     // NOTE: do NOT include slOrdPxRp / tpOrdPxRp — even "0" causes code 39999
@@ -260,6 +283,10 @@ export async function placeOrder(params: PlaceOrderParams): Promise<string | nul
     // on a plain Limit order with bracket SL/TP. Phemex rejects with code 39999.
     reduceOnly:   false,
   };
+  // Market orders must not include priceRp.
+  if (!useMarket) {
+    body["priceRp"] = clampedPrice;
+  }
 
   if (hedgeMode) {
     body["posSide"] = params.side === "Buy" ? "Long" : "Short";

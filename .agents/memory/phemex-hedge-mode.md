@@ -25,14 +25,27 @@ The `PHEMEX_HEDGE_MODE` env var existed but was never set, so `hedgeMode` defaul
 - If orders start failing with 39999 after an account change, check `userMode` from `/g-accounts/accountPositions`.
 - The detection log line: `"phemex-trader: account position mode detected"` with `hedgeMode: true/false`.
 
-## minPriceRp clamping (added after hedge mode fix)
+## minPriceRp clamping — asymmetric by side
 
-placeOrder now fetches all contract specs at startup via fetchContractSpecs()
-and clamps priceRp = max(signalEntry, minPriceRp). A limit BUY above market
-fills immediately as a taker at real market price. SL/TP are absolute prices
-and are accepted regardless of minPriceRp.
+placeOrder fetches all contract specs at startup via fetchContractSpecs()
+and applies different logic per side:
 
-Verified live: SOLUSDT at $68.95 → clamped to $100 → code=0, filled at $68.95.
+**BUY** (side="Buy") when entry < minPriceRp:
+  - Clamp priceRp UP to minPriceRp.
+  - A limit BUY above market fills immediately as a taker at real market price. ✓
+  - Verified live: SOLUSDT at $68.95 → clamped to $100 → code=0, filled at $68.95.
+
+**SELL** (side="Sell") when entry < minPriceRp:
+  - Clamping UP does NOT work: limit SELL above market sits resting (won't fill
+    at market), AND Phemex rejects it with code 11052 `TE_SELL_SL_SHOULD_GT_BASE`
+    because SL (above signal entry ~$69) is BELOW the clamped priceRp ($100).
+  - Fix: use ordType="Market" + timeInForce="ImmediateOrCancel". No priceRp field.
+    SL/TP are still included and accepted at their real levels.
+  - Verified live: XAGUSDT SELL at $59, minPriceRp=100 → Market IOC → code=0. ✓
+
+**Unknown symbol** (not in contractSpecCache despite specs being loaded):
+  - Return null early with a warning log. Prevents code 39999 "Symbol not listed"
+    on trending coins that are not listed as Phemex perps (e.g. HUSDT).
 
 ## cancelOrder in hedge mode
 
