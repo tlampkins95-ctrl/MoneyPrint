@@ -169,12 +169,40 @@ const TIMEFRAME_LABEL: Record<Timeframe, string> = {
 const stateMap = new Map<string, TrackedState>();
 
 // ─── Phemex auto-trader runtime toggle ────────────────────────────────────────
-// Defaults OFF on every restart — the operator must explicitly re-enable it.
-// This prevents surprise orders after a server restart or deployment.
-let phemexAutoTraderEnabled = false;
+// Persisted to .runtime/auto-trader-state.json so the setting survives
+// server restarts and deployments without requiring manual re-enable.
+const AUTO_TRADER_STATE_FILE = join(
+  process.env["ACTIVE_TRADES_FILE"]
+    ? dirname(process.env["ACTIVE_TRADES_FILE"])
+    : join(process.cwd(), ".runtime"),
+  "auto-trader-state.json",
+);
+
+function loadAutoTraderState(): boolean {
+  try {
+    if (!existsSync(AUTO_TRADER_STATE_FILE)) return false;
+    const raw = readFileSync(AUTO_TRADER_STATE_FILE, "utf8");
+    const parsed = JSON.parse(raw) as { enabled?: boolean };
+    return parsed.enabled === true;
+  } catch {
+    return false;
+  }
+}
+
+function persistAutoTraderState(enabled: boolean): void {
+  try {
+    mkdirSync(dirname(AUTO_TRADER_STATE_FILE), { recursive: true });
+    writeFileSync(AUTO_TRADER_STATE_FILE, JSON.stringify({ enabled }), "utf8");
+  } catch (err) {
+    logger.warn({ err }, "phemex-trader: failed to persist auto-trader state");
+  }
+}
+
+let phemexAutoTraderEnabled = loadAutoTraderState();
 
 export function setPhemexAutoTraderEnabled(enabled: boolean): void {
   phemexAutoTraderEnabled = enabled;
+  persistAutoTraderState(enabled);
   logger.info({ enabled }, `phemex-trader: auto-trader ${enabled ? "ENABLED" : "DISABLED"}`);
 }
 
