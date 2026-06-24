@@ -14,3 +14,4 @@
 - [Auto-trader catch-up on restart](auto-trader-catchup.md) — Phemex auto-trade only fires on signal transitions; server restart wipes openPhemexOrders so BUY→BUY (no transition) never re-places the order. Fix: catch-up block at bottom of checkSymbol places order when signal=PENDING and no order tracked.
 - [Trending coin auto-trader dead](trending-autotrader-dead.md) — 3 bugs made trending coin auto-trading a complete no-op; see topic file.
 - [XAGUSDT Phemex minPriceRp](xagusdt-min-price.md) — Phemex XAGUSDT contract has minPriceRp=100; silver at ~$61 means all orders rejected with code 39999. Untradeable until silver hits $100.
+- [Phemex hedge mode auto-detection](phemex-hedge-mode.md) — account is userMode=1 (hedge mode); every order needs posSide=Long/Short or 39999. Auto-detected via getUSDTBalance on first call.

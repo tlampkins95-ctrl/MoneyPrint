@@ -95,11 +95,30 @@ interface AccountData {
     accountBalanceRv?: string;
     freeMarginRv?: string;
     availableBalanceRv?: string;
+    userMode?: number;  // 0 = one-way, 1 = hedge (two-way)
   };
 }
 
 /**
+ * Cached hedge-mode detection.
+ * null  = not yet detected
+ * true  = hedge mode (userMode=1) — posSide required on every order
+ * false = one-way mode (userMode=0)
+ *
+ * The env var PHEMEX_HEDGE_MODE overrides auto-detection when explicitly set.
+ */
+let detectedHedgeMode: boolean | null = null;
+
+function resolveHedgeMode(): boolean {
+  const envOverride = process.env["PHEMEX_HEDGE_MODE"];
+  if (envOverride === "true")  return true;
+  if (envOverride === "false") return false;
+  return detectedHedgeMode ?? false;
+}
+
+/**
  * Returns the free USDT margin available for new positions.
+ * Also caches the account's position mode (hedge vs one-way) as a side-effect.
  * Returns null on any failure — the caller falls back to the default account size.
  */
 export async function getUSDTBalance(): Promise<number | null> {
@@ -109,6 +128,16 @@ export async function getUSDTBalance(): Promise<number | null> {
       "/g-accounts/accountPositions",
       { currency: "USDT" },
     );
+
+    // Auto-detect hedge mode once — userMode 1 = hedge (posSide required).
+    if (data.account?.userMode !== undefined && detectedHedgeMode === null) {
+      detectedHedgeMode = data.account.userMode === 1;
+      logger.info(
+        { userMode: data.account.userMode, hedgeMode: detectedHedgeMode },
+        "phemex-trader: account position mode detected",
+      );
+    }
+
     const raw =
       data.account?.freeMarginRv ??
       data.account?.availableBalanceRv ??
@@ -147,7 +176,7 @@ interface OrderResponseData {
  * Returns the exchange orderID, or null on failure.
  */
 export async function placeOrder(params: PlaceOrderParams): Promise<string | null> {
-  const hedgeMode = process.env["PHEMEX_HEDGE_MODE"] === "true";
+  const hedgeMode = resolveHedgeMode();
   const isTestnet = process.env["PHEMEX_TESTNET"] === "true";
 
   const body: Record<string, string | boolean> = {
