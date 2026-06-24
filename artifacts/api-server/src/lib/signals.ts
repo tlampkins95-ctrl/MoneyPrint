@@ -1948,12 +1948,18 @@ export function computeLevels(
       // MACD: 2 consecutive completed bars of recovery while histogram is still red.
       // histPrev3 < histPrev2 < histPrev1 with histPrev2 < 0 ensures the recovery
       // is established and still in negative territory (mirror of the SELL condition).
+      //
+      // Metals (XAG, XAU) require histPrev1 > 0 — the histogram must actually be
+      // green before firing. Silver/gold have repeatedly reversed through every BB
+      // lower-band touch while MACD was still red; early-turn entries do not work
+      // for metals. Crypto keeps the original red-but-recovering behaviour.
       const bbrBuyMacd =
         Number.isFinite(histPrev3) &&
         histPrev3 < 0 &&
         histPrev2 < 0 &&
         histPrev2 > histPrev3 &&   // bar 2 already recovering from bar 3
-        histPrev1 > histPrev2;     // bar 1 still recovering from bar 2
+        histPrev1 > histPrev2 &&   // bar 1 still recovering from bar 2
+        (!meta.goldApi || histPrev1 > 0);  // metals: must be green; crypto: red-ok
       if (
         signal === "WAIT" &&
         bbrBuyMacd &&
