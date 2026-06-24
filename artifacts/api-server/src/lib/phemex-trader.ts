@@ -80,7 +80,10 @@ async function phemexRequest<T>(
 
   const json = (await res.json()) as { code: number; msg?: string; data: T };
   if (json.code !== 0) {
-    throw new Error(`Phemex ${method} ${path} → code ${json.code}: ${json.msg ?? "unknown"}`);
+    throw Object.assign(
+      new Error(`Phemex ${method} ${path} → code ${json.code}: ${json.msg ?? "unknown"}`),
+      { phemexCode: json.code, phemexMsg: json.msg, phemexRaw: JSON.stringify(json) },
+    );
   }
   return json.data;
 }
@@ -157,8 +160,9 @@ export async function placeOrder(params: PlaceOrderParams): Promise<string | nul
     priceRp:      params.priceRp,
     stopLossRp:   params.stopLossRp,
     takeProfitRp: params.takeProfitRp,
-    slOrdPxRp:    "0",            // market SL execution
-    tpOrdPxRp:    "0",            // market TP execution
+    // NOTE: do NOT include slOrdPxRp / tpOrdPxRp — even "0" causes code 39999
+    // on linear perp bracket orders. Market execution is the default when these
+    // fields are absent.
     // NOTE: triggerType is for conditional/stop orders only — do NOT include it
     // on a plain Limit order with bracket SL/TP. Phemex rejects with code 39999.
     reduceOnly:   false,
