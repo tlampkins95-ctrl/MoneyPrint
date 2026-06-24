@@ -181,7 +181,11 @@ const AUTO_TRADER_STATE_FILE = join(
 
 function loadAutoTraderState(): boolean {
   try {
-    if (!existsSync(AUTO_TRADER_STATE_FILE)) return false;
+    if (!existsSync(AUTO_TRADER_STATE_FILE)) {
+      // No persisted state yet — fall back to env var.
+      // PHEMEX_AUTO_TRADER=true in artifact.toml ensures production starts hot.
+      return process.env["PHEMEX_AUTO_TRADER"] === "true";
+    }
     const raw = readFileSync(AUTO_TRADER_STATE_FILE, "utf8");
     const parsed = JSON.parse(raw) as { enabled?: boolean };
     return parsed.enabled === true;
@@ -1178,6 +1182,7 @@ export function startSignalNotifier(): void {
   // even on a fresh restart — prevents repeat seed alerts for still-pending signals.
   loadPersistedAlertState();
 
+  const phemexOn = isPhemexTradingEnabled();
   logger.info(
     {
       symbols: ALL_SYMBOLS.length,
@@ -1185,6 +1190,8 @@ export function startSignalNotifier(): void {
       intervalMs: POLL_INTERVAL_MS,
       telegramOn,
       webPushOn,
+      phemexOn,
+      phemexAutoTraderOn: phemexOn && phemexAutoTraderEnabled,
     },
     "Signal notifier started",
   );

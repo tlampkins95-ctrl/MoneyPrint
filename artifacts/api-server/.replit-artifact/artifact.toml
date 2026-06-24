@@ -29,6 +29,7 @@ PORT = "8080"
 NODE_ENV = "production"
 ENABLE_TELEGRAM_NOTIFIER = "true"
 ENABLE_WEB_PUSH = "true"
+PHEMEX_AUTO_TRADER = "true"
 
 [services.production.health.startup]
 path = "/api/healthz"
