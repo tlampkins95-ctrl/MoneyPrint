@@ -16,6 +16,7 @@ import { broadcastWebPush } from "./web-push-notifier";
 import {
   isPhemexTradingEnabled,
   getUSDTBalance,
+  fetchContractSpecs,
   placeOrder,
   cancelOrder,
   cancelAllOrders,
@@ -217,6 +218,7 @@ export function getPhemexAutoTraderEnabled(): boolean {
 interface OpenPhemexOrder {
   orderId:      string;
   phemexSymbol: string;
+  posSide?:     "Long" | "Short";  // required in hedge mode
 }
 const openPhemexOrders = new Map<string, OpenPhemexOrder>();
 
@@ -262,7 +264,7 @@ async function executePhemexTrade(
   // Cancel any existing pending order for this slot before placing a new one.
   const existing = openPhemexOrders.get(k);
   if (existing) {
-    await cancelOrder(existing.phemexSymbol, existing.orderId);
+    await cancelOrder(existing.phemexSymbol, existing.orderId, existing.posSide);
     openPhemexOrders.delete(k);
   }
 
@@ -314,7 +316,8 @@ async function executePhemexTrade(
 
   if (orderId) {
     failedOrderAt.delete(k);
-    openPhemexOrders.set(k, { orderId, phemexSymbol });
+    const posSide = side === "Buy" ? "Long" : "Short";
+    openPhemexOrders.set(k, { orderId, phemexSymbol, posSide });
     logger.info(
       { symbol, timeframe, side, qty: rawQty, entry: levels.entryPrice, sl: levels.stopLoss, tp: levels.takeProfit1, orderId, accountSize },
       "phemex-trader: order tracked",
@@ -743,7 +746,7 @@ async function checkSymbol(
     ) {
       const openOrder = openPhemexOrders.get(k);
       if (openOrder) {
-        void cancelOrder(openOrder.phemexSymbol, openOrder.orderId).then(() => {
+        void cancelOrder(openOrder.phemexSymbol, openOrder.orderId, openOrder.posSide).then(() => {
           openPhemexOrders.delete(k);
         });
       }
@@ -1160,6 +1163,12 @@ export function startSignalNotifier(): void {
     return;
   }
   started = true;
+
+  // Pre-fetch Phemex contract specs (minPriceRp per symbol) so placeOrder can
+  // clamp prices for symbols whose market price is below the exchange floor.
+  if (isPhemexTradingEnabled()) {
+    void fetchContractSpecs();
+  }
 
   // Wire up the trade-close hook so signals.ts can notify us when a trade
   // closes without creating a circular import.

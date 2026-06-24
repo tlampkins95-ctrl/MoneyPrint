@@ -88,6 +88,51 @@ async function phemexRequest<T>(
   return json.data;
 }
 
+// ─── Contract specs (minPriceRp cache) ───────────────────────────────────────
+
+interface ContractSpec {
+  minPriceRp: number;
+  tickSize:   number;
+}
+const contractSpecCache = new Map<string, ContractSpec>();
+
+/**
+ * Fetches all USDT-perp contract specs from the public products endpoint and
+ * populates the cache. No auth required. Called once at startup alongside
+ * getUSDTBalance. Subsequent placeOrder calls use the cache to clamp priceRp.
+ */
+export async function fetchContractSpecs(): Promise<void> {
+  try {
+    const res = await fetch("https://api.phemex.com/public/products", {
+      signal: AbortSignal.timeout(10_000),
+    });
+    const json = (await res.json()) as { code: number; data?: { perpProductsV2?: Array<{
+      symbol:      string;
+      minPriceRp?: string;
+      tickSize?:   string;
+    }> } };
+    const perps = json.data?.perpProductsV2 ?? [];
+    for (const p of perps) {
+      const min = parseFloat(p.minPriceRp ?? "0");
+      const tick = parseFloat(p.tickSize   ?? "0.01");
+      if (p.symbol && isFinite(min)) {
+        contractSpecCache.set(p.symbol, { minPriceRp: min, tickSize: tick });
+      }
+    }
+    logger.info({ count: contractSpecCache.size }, "phemex-trader: contract specs cached");
+  } catch (err) {
+    logger.warn({ err }, "phemex-trader: fetchContractSpecs failed — price clamping disabled");
+  }
+}
+
+/**
+ * Returns the minimum allowed order price for a Phemex symbol.
+ * 0 when unknown (no clamping applied).
+ */
+export function getMinPriceRp(symbol: string): number {
+  return contractSpecCache.get(symbol)?.minPriceRp ?? 0;
+}
+
 // ─── Account ─────────────────────────────────────────────────────────────────
 
 interface AccountData {
@@ -179,6 +224,25 @@ export async function placeOrder(params: PlaceOrderParams): Promise<string | nul
   const hedgeMode = resolveHedgeMode();
   const isTestnet = process.env["PHEMEX_TESTNET"] === "true";
 
+  // Clamp priceRp to minPriceRp when the signal entry is below the exchange
+  // floor (e.g. SOLUSDT minPriceRp=100 with SOL at $69). A limit BUY above
+  // the current market price fills immediately as a taker at the real market
+  // price. SL/TP are absolute prices and are accepted regardless of minPriceRp.
+  const rawPrice   = parseFloat(params.priceRp);
+  const minPrice   = getMinPriceRp(params.phemexSymbol);
+  const spec       = contractSpecCache.get(params.phemexSymbol);
+  const tickSize   = spec?.tickSize ?? 0.01;
+  const pxPrec     = Math.max(0, -Math.floor(Math.log10(tickSize)));
+  const clampedPrice = minPrice > 0 && rawPrice < minPrice
+    ? minPrice.toFixed(pxPrec)
+    : params.priceRp;
+  if (clampedPrice !== params.priceRp) {
+    logger.info(
+      { symbol: params.phemexSymbol, signalEntry: rawPrice, clampedTo: clampedPrice, minPriceRp: minPrice },
+      "phemex-trader: priceRp clamped to minPriceRp — will fill at market",
+    );
+  }
+
   const body: Record<string, string | boolean> = {
     symbol:       params.phemexSymbol,
     clOrdID:      params.clOrdID,
@@ -186,7 +250,7 @@ export async function placeOrder(params: PlaceOrderParams): Promise<string | nul
     ordType:      "Limit",
     timeInForce:  "GoodTillCancel",
     orderQtyRq:   params.qtyRq,
-    priceRp:      params.priceRp,
+    priceRp:      clampedPrice,
     stopLossRp:   params.stopLossRp,
     takeProfitRp: params.takeProfitRp,
     // NOTE: do NOT include slOrdPxRp / tpOrdPxRp — even "0" causes code 39999
@@ -221,18 +285,21 @@ export async function placeOrder(params: PlaceOrderParams): Promise<string | nul
 
 /**
  * Cancels a specific open order by its exchange orderID.
+ * In hedge mode, posSide must be supplied or Phemex rejects the cancel.
  * Ignores errors (order may already be filled/cancelled).
  */
 export async function cancelOrder(
   phemexSymbol: string,
   orderId: string,
+  posSide?: "Long" | "Short",
 ): Promise<void> {
+  const query: Record<string, string> = { orderId, symbol: phemexSymbol };
+  if (resolveHedgeMode() && posSide) {
+    query["posSide"] = posSide;
+  }
   try {
-    await phemexRequest<unknown>("DELETE", "/g-orders/cancel", {
-      orderId,
-      symbol: phemexSymbol,
-    });
-    logger.info({ orderId, phemexSymbol }, "phemex-trader: order cancelled");
+    await phemexRequest<unknown>("DELETE", "/g-orders/cancel", query);
+    logger.info({ orderId, phemexSymbol, posSide }, "phemex-trader: order cancelled");
   } catch (err) {
     // Ignore — order already filled or cancelled
     logger.info({ err, orderId, phemexSymbol }, "phemex-trader: cancel skipped (likely filled)");

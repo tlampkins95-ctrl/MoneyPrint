@@ -25,11 +25,17 @@ The `PHEMEX_HEDGE_MODE` env var existed but was never set, so `hedgeMode` defaul
 - If orders start failing with 39999 after an account change, check `userMode` from `/g-accounts/accountPositions`.
 - The detection log line: `"phemex-trader: account position mode detected"` with `hedgeMode: true/false`.
 
-## Symbols with minPriceRp issues (still untradeable at current prices)
+## minPriceRp clamping (added after hedge mode fix)
 
-- XAGUSDT: minPriceRp=100, silver ~$61 → rejected
-- SOLUSDT: minPriceRp=100, SOL ~$69 → rejected  
-- ONDOUSDT: minPriceRp=1.0, ONDO ~$0.30 → rejected
-- BEATUSDT: minPriceRp=1.0, price unknown (ticker returns 6001)
-- HYPEUSDT: minPriceRp=10.0, HYPE ~$62 → OK ✓
-- AAVEUSDT: minPriceRp=100.0, AAVE ~$200+ → OK ✓
+placeOrder now fetches all contract specs at startup via fetchContractSpecs()
+and clamps priceRp = max(signalEntry, minPriceRp). A limit BUY above market
+fills immediately as a taker at real market price. SL/TP are absolute prices
+and are accepted regardless of minPriceRp.
+
+Verified live: SOLUSDT at $68.95 → clamped to $100 → code=0, filled at $68.95.
+
+## cancelOrder in hedge mode
+
+cancelOrder also requires posSide query param in hedge mode. OpenPhemexOrder
+now stores posSide, passed through to all cancelOrder calls. Tested: cancel
+without posSide returns "Required query parameter 'posSide' is not present."
