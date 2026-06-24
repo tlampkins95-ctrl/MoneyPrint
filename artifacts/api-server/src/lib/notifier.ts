@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { logger } from "./logger";
-import { SYMBOLS, makeRounder, type Symbol, ALL_SYMBOLS } from "./symbols";
+import { SYMBOLS, makeRounder, type Symbol, type SymbolMeta, ALL_SYMBOLS } from "./symbols";
 import {
   fetchCandlesForTimeframe,
   type Timeframe,
@@ -231,14 +231,32 @@ const FAILED_ORDER_RETRY_MS = 5 * 60_000;
  * an attached SL + TP1 bracket.  Stores the returned orderId in openPhemexOrders
  * so a subsequent WAIT/flip transition can cancel it.
  */
+interface TrendingTradeMeta {
+  decimals: number;
+  phemexQtyStep?: number;
+  phemexMinQty?: number;
+}
+
 async function executePhemexTrade(
   symbol: string,
   timeframe: Timeframe,
   levels: ReturnType<typeof computeLevelsStable>,
   phemexSymbol: string,
+  trendingMeta?: TrendingTradeMeta,
 ): Promise<void> {
   const k = key(symbol, timeframe);
-  const meta = SYMBOLS[symbol as Symbol];
+  // Static symbols use the SYMBOLS table. Trending coins pass trendingMeta
+  // directly — they are NOT in the SYMBOLS table so the lookup returns undefined.
+  const staticMeta = SYMBOLS[symbol as Symbol];
+  const meta: SymbolMeta | undefined = staticMeta ?? (trendingMeta ? {
+    yahoo: "", tvSymbol: "", tvScrapePath: "", label: symbol,
+    prefix: "$", category: "crypto",
+    decimals: trendingMeta.decimals,
+    phemexQtyStep: trendingMeta.phemexQtyStep,
+    phemexMinQty: trendingMeta.phemexMinQty,
+    // Non-empty okxPerp triggers the crypto sizing branch in computePositionSizing.
+    okxPerp: phemexSymbol,
+  } : undefined);
   if (!meta) return;
 
   // Cancel any existing pending order for this slot before placing a new one.
@@ -930,19 +948,21 @@ async function checkTrendingSymbol(
         }
       }
 
-      // Phemex auto-trade for trending coins — fires before the BTC notification gate.
-      // Trending coins don't have static phemexPerp entries, so this is a no-op for
-      // most of them, but the check is symmetric with the static-symbol path.
+      // Phemex auto-trade for trending coins.
+      // tMeta.phemexPerp is the exchange symbol (e.g. "ONDOUSDT").
+      // We pass trendingMeta so executePhemexTrade doesn't bail on the SYMBOLS lookup.
       if (
         !isSeedSnapshot &&
         (levels.signal === "BUY" || levels.signal === "SELL") &&
         isPhemexTradingEnabled() &&
-        phemexAutoTraderEnabled
+        phemexAutoTraderEnabled &&
+        tMeta.phemexPerp
       ) {
-        const phemexSymbol = SYMBOLS[symbolKey as Symbol]?.phemexPerp;
-        if (phemexSymbol) {
-          void executePhemexTrade(symbolKey, timeframe, levels, phemexSymbol);
-        }
+        void executePhemexTrade(symbolKey, timeframe, levels, tMeta.phemexPerp, {
+          decimals: tMeta.decimals,
+          phemexQtyStep: tMeta.phemexQtyStep,
+          phemexMinQty: tMeta.phemexMinQty,
+        });
       }
 
       const tfLabel = TIMEFRAME_LABEL[timeframe];
@@ -997,6 +1017,30 @@ async function checkTrendingSymbol(
       lastAlertSignal: prev?.lastAlertSignal,
       lastPatternKey: levels.signal === "WAIT" ? undefined : prev?.lastPatternKey,
     });
+
+    // Catch-up auto-trade for trending coins: if the auto-trader is on, the
+    // signal is PENDING, and no order is tracked, place one now. Covers the
+    // case where the trader was enabled (or the server restarted) while a
+    // signal was already live — the transition block above was skipped because
+    // there was no state change.
+    const lastFailedT = failedOrderAt.get(k) ?? 0;
+    const recentlyFailedT = Date.now() - lastFailedT < FAILED_ORDER_RETRY_MS;
+    if (
+      (levels.signal === "BUY" || levels.signal === "SELL") &&
+      levels.tradeState === "PENDING" &&
+      isPhemexTradingEnabled() &&
+      phemexAutoTraderEnabled &&
+      tMeta.phemexPerp &&
+      !openPhemexOrders.has(k) &&
+      !recentlyFailedT
+    ) {
+      logger.info({ symbolKey, timeframe, signal: levels.signal }, "phemex-trader: trending catch-up order — no tracked order for active signal");
+      void executePhemexTrade(symbolKey, timeframe, levels, tMeta.phemexPerp, {
+        decimals: tMeta.decimals,
+        phemexQtyStep: tMeta.phemexQtyStep,
+        phemexMinQty: tMeta.phemexMinQty,
+      });
+    }
   } catch (err) {
     logger.warn({ err, symbolKey, timeframe }, "Trending notifier check failed");
   }
