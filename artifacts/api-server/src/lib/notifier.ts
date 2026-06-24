@@ -182,9 +182,10 @@ const AUTO_TRADER_STATE_FILE = join(
 function loadAutoTraderState(): boolean {
   try {
     if (!existsSync(AUTO_TRADER_STATE_FILE)) {
-      // No persisted state yet — fall back to env var.
-      // PHEMEX_AUTO_TRADER=true in artifact.toml ensures production starts hot.
-      return process.env["PHEMEX_AUTO_TRADER"] === "true";
+      // No persisted state — default to ON whenever Phemex keys are present.
+      // This ensures both dev and production start trading immediately without
+      // a manual API call to enable the auto-trader.
+      return isPhemexTradingEnabled();
     }
     const raw = readFileSync(AUTO_TRADER_STATE_FILE, "utf8");
     const parsed = JSON.parse(raw) as { enabled?: boolean };
@@ -250,6 +251,7 @@ async function executePhemexTrade(
   phemexSymbol: string,
   trendingMeta?: TrendingTradeMeta,
 ): Promise<void> {
+  logger.info({ symbol, timeframe, phemexSymbol, signal: levels.signal }, "phemex-trader: executePhemexTrade entered");
   const k = key(symbol, timeframe);
   // Static symbols use the SYMBOLS table. Trending coins pass trendingMeta
   // directly — they are NOT in the SYMBOLS table so the lookup returns undefined.
@@ -637,14 +639,15 @@ async function checkSymbol(
       // Phemex auto-trade: place order on every fresh signal transition that
       // passes all gates above. Seed snapshots are excluded — they represent
       // catch-up state on restart, not live signals.
-      if (
-        !isSeedSnapshot &&
-        (levels.signal === "BUY" || levels.signal === "SELL") &&
-        isPhemexTradingEnabled() &&
-        phemexAutoTraderEnabled
-      ) {
+      if (!isSeedSnapshot && (levels.signal === "BUY" || levels.signal === "SELL")) {
         const phemexSymbol = SYMBOLS[symbol as Symbol]?.phemexPerp;
-        if (phemexSymbol) {
+        const tradingEnabled = isPhemexTradingEnabled();
+        const autoTraderOn   = phemexAutoTraderEnabled;
+        logger.info(
+          { symbol, timeframe, signal: levels.signal, tradingEnabled, autoTraderOn, hasPhemexSymbol: !!phemexSymbol },
+          "phemex-trader: gate check",
+        );
+        if (tradingEnabled && autoTraderOn && phemexSymbol) {
           void executePhemexTrade(symbol, timeframe, levels, phemexSymbol);
         }
       }
