@@ -230,8 +230,10 @@ export async function checkExistingPosition(
     );
     return match ? parseFloat(match.size ?? match.qty ?? "0") : null;
   } catch (err) {
-    logger.warn({ err, phemexSymbol, posSide }, "phemex-trader: checkExistingPosition failed — assuming no position");
-    return null;
+    // Re-throw so the caller treats an API failure as "unknown, skip order"
+    // rather than "no position, proceed" — prevents double-entry on Phemex errors.
+    logger.warn({ err, phemexSymbol, posSide }, "phemex-trader: checkExistingPosition failed — skipping order (safe default)");
+    throw err;
   }
 }
 

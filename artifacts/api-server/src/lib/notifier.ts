@@ -332,7 +332,15 @@ async function executePhemexTrade(
   // After a server restart, openPhemexOrders is wiped but Phemex still holds
   // the positions. Without this check, the catch-up block would double-enter
   // every active signal within 20 seconds of startup.
-  const existingSize = await checkExistingPosition(phemexSymbol, posSideForCheck);
+  let existingSize: number | null;
+  try {
+    existingSize = await checkExistingPosition(phemexSymbol, posSideForCheck);
+  } catch {
+    // API failure: we don't know whether a position exists. Safest default is
+    // to skip placing a new order rather than risk doubling exposure.
+    logger.warn({ symbol, timeframe, phemexSymbol }, "phemex-trader: checkExistingPosition threw — skipping order (safe default)");
+    return;
+  }
   if (existingSize !== null) {
     logger.info(
       { symbol, timeframe, phemexSymbol, side, existingSize },
