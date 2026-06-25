@@ -22,6 +22,7 @@ import {
   cancelAllOrders,
   phemexRiskPct,
   phemexMaxLeverage,
+  getMinPriceRp,
 } from "./phemex-trader";
 
 type SignalKind = "BUY" | "SELL" | "WAIT";
@@ -227,6 +228,11 @@ interface OpenPhemexOrder {
 }
 const openPhemexOrders = new Map<string, OpenPhemexOrder>();
 
+// Guards against two concurrent executePhemexTrade calls racing for the same
+// slot (can happen when checkSymbol and checkTrendingSymbol both fire in the
+// same poll tick). The second call exits immediately.
+const inFlightOrderSlots = new Set<string>();
+
 // Tracks the last failed placeOrder attempt per slot (symbol+timeframe key).
 // Catch-up retries are suppressed for 5 minutes after a failure so a persistent
 // exchange rejection doesn't spam a new attempt every poll cycle.
@@ -253,6 +259,16 @@ async function executePhemexTrade(
 ): Promise<void> {
   logger.info({ symbol, timeframe, phemexSymbol, signal: levels.signal }, "phemex-trader: executePhemexTrade entered");
   const k = key(symbol, timeframe);
+
+  // Prevent two concurrent calls racing for the same slot (e.g. checkSymbol
+  // and checkTrendingSymbol both firing in the same poll tick).
+  if (inFlightOrderSlots.has(k)) {
+    logger.warn({ symbol, timeframe }, "phemex-trader: order already in-flight for slot — skipping duplicate");
+    return;
+  }
+  inFlightOrderSlots.add(k);
+
+  try {
   // Static symbols use the SYMBOLS table. Trending coins pass trendingMeta
   // directly — they are NOT in the SYMBOLS table so the lookup returns undefined.
   const staticMeta = SYMBOLS[symbol as Symbol];
@@ -310,13 +326,38 @@ async function executePhemexTrade(
 
   const side: "Buy" | "Sell" = levels.signal === "BUY" ? "Buy" : "Sell";
 
+  // For Market IOC SELL (entry < minPriceRp), the fill happens at current BID,
+  // not at signal entry. Anchor SL/TP to currentPrice so the designed R:R
+  // (2:1) is preserved at the actual fill price rather than signal entry.
+  //   reward = entryPrice - tp1  (positive for SELL)
+  //   risk   = sl - entryPrice   (positive for SELL)
+  //   new_tp = currentPrice - reward
+  //   new_sl = currentPrice + risk
+  const minPx = getMinPriceRp(phemexSymbol);
+  const isMarketIocSell = side === "Sell" && minPx > 0 && levels.entryPrice < minPx;
+  let effectiveSL = levels.stopLoss;
+  let effectiveTP = levels.takeProfit1;
+  if (isMarketIocSell) {
+    const reward = levels.entryPrice - levels.takeProfit1;
+    const risk   = levels.stopLoss   - levels.entryPrice;
+    const ref    = levels.currentPrice;
+    effectiveTP  = ref - reward;
+    effectiveSL  = ref + risk;
+    logger.info(
+      { symbol, phemexSymbol, signalEntry: levels.entryPrice, currentPrice: ref,
+        origSL: levels.stopLoss, origTP: levels.takeProfit1,
+        newSL: effectiveSL, newTP: effectiveTP },
+      "phemex-trader: Market IOC SELL — SL/TP re-anchored to current price",
+    );
+  }
+
   const orderId = await placeOrder({
     phemexSymbol,
     side,
     qtyRq:        rawQty.toFixed(qtyDecimals),
     priceRp:      levels.entryPrice.toFixed(pxDecimals),
-    stopLossRp:   levels.stopLoss.toFixed(pxDecimals),
-    takeProfitRp: levels.takeProfit1.toFixed(pxDecimals),
+    stopLossRp:   effectiveSL.toFixed(pxDecimals),
+    takeProfitRp: effectiveTP.toFixed(pxDecimals),
     clOrdID:      `phx-${symbol}-${timeframe}-${Date.now()}`,
   });
 
@@ -325,11 +366,14 @@ async function executePhemexTrade(
     const posSide = side === "Buy" ? "Long" : "Short";
     openPhemexOrders.set(k, { orderId, phemexSymbol, posSide });
     logger.info(
-      { symbol, timeframe, side, qty: rawQty, entry: levels.entryPrice, sl: levels.stopLoss, tp: levels.takeProfit1, orderId, accountSize },
+      { symbol, timeframe, side, qty: rawQty, entry: levels.entryPrice, sl: effectiveSL, tp: effectiveTP, orderId, accountSize },
       "phemex-trader: order tracked",
     );
   } else {
     failedOrderAt.set(k, Date.now());
+  }
+  } finally {
+    inFlightOrderSlots.delete(k);
   }
 }
 

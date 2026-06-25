@@ -320,7 +320,7 @@ export async function cancelOrder(
   orderId: string,
   posSide?: "Long" | "Short",
 ): Promise<void> {
-  const query: Record<string, string> = { orderId, symbol: phemexSymbol };
+  const query: Record<string, string> = { orderID: orderId, symbol: phemexSymbol };
   if (resolveHedgeMode() && posSide) {
     query["posSide"] = posSide;
   }

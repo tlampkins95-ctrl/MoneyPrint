@@ -50,5 +50,15 @@ and applies different logic per side:
 ## cancelOrder in hedge mode
 
 cancelOrder also requires posSide query param in hedge mode. OpenPhemexOrder
-now stores posSide, passed through to all cancelOrder calls. Tested: cancel
-without posSide returns "Required query parameter 'posSide' is not present."
+now stores posSide, passed through to all cancelOrder calls.
+
+**Critical**: Phemex DELETE /g-orders/cancel requires query param `orderID`
+(capital D). Sending `orderId` (lowercase) returns code 10500 "orderID or
+clOrdID is required." and the cancel silently no-ops. Always use `orderID`.
+
+## Duplicate order guard
+
+checkSymbol and checkTrendingSymbol can fire executePhemexTrade for the same
+slot in the same poll tick (15ms apart). openPhemexOrders guard doesn't help
+because the first call hasn't returned yet. Fix: `inFlightOrderSlots` Set —
+second call exits immediately. Without this, every signal fires 2× position.
