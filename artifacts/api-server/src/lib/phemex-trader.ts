@@ -142,6 +142,14 @@ interface AccountData {
     availableBalanceRv?: string;
     userMode?: number;  // 0 = one-way, 1 = hedge (two-way)
   };
+  positions?: Array<{
+    symbol:           string;
+    posSide?:         string;
+    side?:            string;
+    size?:            string;
+    qty?:             string;
+    avgEntryPriceRp?: string;
+  }>;
 }
 
 /**
@@ -195,6 +203,34 @@ export async function getUSDTBalance(): Promise<number | null> {
     return v;
   } catch (err) {
     logger.warn({ err }, "getUSDTBalance: request failed");
+    return null;
+  }
+}
+
+/**
+ * Returns the existing open position size (non-zero) for a given symbol+side,
+ * or null if no position exists. Used at order time to detect positions that
+ * survived a server restart (openPhemexOrders was wiped but Phemex still holds
+ * the position) so the catch-up block doesn't double-enter them.
+ */
+export async function checkExistingPosition(
+  phemexSymbol: string,
+  posSide: "Long" | "Short",
+): Promise<number | null> {
+  try {
+    const data = await phemexRequest<AccountData>(
+      "GET",
+      "/g-accounts/accountPositions",
+      { currency: "USDT" },
+    );
+    const match = (data.positions ?? []).find(
+      p => p.symbol === phemexSymbol &&
+           (p.posSide ?? p.side) === posSide &&
+           parseFloat(p.size ?? p.qty ?? "0") !== 0,
+    );
+    return match ? parseFloat(match.size ?? match.qty ?? "0") : null;
+  } catch (err) {
+    logger.warn({ err, phemexSymbol, posSide }, "phemex-trader: checkExistingPosition failed — assuming no position");
     return null;
   }
 }

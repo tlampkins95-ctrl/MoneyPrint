@@ -23,6 +23,7 @@ import {
   phemexRiskPct,
   phemexMaxLeverage,
   getMinPriceRp,
+  checkExistingPosition,
 } from "./phemex-trader";
 
 type SignalKind = "BUY" | "SELL" | "WAIT";
@@ -325,6 +326,21 @@ async function executePhemexTrade(
   const pxDecimals  = meta.decimals ?? 2;
 
   const side: "Buy" | "Sell" = levels.signal === "BUY" ? "Buy" : "Sell";
+  const posSideForCheck: "Long" | "Short" = side === "Buy" ? "Long" : "Short";
+
+  // Guard against re-entering a position that already exists on Phemex.
+  // After a server restart, openPhemexOrders is wiped but Phemex still holds
+  // the positions. Without this check, the catch-up block would double-enter
+  // every active signal within 20 seconds of startup.
+  const existingSize = await checkExistingPosition(phemexSymbol, posSideForCheck);
+  if (existingSize !== null) {
+    logger.info(
+      { symbol, timeframe, phemexSymbol, side, existingSize },
+      "phemex-trader: position already exists on Phemex — registering in tracker, skipping new order",
+    );
+    openPhemexOrders.set(k, { orderId: `pre-existing-${Date.now()}`, phemexSymbol, posSide: posSideForCheck });
+    return;
+  }
 
   // For Market IOC SELL (entry < minPriceRp), the fill happens at current BID,
   // not at signal entry. Anchor SL/TP to currentPrice so the designed R:R
