@@ -439,6 +439,25 @@ async function executePhemexTrade(
     return;
   }
 
+  // Prevent self-hedging: if an opposite-side position already exists for this
+  // symbol (opened by a conflicting timeframe signal), skip rather than creating
+  // a simultaneous Long+Short on the same asset.
+  const oppositeSideForCheck: "Long" | "Short" = posSideForCheck === "Long" ? "Short" : "Long";
+  let oppositePos: { size: number; stopLossRp: number } | null;
+  try {
+    oppositePos = await checkExistingPosition(phemexSymbol, oppositeSideForCheck);
+  } catch {
+    logger.warn({ symbol, timeframe, phemexSymbol }, "phemex-trader: checkExistingPosition (opposite side) threw — skipping order (safe default)");
+    return;
+  }
+  if (oppositePos !== null) {
+    logger.warn(
+      { symbol, timeframe, phemexSymbol, signal: levels.signal, oppositeSize: oppositePos.size, oppositeSide: oppositeSideForCheck },
+      "phemex-trader: opposite-side position already open — skipping to avoid self-hedge",
+    );
+    return;
+  }
+
   // Also check for an unfilled pending limit order that survived the restart.
   // checkExistingPosition only sees filled positions; a pending order wouldn't
   // show there yet but would be duplicated if we placed another one.
