@@ -258,6 +258,7 @@ async function executePhemexTrade(
   levels: ReturnType<typeof computeLevelsStable>,
   phemexSymbol: string,
   trendingMeta?: TrendingTradeMeta,
+  candleRange?: { low: number; high: number },
 ): Promise<void> {
   logger.info({ symbol, timeframe, phemexSymbol, signal: levels.signal }, "phemex-trader: executePhemexTrade entered");
   const k = key(symbol, timeframe);
@@ -297,6 +298,26 @@ async function executePhemexTrade(
       logger.warn(
         { symbol, timeframe, rewardPct: rewardPct.toFixed(4), entryPrice: levels.entryPrice, tp1: levels.takeProfit1 },
         "phemex-trader: trending coin reward distance too small (ranging market) — order skipped",
+      );
+      return;
+    }
+  }
+
+  // Reject if TP1 projects beyond the candle dataset's historical price range.
+  // A SELL TP below the dataset floor, or a BUY TP above the ceiling, means
+  // price has never been there — it's a measured-move fantasy, not a real target.
+  if (candleRange) {
+    if (levels.signal === "SELL" && levels.takeProfit1 < candleRange.low) {
+      logger.warn(
+        { symbol, timeframe, tp1: levels.takeProfit1, candleLow: candleRange.low },
+        "phemex-trader: SELL TP1 below candle floor — unreachable target, skipping order",
+      );
+      return;
+    }
+    if (levels.signal === "BUY" && levels.takeProfit1 > candleRange.high) {
+      logger.warn(
+        { symbol, timeframe, tp1: levels.takeProfit1, candleHigh: candleRange.high },
+        "phemex-trader: BUY TP1 above candle ceiling — unreachable target, skipping order",
       );
       return;
     }
@@ -753,7 +774,10 @@ async function checkSymbol(
           "phemex-trader: gate check",
         );
         if (tradingEnabled && autoTraderOn && phemexSymbol) {
-          void executePhemexTrade(symbol, timeframe, levels, phemexSymbol);
+          const candleRange = candles.length > 0
+            ? { low: Math.min(...candles.map(c => c.close)), high: Math.max(...candles.map(c => c.close)) }
+            : undefined;
+          void executePhemexTrade(symbol, timeframe, levels, phemexSymbol, undefined, candleRange);
         }
       }
 
@@ -1079,11 +1103,14 @@ async function checkTrendingSymbol(
         phemexAutoTraderEnabled &&
         tMeta.phemexPerp
       ) {
+        const candleRangeTrending = candles.length > 0
+          ? { low: Math.min(...candles.map(c => c.close)), high: Math.max(...candles.map(c => c.close)) }
+          : undefined;
         void executePhemexTrade(symbolKey, timeframe, levels, tMeta.phemexPerp, {
           decimals: tMeta.decimals,
           phemexQtyStep: tMeta.phemexQtyStep,
           phemexMinQty: tMeta.phemexMinQty,
-        });
+        }, candleRangeTrending);
       }
 
       const tfLabel = TIMEFRAME_LABEL[timeframe];
