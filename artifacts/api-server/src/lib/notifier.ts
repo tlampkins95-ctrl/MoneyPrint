@@ -284,6 +284,23 @@ async function executePhemexTrade(
   } : undefined);
   if (!meta) return;
 
+  // For trending coins: reject if the reward distance is too small relative to
+  // entry price. A swing this tight means the coin is ranging — not trending —
+  // and the signal is noise. Gate is trending-only; static symbols have their
+  // own upstream MIN_IMPULSE_ATR guard in signals.ts.
+  if (trendingMeta) {
+    const rewardDist = Math.abs(levels.entryPrice - levels.takeProfit1);
+    const rewardPct  = rewardDist / levels.entryPrice;
+    const MIN_REWARD_PCT = 0.05; // 5% minimum reward distance from entry to TP1
+    if (rewardPct < MIN_REWARD_PCT) {
+      logger.warn(
+        { symbol, timeframe, rewardPct: rewardPct.toFixed(4), entryPrice: levels.entryPrice, tp1: levels.takeProfit1 },
+        "phemex-trader: trending coin reward distance too small (ranging market) — order skipped",
+      );
+      return;
+    }
+  }
+
   // Cancel any existing pending order for this slot before placing a new one.
   const existing = openPhemexOrders.get(k);
   if (existing) {
@@ -843,9 +860,14 @@ async function checkSymbol(
     // because there was no state change, but the order still needs to be placed.
     const lastFailed = failedOrderAt.get(k) ?? 0;
     const recentlyFailed = Date.now() - lastFailed < FAILED_ORDER_RETRY_MS;
+    const catchUpTypeAllowed =
+      levels.signalType === "FIB50_SWING" ||
+      levels.signalType === "DOUBLE_TOP" ||
+      levels.signalType === "DOUBLE_BOTTOM";
     if (
       (levels.signal === "BUY" || levels.signal === "SELL") &&
       levels.tradeState === "PENDING" &&
+      catchUpTypeAllowed &&
       isPhemexTradingEnabled() &&
       phemexAutoTraderEnabled &&
       !openPhemexOrders.has(k) &&
@@ -853,7 +875,7 @@ async function checkSymbol(
     ) {
       const phemexSymbol = SYMBOLS[symbol as Symbol]?.phemexPerp;
       if (phemexSymbol) {
-        logger.info({ symbol, timeframe, signal: levels.signal }, "phemex-trader: catch-up order — no tracked order for active signal");
+        logger.info({ symbol, timeframe, signal: levels.signal, signalType: levels.signalType }, "phemex-trader: catch-up order — no tracked order for active signal");
         void executePhemexTrade(symbol, timeframe, levels, phemexSymbol);
       }
     }
@@ -1103,16 +1125,21 @@ async function checkTrendingSymbol(
     // there was no state change.
     const lastFailedT = failedOrderAt.get(k) ?? 0;
     const recentlyFailedT = Date.now() - lastFailedT < FAILED_ORDER_RETRY_MS;
+    const trendingCatchUpTypeAllowed =
+      levels.signalType === "FIB50_SWING" ||
+      levels.signalType === "DOUBLE_TOP" ||
+      levels.signalType === "DOUBLE_BOTTOM";
     if (
       (levels.signal === "BUY" || levels.signal === "SELL") &&
       levels.tradeState === "PENDING" &&
+      trendingCatchUpTypeAllowed &&
       isPhemexTradingEnabled() &&
       phemexAutoTraderEnabled &&
       tMeta.phemexPerp &&
       !openPhemexOrders.has(k) &&
       !recentlyFailedT
     ) {
-      logger.info({ symbolKey, timeframe, signal: levels.signal }, "phemex-trader: trending catch-up order — no tracked order for active signal");
+      logger.info({ symbolKey, timeframe, signal: levels.signal, signalType: levels.signalType }, "phemex-trader: trending catch-up order — no tracked order for active signal");
       void executePhemexTrade(symbolKey, timeframe, levels, tMeta.phemexPerp, {
         decimals: tMeta.decimals,
         phemexQtyStep: tMeta.phemexQtyStep,
