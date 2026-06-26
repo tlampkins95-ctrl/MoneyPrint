@@ -24,6 +24,7 @@ import {
   phemexMaxLeverage,
   getMinPriceRp,
   checkExistingPosition,
+  checkExistingOrder,
 } from "./phemex-trader";
 
 type SignalKind = "BUY" | "SELL" | "WAIT";
@@ -364,6 +365,25 @@ async function executePhemexTrade(
       "phemex-trader: position already exists on Phemex — registering in tracker, skipping new order",
     );
     openPhemexOrders.set(k, { orderId: `pre-existing-${Date.now()}`, phemexSymbol, posSide: posSideForCheck });
+    return;
+  }
+
+  // Also check for an unfilled pending limit order that survived the restart.
+  // checkExistingPosition only sees filled positions; a pending order wouldn't
+  // show there yet but would be duplicated if we placed another one.
+  let existingOrderId: string | null;
+  try {
+    existingOrderId = await checkExistingOrder(phemexSymbol, posSideForCheck);
+  } catch {
+    logger.warn({ symbol, timeframe, phemexSymbol }, "phemex-trader: checkExistingOrder threw — skipping order (safe default)");
+    return;
+  }
+  if (existingOrderId !== null) {
+    logger.info(
+      { symbol, timeframe, phemexSymbol, side, existingOrderId },
+      "phemex-trader: pending order already exists on Phemex — registering in tracker, skipping new order",
+    );
+    openPhemexOrders.set(k, { orderId: existingOrderId, phemexSymbol, posSide: posSideForCheck });
     return;
   }
 

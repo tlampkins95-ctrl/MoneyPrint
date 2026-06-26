@@ -208,6 +208,36 @@ export async function getUSDTBalance(): Promise<number | null> {
 }
 
 /**
+ * Returns the orderId of an active (unfilled) limit order for a given
+ * symbol+posSide, or null if none exists. Used at order time so that a server
+ * restart doesn't place a duplicate entry order when one is already pending on
+ * Phemex but openPhemexOrders was wiped.
+ */
+export async function checkExistingOrder(
+  phemexSymbol: string,
+  posSide: "Long" | "Short",
+): Promise<string | null> {
+  try {
+    const data = await phemexRequest<{ rows: Array<{ orderID: string; symbol: string; posSide?: string; side?: string; ordStatus: string }> }>(
+      "GET",
+      "/g-orders/activeList",
+      { symbol: phemexSymbol, currency: "USDT" },
+    );
+    const rows = data?.rows ?? [];
+    const match = rows.find(
+      o => o.symbol === phemexSymbol &&
+           (o.posSide ?? o.side) === posSide &&
+           o.ordStatus !== "Cancelled" &&
+           o.ordStatus !== "Filled",
+    );
+    return match?.orderID ?? null;
+  } catch (err) {
+    logger.warn({ err, phemexSymbol, posSide }, "phemex-trader: checkExistingOrder failed — skipping order (safe default)");
+    throw err;
+  }
+}
+
+/**
  * Returns the existing open position size (non-zero) for a given symbol+side,
  * or null if no position exists. Used at order time to detect positions that
  * survived a server restart (openPhemexOrders was wiped but Phemex still holds

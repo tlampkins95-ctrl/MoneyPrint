@@ -12,7 +12,8 @@
 - [Resistance/support exhaustion guard](resistance-exhaustion-guard.md) — FIB50_SWING invalidates when swingB wicked ≥2 times without close-through; threshold=2 so signal dies before 3rd failed attempt.
 - [Production startup race](production-startup-race.md) — syncFromDb must be awaited before startSignalNotifier; fire-and-forget wiped all production:: DB rows on every restart.
 - [Auto-trader catch-up on restart](auto-trader-catchup.md) — Phemex auto-trade only fires on signal transitions; server restart wipes openPhemexOrders so BUY→BUY (no transition) never re-places the order. Fix: catch-up block at bottom of checkSymbol places order when signal=PENDING and no order tracked.
-- [Catch-up block signalType gap](catchup-signaltype-gap.md) — live transition is gated by signalType; catch-up blocks were NOT; PATTERN_BREAKOUT could auto-trade on restart. Fix: both catch-up blocks now require FIB50_SWING/DOUBLE_TOP/DOUBLE_BOTTOM. Trending coins also need ≥5% reward dist check.
+- [Catch-up block signalType gap](catchup-signaltype-gap.md) — live transition is gated by signalType; catch-up blocks were NOT. PATTERN_BREAKOUT re-enabled (no real data showing it underperforms). Trending coins need ≥5% reward dist check (ranging market guard).
+- [Redeploy duplicate order guard](redeploy-duplicate-order.md) — checkExistingPosition only sees filled positions; a pending unfilled limit order survives restart but is invisible to it. checkExistingOrder queries /g-orders/activeList and registers sentinel to prevent duplicate entry.
 
 - [Auto-trader production default](auto-trader-production-default.md) — phemexAutoTraderEnabled=false on every fresh deploy (runtime file wiped); fix: env var PHEMEX_AUTO_TRADER=true in artifact.toml; startup log now shows phemexOn+phemexAutoTraderOn.
 - [Trending coin auto-trader dead](trending-autotrader-dead.md) — 3 bugs made trending coin auto-trading a complete no-op; see topic file.
