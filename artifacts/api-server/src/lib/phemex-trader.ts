@@ -231,7 +231,13 @@ export async function checkExistingOrder(
            o.ordStatus !== "Filled",
     );
     return match?.orderID ?? null;
-  } catch (err) {
+  } catch (err: unknown) {
+    // Phemex returns code 10002 (OM_ORDER_NOT_FOUND) when a symbol has no
+    // active orders rather than code 0 + empty rows. This is a valid "no
+    // orders" response — return null so the caller proceeds normally.
+    if ((err as { phemexCode?: number }).phemexCode === 10002) {
+      return null;
+    }
     logger.warn({ err, phemexSymbol, posSide }, "phemex-trader: checkExistingOrder failed — skipping order (safe default)");
     throw err;
   }
