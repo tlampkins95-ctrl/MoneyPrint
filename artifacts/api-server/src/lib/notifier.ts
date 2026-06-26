@@ -253,13 +253,22 @@ interface TrendingTradeMeta {
   phemexMinQty?: number;
 }
 
+function computeEma20(candles: Array<{ close: number }>): number | undefined {
+  if (candles.length < 20) return undefined;
+  const closes = candles.map(c => c.close);
+  const k = 2 / 21;
+  let ema = closes.slice(0, 20).reduce((a, b) => a + b, 0) / 20;
+  for (let i = 20; i < closes.length; i++) ema = closes[i] * k + ema * (1 - k);
+  return ema;
+}
+
 async function executePhemexTrade(
   symbol: string,
   timeframe: Timeframe,
   levels: ReturnType<typeof computeLevelsStable>,
   phemexSymbol: string,
   trendingMeta?: TrendingTradeMeta,
-  candleRange?: { low: number; high: number },
+  candleRange?: { low: number; high: number; ema20?: number },
 ): Promise<void> {
   logger.info({ symbol, timeframe, phemexSymbol, signal: levels.signal }, "phemex-trader: executePhemexTrade entered");
   const k = key(symbol, timeframe);
@@ -319,6 +328,29 @@ async function executePhemexTrade(
       logger.warn(
         { symbol, timeframe, tp1: levels.takeProfit1, candleHigh: candleRange.high },
         "phemex-trader: BUY TP1 above candle ceiling — unreachable target, skipping order",
+      );
+      return;
+    }
+  }
+
+  // PATTERN_BREAKOUT fires when a pattern *completes* — by that point price
+  // may already be deeply extended from the mean. If entry is >15% above
+  // EMA20 (BUY) or >15% below (SELL), the move is likely exhausted and we
+  // are chasing. A 1h entry near the start of a breakout easily clears this;
+  // a 1d entry after a multi-week run usually does not.
+  if (candleRange?.ema20 !== undefined && levels.signalType === "PATTERN_BREAKOUT") {
+    const ema20 = candleRange.ema20;
+    const extensionPct = levels.signal === "BUY"
+      ? (levels.entryPrice - ema20) / ema20
+      : (ema20 - levels.entryPrice) / ema20;
+    if (extensionPct > 0.15) {
+      logger.warn(
+        {
+          symbol, timeframe, signal: levels.signal,
+          entryPrice: levels.entryPrice, ema20,
+          extensionPct: (extensionPct * 100).toFixed(1) + "%",
+        },
+        "phemex-trader: PATTERN_BREAKOUT >15% extended from EMA20 — over-extended entry, skipping order",
       );
       return;
     }
@@ -793,7 +825,11 @@ async function checkSymbol(
         );
         if (tradingEnabled && autoTraderOn && phemexSymbol) {
           const candleRange = candles.length > 0
-            ? { low: Math.min(...candles.map(c => c.close)), high: Math.max(...candles.map(c => c.close)) }
+            ? {
+                low:   Math.min(...candles.map(c => c.close)),
+                high:  Math.max(...candles.map(c => c.close)),
+                ema20: computeEma20(candles),
+              }
             : undefined;
           void executePhemexTrade(symbol, timeframe, levels, phemexSymbol, undefined, candleRange);
         }
@@ -1122,7 +1158,11 @@ async function checkTrendingSymbol(
         tMeta.phemexPerp
       ) {
         const candleRangeTrending = candles.length > 0
-          ? { low: Math.min(...candles.map(c => c.close)), high: Math.max(...candles.map(c => c.close)) }
+          ? {
+              low:   Math.min(...candles.map(c => c.close)),
+              high:  Math.max(...candles.map(c => c.close)),
+              ema20: computeEma20(candles),
+            }
           : undefined;
         void executePhemexTrade(symbolKey, timeframe, levels, tMeta.phemexPerp, {
           decimals: tMeta.decimals,
