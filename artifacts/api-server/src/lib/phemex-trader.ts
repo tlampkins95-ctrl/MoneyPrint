@@ -149,6 +149,7 @@ interface AccountData {
     size?:            string;
     qty?:             string;
     avgEntryPriceRp?: string;
+    stopLossRp?:      string;  // "0" when no SL is attached
   }>;
 }
 
@@ -252,7 +253,7 @@ export async function checkExistingOrder(
 export async function checkExistingPosition(
   phemexSymbol: string,
   posSide: "Long" | "Short",
-): Promise<number | null> {
+): Promise<{ size: number; stopLossRp: number } | null> {
   try {
     const data = await phemexRequest<AccountData>(
       "GET",
@@ -264,7 +265,11 @@ export async function checkExistingPosition(
            (p.posSide ?? p.side) === posSide &&
            parseFloat(p.size ?? p.qty ?? "0") !== 0,
     );
-    return match ? parseFloat(match.size ?? match.qty ?? "0") : null;
+    if (!match) return null;
+    return {
+      size:        parseFloat(match.size ?? match.qty ?? "0"),
+      stopLossRp:  parseFloat(match.stopLossRp ?? "0"),
+    };
   } catch (err) {
     // Re-throw so the caller treats an API failure as "unknown, skip order"
     // rather than "no position, proceed" — prevents double-entry on Phemex errors.
@@ -380,6 +385,51 @@ export async function placeOrder(params: PlaceOrderParams): Promise<string | nul
     return data.orderID;
   } catch (err) {
     logger.warn({ err, params }, "phemex-trader: placeOrder failed");
+    return null;
+  }
+}
+
+/**
+ * Places a stop-market reduce-only order to protect an already-open position
+ * that has no stop loss attached (e.g. SL bracket was silently dropped, or the
+ * position was opened before bracket support was added).
+ * Returns the exchange orderID, or null on failure.
+ */
+export async function placeStopOrder(params: {
+  phemexSymbol: string;
+  posSide:      "Long" | "Short";
+  stopPx:       number;
+  qtyRq:        string;
+  pxDecimals:   number;
+}): Promise<string | null> {
+  const hedgeMode = resolveHedgeMode();
+  // To close a Long, we Sell; to close a Short, we Buy.
+  const side: "Buy" | "Sell" = params.posSide === "Long" ? "Sell" : "Buy";
+  const clOrdID = `phx-sl-${params.phemexSymbol}-${Date.now()}`;
+
+  const body: Record<string, string | boolean> = {
+    symbol:      params.phemexSymbol,
+    clOrdID,
+    side,
+    ordType:     "Stop",
+    timeInForce: "GoodTillCancel",
+    orderQtyRq:  params.qtyRq,
+    stopPxRp:    params.stopPx.toFixed(params.pxDecimals),
+    triggerType: "ByLastPrice",
+    reduceOnly:  true,
+  };
+  if (hedgeMode) {
+    body["posSide"] = params.posSide;
+  }
+
+  logger.info({ ...body }, "phemex-trader: placing stop-market for unprotected position");
+
+  try {
+    const data = await phemexRequest<OrderResponseData>("POST", "/g-orders", {}, body);
+    logger.info({ orderID: data.orderID, clOrdID }, "phemex-trader: stop-market placed");
+    return data.orderID;
+  } catch (err) {
+    logger.warn({ err, params }, "phemex-trader: placeStopOrder failed");
     return null;
   }
 }

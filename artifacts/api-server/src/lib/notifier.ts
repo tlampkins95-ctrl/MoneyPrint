@@ -18,6 +18,7 @@ import {
   getUSDTBalance,
   fetchContractSpecs,
   placeOrder,
+  placeStopOrder,
   cancelOrder,
   cancelAllOrders,
   phemexRiskPct,
@@ -371,21 +372,38 @@ async function executePhemexTrade(
   // After a server restart, openPhemexOrders is wiped but Phemex still holds
   // the positions. Without this check, the catch-up block would double-enter
   // every active signal within 20 seconds of startup.
-  let existingSize: number | null;
+  let existingPos: { size: number; stopLossRp: number } | null;
   try {
-    existingSize = await checkExistingPosition(phemexSymbol, posSideForCheck);
+    existingPos = await checkExistingPosition(phemexSymbol, posSideForCheck);
   } catch {
     // API failure: we don't know whether a position exists. Safest default is
     // to skip placing a new order rather than risk doubling exposure.
     logger.warn({ symbol, timeframe, phemexSymbol }, "phemex-trader: checkExistingPosition threw — skipping order (safe default)");
     return;
   }
-  if (existingSize !== null) {
+  if (existingPos !== null) {
+    const { size: existingSize, stopLossRp: existingSlPrice } = existingPos;
     logger.info(
-      { symbol, timeframe, phemexSymbol, side, existingSize },
+      { symbol, timeframe, phemexSymbol, side, existingSize, existingSlPrice },
       "phemex-trader: position already exists on Phemex — registering in tracker, skipping new order",
     );
     openPhemexOrders.set(k, { orderId: `pre-existing-${Date.now()}`, phemexSymbol, posSide: posSideForCheck });
+    // If Phemex shows no SL on this position (stopLossRp === 0), the bracket
+    // was silently dropped or the position predates bracket support. Place a
+    // stop-market reduce-only order now to protect it.
+    if (existingSlPrice === 0) {
+      logger.warn(
+        { symbol, timeframe, phemexSymbol, slPrice: levels.stopLoss },
+        "phemex-trader: existing position has no SL — placing stop-market order",
+      );
+      await placeStopOrder({
+        phemexSymbol,
+        posSide:    posSideForCheck,
+        stopPx:     levels.stopLoss,
+        qtyRq:      existingSize.toFixed(qtyDecimals),
+        pxDecimals,
+      });
+    }
     return;
   }
 
