@@ -863,7 +863,8 @@ async function checkSymbol(
     const catchUpTypeAllowed =
       levels.signalType === "FIB50_SWING" ||
       levels.signalType === "DOUBLE_TOP" ||
-      levels.signalType === "DOUBLE_BOTTOM";
+      levels.signalType === "DOUBLE_BOTTOM" ||
+      levels.signalType === "PATTERN_BREAKOUT";
     if (
       (levels.signal === "BUY" || levels.signal === "SELL") &&
       levels.tradeState === "PENDING" &&
@@ -1128,7 +1129,8 @@ async function checkTrendingSymbol(
     const trendingCatchUpTypeAllowed =
       levels.signalType === "FIB50_SWING" ||
       levels.signalType === "DOUBLE_TOP" ||
-      levels.signalType === "DOUBLE_BOTTOM";
+      levels.signalType === "DOUBLE_BOTTOM" ||
+      levels.signalType === "PATTERN_BREAKOUT";
     if (
       (levels.signal === "BUY" || levels.signal === "SELL") &&
       levels.tradeState === "PENDING" &&
