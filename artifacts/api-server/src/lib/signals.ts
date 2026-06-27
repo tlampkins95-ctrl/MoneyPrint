@@ -1790,55 +1790,48 @@ export function computeLevels(
   }
 
   // ── Higher-TF trend alignment gate for all SELL signals ──────────────────
-  // If the daily (for 1h signals) or weekly (for 1d signals) EMA21/50
-  // crossover is bullish, all downstream SELL signal types are suppressed.
-  // Prevents shorting into a confirmed higher-TF uptrend (e.g. 6 consecutive
-  // green daily candles + green MACD while bot fires a 1h DOUBLE_TOP SELL).
-  // Falls back to allow (true) when candle history is too short to compute EMAs.
+  // Gates SELL signals using the higher-TF MACD histogram (the indicator
+  // actually in the strategy — not EMAs).
+  // • 1h signals: blocked when the daily MACD histogram last completed bar > 0
+  //               (daily MACD green = bullish trend = no shorts).
+  // • 1d signals: blocked when the weekly MACD histogram last completed bar > 0.
+  // Falls back to allow (true) when candle history is too short for MACD to warm.
   let higherTfAllowsSell = true;
-  if (timeframe === "1h" && dailyCandlesForWeekly && dailyCandlesForWeekly.length >= 50) {
-    const dCloses = dailyCandlesForWeekly.map((c) => c.close);
-    const dEma21  = calcEMA(dCloses, 21);
-    const dEma50  = calcEMA(dCloses, 50);
-    const dLast21 = dEma21[dEma21.length - 1];
-    const dLast50 = dEma50[dEma50.length - 1];
-    if (!isNaN(dLast21) && !isNaN(dLast50) && dLast21 > dLast50) {
-      higherTfAllowsSell = false; // daily uptrend — no shorts on 1h patterns
+  if (timeframe === "1h" && dailyCandlesForWeekly && dailyCandlesForWeekly.length >= 35) {
+    const dCloses   = dailyCandlesForWeekly.map((c) => c.close);
+    const dHist     = calcMACDHist(dCloses);
+    const dLastHist = dHist[dHist.length - 2]; // last *completed* daily bar
+    if (Number.isFinite(dLastHist) && dLastHist > 0) {
+      higherTfAllowsSell = false; // daily MACD green — no shorts on 1h patterns
     }
-  } else if (timeframe === "1d" && weeklyCandlesForDaily && weeklyCandlesForDaily.length >= 50) {
-    const wCloses = weeklyCandlesForDaily.map((c) => c.close);
-    const wEma21  = calcEMA(wCloses, 21);
-    const wEma50  = calcEMA(wCloses, 50);
-    const wLast21 = wEma21[wEma21.length - 1];
-    const wLast50 = wEma50[wEma50.length - 1];
-    if (!isNaN(wLast21) && !isNaN(wLast50) && wLast21 > wLast50) {
-      higherTfAllowsSell = false; // weekly uptrend — no shorts on 1d patterns
+  } else if (timeframe === "1d" && weeklyCandlesForDaily && weeklyCandlesForDaily.length >= 35) {
+    const wCloses   = weeklyCandlesForDaily.map((c) => c.close);
+    const wHist     = calcMACDHist(wCloses);
+    const wLastHist = wHist[wHist.length - 2]; // last *completed* weekly bar
+    if (Number.isFinite(wLastHist) && wLastHist > 0) {
+      higherTfAllowsSell = false; // weekly MACD green — no shorts on 1d patterns
     }
   }
 
   // Blocks momentum BUY signals (PATTERN_BREAKOUT, candlestick) when the
-  // higher-TF trend is bearish — mirrors higherTfAllowsSell on the long side.
+  // higher-TF MACD histogram is negative (red = bearish trend = no momentum longs).
   // Does NOT apply to reversal signals (DOUBLE_BOTTOM, BB_REJECTION) which are
   // specifically designed to fire against the prevailing trend.
-  // Falls back to allow (true) when candle history is too short to compute EMAs.
+  // Falls back to allow (true) when candle history is too short for MACD to warm.
   let higherTfAllowsBuy = true;
-  if (timeframe === "1h" && dailyCandlesForWeekly && dailyCandlesForWeekly.length >= 50) {
-    const dCloses = dailyCandlesForWeekly.map((c) => c.close);
-    const dEma21  = calcEMA(dCloses, 21);
-    const dEma50  = calcEMA(dCloses, 50);
-    const dLast21 = dEma21[dEma21.length - 1];
-    const dLast50 = dEma50[dEma50.length - 1];
-    if (!isNaN(dLast21) && !isNaN(dLast50) && dLast21 < dLast50) {
-      higherTfAllowsBuy = false; // daily downtrend — no momentum longs on 1h patterns
+  if (timeframe === "1h" && dailyCandlesForWeekly && dailyCandlesForWeekly.length >= 35) {
+    const dCloses   = dailyCandlesForWeekly.map((c) => c.close);
+    const dHist     = calcMACDHist(dCloses);
+    const dLastHist = dHist[dHist.length - 2]; // last *completed* daily bar
+    if (Number.isFinite(dLastHist) && dLastHist < 0) {
+      higherTfAllowsBuy = false; // daily MACD red — no momentum longs on 1h patterns
     }
-  } else if (timeframe === "1d" && weeklyCandlesForDaily && weeklyCandlesForDaily.length >= 50) {
-    const wCloses = weeklyCandlesForDaily.map((c) => c.close);
-    const wEma21  = calcEMA(wCloses, 21);
-    const wEma50  = calcEMA(wCloses, 50);
-    const wLast21 = wEma21[wEma21.length - 1];
-    const wLast50 = wEma50[wEma50.length - 1];
-    if (!isNaN(wLast21) && !isNaN(wLast50) && wLast21 < wLast50) {
-      higherTfAllowsBuy = false; // weekly downtrend — no momentum longs on 1d patterns
+  } else if (timeframe === "1d" && weeklyCandlesForDaily && weeklyCandlesForDaily.length >= 35) {
+    const wCloses   = weeklyCandlesForDaily.map((c) => c.close);
+    const wHist     = calcMACDHist(wCloses);
+    const wLastHist = wHist[wHist.length - 2]; // last *completed* weekly bar
+    if (Number.isFinite(wLastHist) && wLastHist < 0) {
+      higherTfAllowsBuy = false; // weekly MACD red — no momentum longs on 1d patterns
     }
   }
 
