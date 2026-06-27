@@ -461,6 +461,23 @@ async function executePhemexTrade(
     return;
   }
 
+  // If our system has an active trade record for this slot but Phemex shows no
+  // position, the trade was closed externally (manually by the user, or SL/TP
+  // hit without a transition event). Do NOT re-enter — register a sentinel so
+  // the catch-up block stops firing, and let the next genuine signal transition
+  // handle re-entry if the setup re-forms.
+  const existingActiveTrade = getActiveTrade(symbol, timeframe);
+  if (existingActiveTrade) {
+    logger.warn(
+      { symbol, timeframe, phemexSymbol, signal: levels.signal },
+      "phemex-trader: active trade record exists but no Phemex position found — position was closed externally, skipping re-entry",
+    );
+    if (!openPhemexOrders.has(k)) {
+      openPhemexOrders.set(k, { orderId: `externally-closed-${Date.now()}`, phemexSymbol, posSide: posSideForCheck });
+    }
+    return;
+  }
+
   // Prevent self-hedging: if an opposite-side position already exists for this
   // symbol (opened by a conflicting timeframe signal), skip rather than creating
   // a simultaneous Long+Short on the same asset.
