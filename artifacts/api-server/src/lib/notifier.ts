@@ -19,6 +19,7 @@ import {
   fetchContractSpecs,
   placeOrder,
   placeStopOrder,
+  cancelExistingStopOrders,
   cancelOrder,
   cancelAllOrders,
   phemexRiskPct,
@@ -428,6 +429,9 @@ async function executePhemexTrade(
         { symbol, timeframe, phemexSymbol, slPrice: levels.stopLoss },
         "phemex-trader: existing position has no SL — placing stop-market order",
       );
+      // Cancel any stale SL stop orders from prior restarts before placing a
+      // fresh one. Without this, every restart stacks another stop-market.
+      await cancelExistingStopOrders(phemexSymbol, posSideForCheck);
       await placeStopOrder({
         phemexSymbol,
         posSide:    posSideForCheck,

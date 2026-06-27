@@ -19,3 +19,5 @@
 - [Trending coin auto-trader dead](trending-autotrader-dead.md) — 3 bugs made trending coin auto-trading a complete no-op; see topic file.
 - [XAGUSDT Phemex minPriceRp](xagusdt-min-price.md) — Phemex XAGUSDT contract has minPriceRp=100; silver at ~$61 means all orders rejected with code 39999. Untradeable until silver hits $100.
 - [Phemex hedge mode auto-detection](phemex-hedge-mode.md) — account is userMode=1 (hedge mode); every order needs posSide=Long/Short or 39999. Auto-detected via getUSDTBalance on first call.
+- [SL stop-order stacking on restart](sl-order-stacking.md) — stopLossRp on position never updates when SL is a separate stop-market; no-SL fix stacks N orders per N restarts. Fix: cancelExistingStopOrders() before placeStopOrder.
+- [Self-hedge via conflicting timeframe signals](self-hedge-guard.md) — 1h BUY + 1d SELL for same symbol both execute in hedge mode, opening Long+Short simultaneously. Fix: check opposite posSide in checkExistingPosition before placing any order.

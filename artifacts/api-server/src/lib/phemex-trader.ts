@@ -390,6 +390,38 @@ export async function placeOrder(params: PlaceOrderParams): Promise<string | nul
 }
 
 /**
+ * Cancels all resting reduce-only Stop orders for a given symbol+side.
+ * Called before placing a new protective SL to prevent stacking duplicate
+ * stop-market orders across server restarts.
+ */
+export async function cancelExistingStopOrders(
+  phemexSymbol: string,
+  posSide: "Long" | "Short",
+): Promise<void> {
+  try {
+    const data = await phemexRequest<{ rows: Array<Record<string, unknown>> }>(
+      "GET", "/g-orders/activeList", { symbol: phemexSymbol },
+    );
+    const stopOrders = (data.rows ?? []).filter(
+      o => o["ordType"] === "Stop" && o["reduceOnly"] === true && o["posSide"] === posSide,
+    );
+    if (stopOrders.length === 0) return;
+    logger.info(
+      { phemexSymbol, posSide, count: stopOrders.length },
+      "phemex-trader: cancelling stale SL stop orders before placing new one",
+    );
+    await Promise.all(
+      stopOrders.map(o =>
+        cancelOrder(phemexSymbol, o["orderID"] as string, posSide),
+      ),
+    );
+  } catch (err) {
+    // Non-fatal — worst case we place one more duplicate stop, which is benign
+    logger.warn({ err, phemexSymbol, posSide }, "phemex-trader: cancelExistingStopOrders failed (non-fatal)");
+  }
+}
+
+/**
  * Places a stop-market reduce-only order to protect an already-open position
  * that has no stop loss attached (e.g. SL bracket was silently dropped, or the
  * position was opened before bracket support was added).
