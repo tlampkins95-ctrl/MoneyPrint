@@ -334,12 +334,19 @@ async function executePhemexTrade(
     }
   }
 
-  // PATTERN_BREAKOUT fires when a pattern *completes* — by that point price
-  // may already be deeply extended from the mean. If entry is >15% above
-  // EMA20 (BUY) or >15% below (SELL), the move is likely exhausted and we
-  // are chasing. A 1h entry near the start of a breakout easily clears this;
-  // a 1d entry after a multi-week run usually does not.
-  if (candleRange?.ema20 !== undefined && levels.signalType === "PATTERN_BREAKOUT") {
+  // If entry is >15% above EMA20 (BUY) or >15% below EMA20 (SELL), price is
+  // overextended from the mean — we are chasing a move that is likely exhausted.
+  // Applies to ALL signal types: PATTERN_BREAKOUT, FIB50_SWING, etc.
+  // If ema20 could not be computed (too few candles), skip the guard rather than
+  // silently passing — treat it as a rejection to avoid blindly entering extended moves.
+  if (candleRange !== undefined) {
+    if (candleRange.ema20 === undefined) {
+      logger.warn(
+        { symbol, timeframe, signal: levels.signal },
+        "phemex-trader: EMA20 unavailable (too few candles) — skipping order to avoid unguarded extended entry",
+      );
+      return;
+    }
     const ema20 = candleRange.ema20;
     const extensionPct = levels.signal === "BUY"
       ? (levels.entryPrice - ema20) / ema20
@@ -347,11 +354,11 @@ async function executePhemexTrade(
     if (extensionPct > 0.15) {
       logger.warn(
         {
-          symbol, timeframe, signal: levels.signal,
+          symbol, timeframe, signal: levels.signal, signalType: levels.signalType,
           entryPrice: levels.entryPrice, ema20,
           extensionPct: (extensionPct * 100).toFixed(1) + "%",
         },
-        "phemex-trader: PATTERN_BREAKOUT >15% extended from EMA20 — over-extended entry, skipping order",
+        "phemex-trader: entry >15% extended from EMA20 — over-extended, skipping order",
       );
       return;
     }
