@@ -2062,6 +2062,55 @@ export function computeLevels(
         }
       }
     }
+
+    // Candlestick reversal signals (BEARISH_ENGULFING, BULLISH_ENGULFING, etc.)
+    // Only runs if no chart pattern already set the signal above.
+    if (signal === "WAIT") {
+      const csPattern = detectCandlestickSignal(pbCompleted);
+      if (csPattern?.confirmed && csPattern.necklinePrice != null) {
+        if (csPattern.direction === "bearish" && !isLongOnly) {
+          const ep       = round(currentPrice);
+          const sl       = round(csPattern.necklinePrice + 0.3 * atr);
+          const risk     = sl - ep;
+          const engulfH  = pbCompleted[pbCompleted.length - 2]?.high ?? ep;
+          const engulfL  = pbCompleted[pbCompleted.length - 2]?.low  ?? ep;
+          const measured = engulfH - engulfL;
+          if (risk > 0) {
+            const tp1 = round(ep - 2 * risk);
+            const tp2 = round(floorTarget(ep, sl, ep - measured, MIN_RR_TP2, "SELL"));
+            signal       = "SELL";
+            signalType   = "PATTERN_BREAKOUT";
+            entryPrice   = ep;
+            stopLoss     = sl;
+            takeProfit1  = tp1;
+            takeProfit2  = tp2;
+            dca1         = undefined;
+            patternResult = csPattern;
+            signalReason  = `[${tfLabel}] ${csPattern.pattern}: bearish reversal confirmed. Entry ${fmt(ep)}, SL ${fmt(sl)} (above engulf high ${fmt(csPattern.necklinePrice)} + 0.3×ATR), TP1 ${fmt(tp1)} (2:1 R:R), TP2 ${fmt(tp2)} (measured move).`;
+          }
+        } else if (csPattern.direction === "bullish") {
+          const ep       = round(currentPrice);
+          const sl       = round(csPattern.necklinePrice - 0.3 * atr);
+          const risk     = ep - sl;
+          const engulfH  = pbCompleted[pbCompleted.length - 2]?.high ?? ep;
+          const engulfL  = pbCompleted[pbCompleted.length - 2]?.low  ?? ep;
+          const measured = engulfH - engulfL;
+          if (risk > 0) {
+            const tp1 = round(ep + 2 * risk);
+            const tp2 = round(floorTarget(ep, sl, ep + measured, MIN_RR_TP2, "BUY"));
+            signal       = "BUY";
+            signalType   = "PATTERN_BREAKOUT";
+            entryPrice   = ep;
+            stopLoss     = sl;
+            takeProfit1  = tp1;
+            takeProfit2  = tp2;
+            dca1         = undefined;
+            patternResult = csPattern;
+            signalReason  = `[${tfLabel}] ${csPattern.pattern}: bullish reversal confirmed. Entry ${fmt(ep)}, SL ${fmt(sl)} (below engulf low ${fmt(csPattern.necklinePrice)} − 0.3×ATR), TP1 ${fmt(tp1)} (2:1 R:R), TP2 ${fmt(tp2)} (measured move).`;
+          }
+        }
+      }
+    }
   }
 
   // Entry zone for chart display: ±FIB50_TOLERANCE_ATR around the entry price.
