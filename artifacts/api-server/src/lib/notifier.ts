@@ -17,6 +17,7 @@ import {
   isPhemexTradingEnabled,
   getUSDTBalance,
   fetchContractSpecs,
+  setSymbolLeverage,
   placeOrder,
   placeStopOrder,
   cancelExistingStopOrders,
@@ -546,6 +547,12 @@ async function executePhemexTrade(
       "phemex-trader: Market IOC SELL — SL/TP re-anchored to current price",
     );
   }
+
+  // Set leverage on Phemex to match what the sizing math assumed.
+  // Without this, Phemex uses whatever leverage is already on the account for
+  // that symbol — which may be 1x (the default), causing the margin used to be
+  // orders of magnitude larger than the intended 2% risk would suggest.
+  await setSymbolLeverage(phemexSymbol, phemexMaxLeverage());
 
   const orderId = await placeOrder({
     phemexSymbol,

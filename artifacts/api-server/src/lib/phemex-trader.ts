@@ -50,7 +50,7 @@ function sign(
 }
 
 async function phemexRequest<T>(
-  method: "GET" | "POST" | "DELETE",
+  method: "GET" | "POST" | "PUT" | "DELETE",
   path: string,
   query: Record<string, string> = {},
   body?: object,
@@ -298,6 +298,29 @@ export interface PlaceOrderParams {
 interface OrderResponseData {
   orderID:  string;
   clOrdID?: string;
+}
+
+/**
+ * Sets the leverage for a USDT-perp symbol on Phemex before placing an order.
+ * This ensures the exchange actually uses the leverage the sizing math assumed.
+ * Silently skips on failure — the order will still be placed at whatever
+ * leverage Phemex currently has for the symbol.
+ */
+export async function setSymbolLeverage(
+  phemexSymbol: string,
+  leverage: number,
+): Promise<void> {
+  const lev = leverage.toFixed(0);
+  const hedgeMode = resolveHedgeMode();
+  const body: Record<string, string> = hedgeMode
+    ? { symbol: phemexSymbol, longLeverageRq: lev, shortLeverageRq: lev }
+    : { symbol: phemexSymbol, leverageRq: lev };
+  try {
+    await phemexRequest<unknown>("PUT", "/g-positions/leverage", {}, body);
+    logger.info({ phemexSymbol, leverage }, "phemex-trader: leverage set");
+  } catch (err) {
+    logger.warn({ err, phemexSymbol, leverage }, "phemex-trader: setSymbolLeverage failed — order will use existing account leverage");
+  }
 }
 
 /**
