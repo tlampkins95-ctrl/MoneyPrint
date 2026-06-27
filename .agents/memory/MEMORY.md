@@ -21,3 +21,4 @@
 - [Phemex hedge mode auto-detection](phemex-hedge-mode.md) — account is userMode=1 (hedge mode); every order needs posSide=Long/Short or 39999. Auto-detected via getUSDTBalance on first call.
 - [SL stop-order stacking on restart](sl-order-stacking.md) — stopLossRp on position never updates when SL is a separate stop-market; no-SL fix stacks N orders per N restarts. Fix: cancelExistingStopOrders() before placeStopOrder.
 - [Self-hedge via conflicting timeframe signals](self-hedge-guard.md) — 1h BUY + 1d SELL for same symbol both execute in hedge mode, opening Long+Short simultaneously. Fix: check opposite posSide in checkExistingPosition before placing any order.
+- [Phemex activeList field names](phemex-activeList-fields.md) — orderType/execInst/side (not ordType/reduceOnly/posSide); posSide absent, derive from side.

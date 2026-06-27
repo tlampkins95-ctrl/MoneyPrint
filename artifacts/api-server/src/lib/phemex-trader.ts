@@ -402,9 +402,16 @@ export async function cancelExistingStopOrders(
     const data = await phemexRequest<{ rows: Array<Record<string, unknown>> }>(
       "GET", "/g-orders/activeList", { symbol: phemexSymbol },
     );
+    // Phemex activeList uses "orderType" (not "ordType") and "execInst" (not
+    // "reduceOnly"). The order row has no "posSide" field — derive it from
+    // the order side: a Buy-side reduce-only Stop closes a Short position;
+    // a Sell-side reduce-only Stop closes a Long position.
     const stopOrders = (data.rows ?? []).filter(
-      o => o["ordType"] === "Stop" && o["reduceOnly"] === true && o["posSide"] === posSide,
-    );
+      o => o["orderType"] === "Stop" && o["execInst"] === "ReduceOnly",
+    ).filter(o => {
+      const derivedPosSide = o["side"] === "Buy" ? "Short" : "Long";
+      return derivedPosSide === posSide;
+    });
     if (stopOrders.length === 0) return;
     logger.info(
       { phemexSymbol, posSide, count: stopOrders.length },
