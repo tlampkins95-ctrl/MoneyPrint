@@ -192,10 +192,15 @@ export async function getUSDTBalance(): Promise<number | null> {
       );
     }
 
+    // Use total account equity (accountBalanceRv) for risk sizing so that 2%
+    // always means 2% of the full portfolio, not 2% of whatever margin
+    // happens to be unlocked after existing positions consume collateral.
+    // freeMarginRv shrinks as positions open, producing inconsistently small
+    // risk amounts even though the portfolio value hasn't changed.
     const raw =
-      data.account?.freeMarginRv ??
+      data.account?.accountBalanceRv ??
       data.account?.availableBalanceRv ??
-      data.account?.accountBalanceRv;
+      data.account?.freeMarginRv;
     const v = parseFloat(raw ?? "");
     if (!isFinite(v) || v <= 0) {
       logger.warn({ raw, data }, "Phemex balance parse failed — raw value unexpected");
