@@ -1267,10 +1267,13 @@ async function checkTrendingSymbol(
     // there was no state change.
     const lastFailedT = failedOrderAt.get(k) ?? 0;
     const recentlyFailedT = Date.now() - lastFailedT < FAILED_ORDER_RETRY_MS;
+    // DOUBLE_TOP and DOUBLE_BOTTOM are excluded from catch-up: their entries are
+    // pinned to a specific resistance/support level. If the server restarted and
+    // price has already moved away from that level, a catch-up market order enters
+    // at a worse price with the same SL — near-zero reward. Only FIB50_SWING and
+    // PATTERN_BREAKOUT have zone-based entries that tolerate catch-up re-entry.
     const trendingCatchUpTypeAllowed =
       levels.signalType === "FIB50_SWING" ||
-      levels.signalType === "DOUBLE_TOP" ||
-      levels.signalType === "DOUBLE_BOTTOM" ||
       levels.signalType === "PATTERN_BREAKOUT";
     if (
       (levels.signal === "BUY" || levels.signal === "SELL") &&
