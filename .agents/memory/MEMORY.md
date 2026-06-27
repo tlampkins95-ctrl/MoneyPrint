@@ -23,3 +23,4 @@
 - [Self-hedge via conflicting timeframe signals](self-hedge-guard.md) — 1h BUY + 1d SELL for same symbol both execute in hedge mode, opening Long+Short simultaneously. Fix: check opposite posSide in checkExistingPosition before placing any order.
 - [Phemex activeList field names](phemex-activeList-fields.md) — orderType/execInst/side (not ordType/reduceOnly/posSide); posSide absent, derive from side.
 - [detectCandlestickSignal never wired](candlestick-signal-wiring.md) — was imported but never called in signals.ts; now wired after detectChartPattern in PATTERN_BREAKOUT block.
+- [Higher-TF SELL gate](higher-tf-sell-gate.md) — DOUBLE_TOP/BB_REJECTION/PATTERN_BREAKOUT/candlestick SELLs had no daily/weekly trend gate; all blocked by higherTfAllowsSell when daily EMA21>EMA50 (1h) or weekly EMA21>EMA50 (1d). DOUBLE_TOP also now requires confirmed=true; forming patterns are not actionable shorts.

@@ -1789,14 +1789,46 @@ export function computeLevels(
     }
   }
 
+  // ── Higher-TF trend alignment gate for all SELL signals ──────────────────
+  // If the daily (for 1h signals) or weekly (for 1d signals) EMA21/50
+  // crossover is bullish, all downstream SELL signal types are suppressed.
+  // Prevents shorting into a confirmed higher-TF uptrend (e.g. 6 consecutive
+  // green daily candles + green MACD while bot fires a 1h DOUBLE_TOP SELL).
+  // Falls back to allow (true) when candle history is too short to compute EMAs.
+  let higherTfAllowsSell = true;
+  if (timeframe === "1h" && dailyCandlesForWeekly && dailyCandlesForWeekly.length >= 50) {
+    const dCloses = dailyCandlesForWeekly.map((c) => c.close);
+    const dEma21  = calcEMA(dCloses, 21);
+    const dEma50  = calcEMA(dCloses, 50);
+    const dLast21 = dEma21[dEma21.length - 1];
+    const dLast50 = dEma50[dEma50.length - 1];
+    if (!isNaN(dLast21) && !isNaN(dLast50) && dLast21 > dLast50) {
+      higherTfAllowsSell = false; // daily uptrend — no shorts on 1h patterns
+    }
+  } else if (timeframe === "1d" && weeklyCandlesForDaily && weeklyCandlesForDaily.length >= 50) {
+    const wCloses = weeklyCandlesForDaily.map((c) => c.close);
+    const wEma21  = calcEMA(wCloses, 21);
+    const wEma50  = calcEMA(wCloses, 50);
+    const wLast21 = wEma21[wEma21.length - 1];
+    const wLast50 = wEma50[wEma50.length - 1];
+    if (!isNaN(wLast21) && !isNaN(wLast50) && wLast21 > wLast50) {
+      higherTfAllowsSell = false; // weekly uptrend — no shorts on 1d patterns
+    }
+  }
+
   // ── DOUBLE_TOP detection (pump-and-dump short) ─────────────────────────────
   // Fires when FIB50_SWING is still WAIT and price is near a double-top
   // resistance level. Fast detector (5-bar min separation) is tried first to
   // catch same-day CMC trending pumps; standard detector (20-bar min) catches
   // slower reversal setups on any symbol.
   //
-  // No weekly trend gate — the double top IS the reversal signal.
-  // isLongOnly guard prevents shorts on spot-only instruments.
+  // Gates:
+  //   • Confirmation required — neckline must be broken (dtResult.confirmed).
+  //     "Forming" double tops are theoretical patterns, not actionable shorts.
+  //   • Daily trend alignment (1h): if daily EMA21 > EMA50 (uptrend), skip.
+  //     Shorting a 1h double top into 6 consecutive green daily candles loses.
+  //   • Weekly trend alignment (1d): if weekly EMA21 > EMA50 (uptrend), skip.
+  //   • isLongOnly guard prevents shorts on spot-only instruments.
   //
   //   Entry:  avgTop (average of the two peaks = resistance)
   //   SL:     avgTop + 0.5 × ATR (just above resistance)
@@ -1805,7 +1837,7 @@ export function computeLevels(
   if (signal === "WAIT" && !isLongOnly) {
     const dtBars = candles.slice(0, candles.length - 1); // exclude live bar, same as FIB50_SWING
     const dtResult = detectFastDoubleTop(dtBars) ?? detectDoubleTop(dtBars);
-    if (dtResult?.upperBound != null && dtResult.necklinePrice != null) {
+    if (dtResult?.upperBound != null && dtResult.necklinePrice != null && dtResult.confirmed && higherTfAllowsSell) {
       const resistance = dtResult.upperBound;
       if (Math.abs(currentPrice - resistance) <= FIB50_TOLERANCE_ATR * atr) {
         const ep  = round(resistance);
@@ -1907,6 +1939,7 @@ export function computeLevels(
         histPrev1 < histPrev2;     // bar 1 still declining from bar 2
       if (
         !isLongOnly &&
+        higherTfAllowsSell &&
         bbrSellMacd &&
         volFading &&
         Math.abs(currentPrice - bb30r.upper) <= BBR_TOL_ATR * atr
@@ -2043,7 +2076,7 @@ export function computeLevels(
           patternResult = pbPattern;
           signalReason  = `[${tfLabel}] PATTERN BREAKOUT BUY: ${pbPattern.pattern} confirmed. Entry ${fmt(ep)}, SL ${fmt(sl)} (below ${fmt(pbPattern.necklinePrice)} rail − 0.3×ATR), TP1 ${fmt(tp1)} (2:1 R:R), TP2 ${fmt(tp2)} (measured move).`;
         }
-      } else if (!isLongOnly) {
+      } else if (!isLongOnly && higherTfAllowsSell) {
         const ep   = round(currentPrice);
         const sl   = round(pbPattern.upperBound + 0.3 * atr);
         const risk = sl - ep;
@@ -2068,7 +2101,7 @@ export function computeLevels(
     if (signal === "WAIT") {
       const csPattern = detectCandlestickSignal(pbCompleted);
       if (csPattern?.confirmed && csPattern.necklinePrice != null) {
-        if (csPattern.direction === "bearish" && !isLongOnly) {
+        if (csPattern.direction === "bearish" && !isLongOnly && higherTfAllowsSell) {
           const ep       = round(currentPrice);
           const sl       = round(csPattern.necklinePrice + 0.3 * atr);
           const risk     = sl - ep;
