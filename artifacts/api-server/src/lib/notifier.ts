@@ -310,6 +310,11 @@ async function executePhemexTrade(
         { symbol, timeframe, rewardPct: rewardPct.toFixed(4), entryPrice: levels.entryPrice, tp1: levels.takeProfit1 },
         "phemex-trader: trending coin reward distance too small (ranging market) — order skipped",
       );
+      // Register a sentinel so the catch-up block stops retrying every poll.
+      if (!openPhemexOrders.has(k)) {
+        const skipPosSide = levels.signal === "BUY" ? "Long" : "Short";
+        openPhemexOrders.set(k, { orderId: `ranging-skip-${Date.now()}`, phemexSymbol, posSide: skipPosSide });
+      }
       return;
     }
   }
@@ -323,6 +328,9 @@ async function executePhemexTrade(
         { symbol, timeframe, tp1: levels.takeProfit1, candleLow: candleRange.low },
         "phemex-trader: SELL TP1 below candle floor — unreachable target, skipping order",
       );
+      if (!openPhemexOrders.has(k)) {
+        openPhemexOrders.set(k, { orderId: `candle-floor-skip-${Date.now()}`, phemexSymbol, posSide: "Short" });
+      }
       return;
     }
     if (levels.signal === "BUY" && levels.takeProfit1 > candleRange.high) {
@@ -330,6 +338,9 @@ async function executePhemexTrade(
         { symbol, timeframe, tp1: levels.takeProfit1, candleHigh: candleRange.high },
         "phemex-trader: BUY TP1 above candle ceiling — unreachable target, skipping order",
       );
+      if (!openPhemexOrders.has(k)) {
+        openPhemexOrders.set(k, { orderId: `candle-ceil-skip-${Date.now()}`, phemexSymbol, posSide: "Long" });
+      }
       return;
     }
   }
