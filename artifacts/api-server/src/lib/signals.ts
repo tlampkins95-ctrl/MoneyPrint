@@ -1816,6 +1816,32 @@ export function computeLevels(
     }
   }
 
+  // Blocks momentum BUY signals (PATTERN_BREAKOUT, candlestick) when the
+  // higher-TF trend is bearish — mirrors higherTfAllowsSell on the long side.
+  // Does NOT apply to reversal signals (DOUBLE_BOTTOM, BB_REJECTION) which are
+  // specifically designed to fire against the prevailing trend.
+  // Falls back to allow (true) when candle history is too short to compute EMAs.
+  let higherTfAllowsBuy = true;
+  if (timeframe === "1h" && dailyCandlesForWeekly && dailyCandlesForWeekly.length >= 50) {
+    const dCloses = dailyCandlesForWeekly.map((c) => c.close);
+    const dEma21  = calcEMA(dCloses, 21);
+    const dEma50  = calcEMA(dCloses, 50);
+    const dLast21 = dEma21[dEma21.length - 1];
+    const dLast50 = dEma50[dEma50.length - 1];
+    if (!isNaN(dLast21) && !isNaN(dLast50) && dLast21 < dLast50) {
+      higherTfAllowsBuy = false; // daily downtrend — no momentum longs on 1h patterns
+    }
+  } else if (timeframe === "1d" && weeklyCandlesForDaily && weeklyCandlesForDaily.length >= 50) {
+    const wCloses = weeklyCandlesForDaily.map((c) => c.close);
+    const wEma21  = calcEMA(wCloses, 21);
+    const wEma50  = calcEMA(wCloses, 50);
+    const wLast21 = wEma21[wEma21.length - 1];
+    const wLast50 = wEma50[wEma50.length - 1];
+    if (!isNaN(wLast21) && !isNaN(wLast50) && wLast21 < wLast50) {
+      higherTfAllowsBuy = false; // weekly downtrend — no momentum longs on 1d patterns
+    }
+  }
+
   // ── DOUBLE_TOP detection (pump-and-dump short) ─────────────────────────────
   // Fires when FIB50_SWING is still WAIT and price is near a double-top
   // resistance level. Fast detector (5-bar min separation) is tried first to
@@ -2059,7 +2085,7 @@ export function computeLevels(
       pbPattern.pattern !== "DOUBLE_BOTTOM"
     ) {
       const patternHeight = pbPattern.upperBound - pbPattern.necklinePrice;
-      if (pbPattern.direction === "bullish") {
+      if (pbPattern.direction === "bullish" && higherTfAllowsBuy) {
         const ep   = round(currentPrice);
         const sl   = round(pbPattern.necklinePrice - 0.3 * atr);
         const risk = ep - sl;
@@ -2121,7 +2147,7 @@ export function computeLevels(
             patternResult = csPattern;
             signalReason  = `[${tfLabel}] ${csPattern.pattern}: bearish reversal confirmed. Entry ${fmt(ep)}, SL ${fmt(sl)} (above engulf high ${fmt(csPattern.necklinePrice)} + 0.3×ATR), TP1 ${fmt(tp1)} (2:1 R:R), TP2 ${fmt(tp2)} (measured move).`;
           }
-        } else if (csPattern.direction === "bullish") {
+        } else if (csPattern.direction === "bullish" && higherTfAllowsBuy) {
           const ep       = round(currentPrice);
           const sl       = round(csPattern.necklinePrice - 0.3 * atr);
           const risk     = ep - sl;
