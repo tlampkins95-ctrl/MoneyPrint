@@ -466,6 +466,12 @@ async function executePhemexTrade(
       { symbol, timeframe, phemexSymbol, signal: levels.signal, oppositeSize: oppositePos.size, oppositeSide: oppositeSideForCheck },
       "phemex-trader: opposite-side position already open — skipping to avoid self-hedge",
     );
+    // Register a sentinel so the catch-up block sees openPhemexOrders.has(k)
+    // as true and stops retrying every poll. Without this the loop fires every
+    // 20 seconds forever while the opposite position remains open.
+    if (!openPhemexOrders.has(k)) {
+      openPhemexOrders.set(k, { orderId: `opposite-blocked-${Date.now()}`, phemexSymbol, posSide: posSideForCheck });
+    }
     return;
   }
 
