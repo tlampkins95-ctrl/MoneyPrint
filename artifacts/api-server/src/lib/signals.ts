@@ -1856,7 +1856,7 @@ export function computeLevels(
   if (signal === "WAIT" && !isLongOnly) {
     const dtBars = candles.slice(0, candles.length - 1); // exclude live bar, same as FIB50_SWING
     const dtResult = detectFastDoubleTop(dtBars) ?? detectDoubleTop(dtBars);
-    if (dtResult?.upperBound != null && dtResult.necklinePrice != null && dtResult.confirmed && higherTfAllowsSell) {
+    if (dtResult?.upperBound != null && dtResult.necklinePrice != null && dtResult.confirmed) {
       const resistance = dtResult.upperBound;
       if (Math.abs(currentPrice - resistance) <= FIB50_TOLERANCE_ATR * atr) {
         const ep  = round(resistance);
