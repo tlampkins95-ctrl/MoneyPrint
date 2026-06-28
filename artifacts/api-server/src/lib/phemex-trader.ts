@@ -312,11 +312,14 @@ export async function setSymbolLeverage(
 ): Promise<void> {
   const lev = leverage.toFixed(0);
   const hedgeMode = resolveHedgeMode();
-  const body: Record<string, string> = hedgeMode
+  // Phemex leverage endpoint uses query params (not body) — the HMAC signature
+  // is computed over the query string, so sending params as JSON body causes
+  // code 10500 signature verification failure.
+  const query: Record<string, string> = hedgeMode
     ? { symbol: phemexSymbol, longLeverageRq: lev, shortLeverageRq: lev }
     : { symbol: phemexSymbol, leverageRq: lev };
   try {
-    await phemexRequest<unknown>("PUT", "/g-positions/leverage", {}, body);
+    await phemexRequest<unknown>("PUT", "/g-positions/leverage", query);
     logger.info({ phemexSymbol, leverage }, "phemex-trader: leverage set");
   } catch (err) {
     logger.warn({ err, phemexSymbol, leverage }, "phemex-trader: setSymbolLeverage failed — order will use existing account leverage");
