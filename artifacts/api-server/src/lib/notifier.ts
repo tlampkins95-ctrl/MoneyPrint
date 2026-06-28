@@ -405,7 +405,18 @@ async function executePhemexTrade(
     return;
   }
 
-  const rawQty = sizing.achievable?.positionSize ?? sizing.positionSize;
+  // Margin-based sizing: always post (riskPct × balance) as collateral.
+  // This gives a consistent margin footprint per trade regardless of SL distance.
+  //   margin   = accountSize × riskPct          (e.g. $900 × 2% = $18)
+  //   notional = margin × maxLeverage            (e.g. $18 × 20 = $360)
+  //   qty      = notional / entryPrice
+  const targetMargin   = accountSize * phemexRiskPct();
+  const targetNotional = targetMargin * phemexMaxLeverage();
+  const rawQty         = targetNotional / levels.entryPrice;
+  logger.info(
+    { symbol, timeframe, accountSize, riskPct: phemexRiskPct(), leverage: phemexMaxLeverage(), targetMargin, targetNotional, rawQty },
+    "phemex-trader: margin-based sizing",
+  );
   if (!rawQty || rawQty <= 0) {
     logger.warn({ symbol, timeframe, sizing }, "phemex-trader: zero qty — skipping order");
     return;

@@ -30,6 +30,8 @@ NODE_ENV = "production"
 ENABLE_TELEGRAM_NOTIFIER = "true"
 ENABLE_WEB_PUSH = "true"
 PHEMEX_AUTO_TRADER = "true"
+PHEMEX_RISK_PCT = "0.02"
+PHEMEX_MAX_LEVERAGE = "20"
 
 [services.production.health.startup]
 path = "/api/healthz"
