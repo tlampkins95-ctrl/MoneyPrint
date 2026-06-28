@@ -1892,7 +1892,7 @@ export function computeLevels(
   if (signal === "WAIT") {
     const dbBars = candles.slice(0, candles.length - 1);
     const dbResult = detectDoubleBottom(dbBars);
-    if (dbResult?.upperBound != null && dbResult.necklinePrice != null) {
+    if (dbResult?.upperBound != null && dbResult.necklinePrice != null && dbResult.confirmed && higherTfAllowsBuy) {
       const support = dbResult.upperBound;
       if (Math.abs(currentPrice - support) <= FIB50_TOLERANCE_ATR * atr) {
         const ep  = round(support);
