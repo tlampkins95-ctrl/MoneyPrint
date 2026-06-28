@@ -2014,6 +2014,7 @@ export function computeLevels(
         (!meta.goldApi || histPrev1 > 0);  // metals: must be green; crypto: red-ok
       if (
         signal === "WAIT" &&
+        higherTfAllowsBuy &&
         bbrBuyMacd &&
         volFading &&
         Math.abs(currentPrice - bb30r.lower) <= BBR_TOL_ATR * atr

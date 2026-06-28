@@ -1040,11 +1040,11 @@ async function checkSymbol(
     // because there was no state change, but the order still needs to be placed.
     const lastFailed = failedOrderAt.get(k) ?? 0;
     const recentlyFailed = Date.now() - lastFailed < FAILED_ORDER_RETRY_MS;
-    const catchUpTypeAllowed =
-      levels.signalType === "FIB50_SWING" ||
-      levels.signalType === "DOUBLE_TOP" ||
-      levels.signalType === "DOUBLE_BOTTOM" ||
-      levels.signalType === "PATTERN_BREAKOUT";
+    // Only FIB50_SWING survives catch-up on regular symbols.
+    // DOUBLE_TOP, DOUBLE_BOTTOM, and PATTERN_BREAKOUT entries are pinned to a
+    // specific price level at signal time. A catch-up after restart enters at the
+    // current (wrong) price with the same SL — stale and dangerous.
+    const catchUpTypeAllowed = levels.signalType === "FIB50_SWING";
     if (
       (levels.signal === "BUY" || levels.signal === "SELL") &&
       levels.tradeState === "PENDING" &&
@@ -1056,8 +1056,24 @@ async function checkSymbol(
     ) {
       const phemexSymbol = SYMBOLS[symbol as Symbol]?.phemexPerp;
       if (phemexSymbol) {
-        logger.info({ symbol, timeframe, signal: levels.signal, signalType: levels.signalType }, "phemex-trader: catch-up order — no tracked order for active signal");
-        void executePhemexTrade(symbol, timeframe, levels, phemexSymbol);
+        // Reward-distance check: if TP1 is too close to entry the signal is
+        // ranging or stale. Register a sentinel so the catch-up stops retrying.
+        const rewardDist = Math.abs(levels.entryPrice - levels.takeProfit1);
+        const rewardPct  = rewardDist / levels.entryPrice;
+        const MIN_REWARD_PCT = 0.03; // 3% minimum — tighter than trending (5%) since metals/forex can have smaller swings
+        if (rewardPct < MIN_REWARD_PCT) {
+          logger.warn(
+            { symbol, timeframe, rewardPct: rewardPct.toFixed(4), entryPrice: levels.entryPrice, tp1: levels.takeProfit1 },
+            "phemex-trader: catch-up reward distance too small (ranging/stale) — order skipped",
+          );
+          if (!openPhemexOrders.has(k)) {
+            const skipPosSide = levels.signal === "BUY" ? "Long" : "Short";
+            openPhemexOrders.set(k, { orderId: `ranging-skip-${Date.now()}`, phemexSymbol, posSide: skipPosSide });
+          }
+        } else {
+          logger.info({ symbol, timeframe, signal: levels.signal, signalType: levels.signalType }, "phemex-trader: catch-up order — no tracked order for active signal");
+          void executePhemexTrade(symbol, timeframe, levels, phemexSymbol);
+        }
       }
     }
   } catch (err) {
@@ -1195,7 +1211,7 @@ async function checkTrendingSymbol(
         if (!trendingTypeAllowed) {
           logger.info(
             { symbolKey, timeframe, signalType: levels.signalType },
-            "Trending signal alert suppressed (only DAGGER/PATTERN_BREAKOUT allowed on trending coins)",
+            "Trending signal alert suppressed (only FIB50_SWING/DOUBLE_TOP/DOUBLE_BOTTOM/BB_REJECTION allowed on trending coins)",
           );
           stateMap.set(k, { ...(prev ?? {}), signal: levels.signal, lastAlertAt: prev?.lastAlertAt ?? 0 });
           return;
