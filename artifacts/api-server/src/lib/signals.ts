@@ -1860,7 +1860,7 @@ export function computeLevels(
   //   SL:     avgTop + 0.5 × ATR (just above resistance)
   //   TP1:    neckline (valley between the two peaks)
   //   TP2:    neckline − (avgTop − neckline)  [measured move]
-  if (signal === "WAIT" && !isLongOnly) {
+  if (signal === "WAIT" && !isLongOnly && higherTfAllowsSell) {
     const dtBars = candles.slice(0, candles.length - 1); // exclude live bar, same as FIB50_SWING
     const dtResult = detectFastDoubleTop(dtBars) ?? detectDoubleTop(dtBars);
     if (dtResult?.upperBound != null && dtResult.necklinePrice != null && dtResult.confirmed) {
@@ -2069,15 +2069,11 @@ export function computeLevels(
   // Common scenario: altcoin pumps on no fundamental news, exits the band,
   // then dumps immediately as retail buyers run out.
   //
-  // No higherTfAllowsSell gate: the close-above-band + volume-spike condition
-  // is the signal quality filter — these setups work in both bull and bear markets
-  // because they are mean-reversion plays, not trend-following shorts.
-  //
   // Entry:  limit at pre-pump upper BB (so we short into any dead-cat bounce)
   // TP1:    BB midline (mean reversion target)
   // SL:     above spike high + 0.5×ATR buffer (enforces minimum 2:1 R:R)
   // macdWarm ensures MACD values are reliable (needs 26+9 bars of history).
-  if (signal === "WAIT" && !isLongOnly && macdWarm) {
+  if (signal === "WAIT" && !isLongOnly && macdWarm && higherTfAllowsSell) {
     const overextCompleted = candles.slice(0, candles.length - 1);
     if (overextCompleted.length >= 32) { // need at least 30 for BB + 1 prior candle
       const lastCandle  = overextCompleted[overextCompleted.length - 1];
