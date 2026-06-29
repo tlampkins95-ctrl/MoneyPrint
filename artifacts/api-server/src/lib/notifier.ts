@@ -836,7 +836,9 @@ async function checkSymbol(
         return;
       }
 
-      // Hard type filter. Only FIB50_SWING and DOUBLE_TOP signals trigger notifications.
+      // Hard type filter. Only FIB50_SWING, DOUBLE_TOP, DOUBLE_BOTTOM, and BB_REJECTION
+      // signals trigger notifications and Phemex auto-trades. PATTERN_BREAKOUT is
+      // excluded — entries are time-sensitive and degrade rapidly after the breakout bar.
       // Filled trades bypass this: a fill notification is always actionable
       // regardless of what signal type originally opened the position.
       if (!isFilledTrade) {
@@ -1241,6 +1243,24 @@ async function checkTrendingSymbol(
             signal: prev?.signal ?? "WAIT",
             lastAlertAt: prev?.lastAlertAt ?? 0,
           });
+          return;
+        }
+      }
+
+      // Reward-distance pre-check for trending coins: suppress both alert and
+      // trade if TP1 is too close to entry. executePhemexTrade has the same
+      // check internally, but it runs async (fire-and-forget) so the alert
+      // fires before the check completes — user sees "SELL TAO" on Telegram
+      // but no order on Phemex. Doing it here keeps them in sync.
+      if (levels.signal === "BUY" || levels.signal === "SELL") {
+        const preRewardDist = Math.abs(levels.entryPrice - levels.takeProfit1);
+        const preRewardPct  = preRewardDist / levels.entryPrice;
+        if (preRewardPct < 0.05) {
+          logger.warn(
+            { symbolKey, timeframe, rewardPct: preRewardPct.toFixed(4), signal: levels.signal },
+            "Trending signal suppressed — reward distance too small (ranging market), skipping alert and trade",
+          );
+          stateMap.set(k, { ...(prev ?? {}), signal: levels.signal, lastAlertAt: prev?.lastAlertAt ?? 0 });
           return;
         }
       }
