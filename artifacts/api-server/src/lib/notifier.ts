@@ -271,6 +271,7 @@ async function executePhemexTrade(
   phemexSymbol: string,
   trendingMeta?: TrendingTradeMeta,
   candleRange?: { low: number; high: number; ema20?: number },
+  isCatchUp = false,
 ): Promise<void> {
   logger.info({ symbol, timeframe, phemexSymbol, signal: levels.signal }, "phemex-trader: executePhemexTrade entered");
   const k = key(symbol, timeframe);
@@ -473,21 +474,29 @@ async function executePhemexTrade(
     return;
   }
 
-  // If our system has an active trade record for this slot but Phemex shows no
-  // position, the trade was closed externally (manually by the user, or SL/TP
-  // hit without a transition event). Do NOT re-enter — register a sentinel so
-  // the catch-up block stops firing, and let the next genuine signal transition
-  // handle re-entry if the setup re-forms.
-  const existingActiveTrade = getActiveTrade(symbol, timeframe);
-  if (existingActiveTrade) {
-    logger.warn(
-      { symbol, timeframe, phemexSymbol, signal: levels.signal },
-      "phemex-trader: active trade record exists but no Phemex position found — position was closed externally, skipping re-entry",
-    );
-    if (!openPhemexOrders.has(k)) {
-      openPhemexOrders.set(k, { orderId: `externally-closed-${Date.now()}`, phemexSymbol, posSide: posSideForCheck });
+  // If this is a catch-up re-entry (not a fresh signal transition) and our
+  // system has an active trade record but Phemex shows no position or order,
+  // the trade was closed externally (manually by the user, or SL/TP hit without
+  // a system event). Do NOT re-enter via catch-up — register a sentinel so the
+  // catch-up block stops firing, and let the next genuine WAIT→BUY/SELL
+  // transition handle re-entry if the setup re-forms.
+  //
+  // Fresh transitions (isCatchUp=false) are NOT blocked here: a stale DB record
+  // from a previous deployment must not prevent a newly-formed signal from
+  // firing. The alreadyInSameDirection guard in checkSymbol handles the case
+  // where the signal hasn't changed direction.
+  if (isCatchUp) {
+    const existingActiveTrade = getActiveTrade(symbol, timeframe);
+    if (existingActiveTrade) {
+      logger.warn(
+        { symbol, timeframe, phemexSymbol, signal: levels.signal },
+        "phemex-trader: catch-up skipped — DB record exists but no Phemex position (externally closed or stale)",
+      );
+      if (!openPhemexOrders.has(k)) {
+        openPhemexOrders.set(k, { orderId: `externally-closed-${Date.now()}`, phemexSymbol, posSide: posSideForCheck });
+      }
+      return;
     }
-    return;
   }
 
   // Prevent self-hedging: if an opposite-side position already exists for this
@@ -1074,7 +1083,7 @@ async function checkSymbol(
           }
         } else {
           logger.info({ symbol, timeframe, signal: levels.signal, signalType: levels.signalType }, "phemex-trader: catch-up order — no tracked order for active signal");
-          void executePhemexTrade(symbol, timeframe, levels, phemexSymbol);
+          void executePhemexTrade(symbol, timeframe, levels, phemexSymbol, undefined, undefined, true);
         }
       }
     }
@@ -1372,7 +1381,7 @@ async function checkTrendingSymbol(
         decimals: tMeta.decimals,
         phemexQtyStep: tMeta.phemexQtyStep,
         phemexMinQty: tMeta.phemexMinQty,
-      });
+      }, undefined, true);
     }
   } catch (err) {
     logger.warn({ err, symbolKey, timeframe }, "Trending notifier check failed");
