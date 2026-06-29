@@ -2069,7 +2069,8 @@ export function computeLevels(
   // Entry:  limit at pre-pump upper BB (so we short into any dead-cat bounce)
   // TP1:    BB midline (mean reversion target)
   // SL:     above spike high + 0.5×ATR buffer (enforces minimum 2:1 R:R)
-  if (signal === "WAIT" && !isLongOnly) {
+  // macdWarm ensures MACD values are reliable (needs 26+9 bars of history).
+  if (signal === "WAIT" && !isLongOnly && macdWarm) {
     const overextCompleted = candles.slice(0, candles.length - 1);
     if (overextCompleted.length >= 32) { // need at least 30 for BB + 1 prior candle
       const lastCandle  = overextCompleted[overextCompleted.length - 1];
@@ -2090,11 +2091,23 @@ export function computeLevels(
         const avgVol20 = preVol.length > 0 ? preVol.reduce((s, c) => s + c.volume, 0) / preVol.length : 0;
         const volumeSpike = avgVol20 > 0 && lastCandle.volume > avgVol20 * 1.5;
 
+        // RSI overbought on completed candles: RSI > 70 at the time of the pump
+        // close confirms the move is genuinely extreme, not just a normal candle.
+        const overextRSI = calcRSI(overextCompleted.map((c) => c.close));
+        const rsiOverbought = overextRSI > 70;
+
+        // MACD was positive before the last bar (histPrev2 > 0): confirms the pump
+        // had real upward momentum rather than being a dead-cat in a downtrend.
+        // We do NOT require MACD to already be declining — the pump candle itself
+        // often has a still-rising histogram; the reversal signal comes from the
+        // overextension + RSI, not from MACD timing.
+        const macdHadMomentum = histPrev2 > 0;
+
         // Current (live) price must not have run far above the band — we're not
         // chasing. If price is still 2+ ATR above the pre-pump band, skip.
         const priceStillNear = currentPrice <= prePumpBB.upper + 2 * atr;
 
-        if (closeAboveBand && meaningfulBreak && volumeSpike && priceStillNear) {
+        if (closeAboveBand && meaningfulBreak && volumeSpike && rsiOverbought && macdHadMomentum && priceStillNear) {
           const ep  = round(prePumpBB.upper);
           const tp1 = round(prePumpBB.middle);
           if (tp1 < ep) { // sanity: TP must be below entry for a SELL
