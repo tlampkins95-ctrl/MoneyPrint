@@ -1652,7 +1652,11 @@ export function computeLevels(
     // Iterates structural swing lows from most-recent to oldest so the first
     // qualifying fib that matches current price wins — prevents an older,
     // deeper extreme from masking a more relevant recent setup.
-    if (weeklyAllowsBuy && macdBuyOk) {
+    // BB midline gate: only buy from the LOWER half of the range.
+    // Price above the midline = already in "sell zone" — a BUY here is
+    // buying the top half. Fails open when BB isn't warm yet.
+    const fibBuyBbOk = !bb || currentPrice < bb.middle;
+    if (weeklyAllowsBuy && macdBuyOk && fibBuyBbOk) {
       const swingLows        = findSwingLows(completed, 3, SWING_LOOKBACK);
       const swingHighsForBuy = findSwingHighs(completed, 3, SWING_LOOKBACK);
       buySearch: for (let j = swingLows.length - 1; j >= 0; j--) {
@@ -1723,7 +1727,12 @@ export function computeLevels(
     // Iterates structural swing highs from most-recent to oldest so the first
     // qualifying fib that matches current price wins — prevents an older,
     // higher extreme from masking a more relevant recent setup.
-    if (signal === "WAIT" && !isLongOnly && weeklyAllowsSell && macdSellOk) {
+    // BB midline gate: only short from the UPPER half of the range.
+    // Price below the midline = already in "buy zone" — a SELL here is
+    // shorting the bottom (the TAO/ZEC weekend problem). Fails open when
+    // BB isn't warm yet.
+    const fibSellBbOk = !bb || currentPrice > bb.middle;
+    if (signal === "WAIT" && !isLongOnly && weeklyAllowsSell && macdSellOk && fibSellBbOk) {
       const swingHighs        = findSwingHighs(completed, 3, SWING_LOOKBACK);
       const swingLowsForSell  = findSwingLows(completed, 3, SWING_LOOKBACK);
       sellSearch: for (let j = swingHighs.length - 1; j >= 0; j--) {
