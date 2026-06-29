@@ -2103,12 +2103,17 @@ export function computeLevels(
         // overextension + RSI, not from MACD timing.
         const macdHadMomentum = histPrev2 > 0;
 
-        // Current (live) price must not have run far above the band — we're not
-        // chasing. If price is still 2+ ATR above the pre-pump band, skip.
-        const priceStillNear = currentPrice <= prePumpBB.upper + 2 * atr;
+        // Entry confirmation: the forming candle must be trading BELOW the pump
+        // candle's close — i.e. the current candle is going red relative to the
+        // pump. This avoids placing a limit at the upper band where a retest wick
+        // could stop us out before the real reversal begins.
+        const formingRed = currentPrice < lastCandle.close;
+        // Don't enter if the move to midline is already mostly done.
+        const notOverdone = currentPrice > prePumpBB.middle;
 
-        if (closeAboveBand && meaningfulBreak && volumeSpike && rsiOverbought && macdHadMomentum && priceStillNear) {
-          const ep  = round(prePumpBB.upper);
+        if (closeAboveBand && meaningfulBreak && volumeSpike && rsiOverbought && macdHadMomentum && formingRed && notOverdone) {
+          // Entry at current price (first red candle confirmation — buyer exhaustion).
+          const ep  = round(currentPrice);
           const tp1 = round(prePumpBB.middle);
           if (tp1 < ep) { // sanity: TP must be below entry for a SELL
             // SL above the spike high of the last 5 candles + 0.5×ATR buffer.
@@ -2126,7 +2131,7 @@ export function computeLevels(
             takeProfit2  = tp2;
             dca1         = undefined;
             patternResult = null;
-            signalReason = `[${tfLabel}] BB OVEREXTENSION SELL: Last close ${fmt(lastCandle.close)} above pre-pump upper BB ${fmt(prePumpBB.upper)} (+${(overextPct * 100).toFixed(1)}%), volume spike ${(lastCandle.volume / avgVol20).toFixed(1)}×. Entry ${fmt(ep)} (upper BB), TP1 ${fmt(tp1)} (midline), SL ${fmt(sl)} (above spike high ${fmt(recentHigh)}).`;
+            signalReason = `[${tfLabel}] BB OVEREXTENSION SELL: Last close ${fmt(lastCandle.close)} above pre-pump upper BB ${fmt(prePumpBB.upper)} (+${(overextPct * 100).toFixed(1)}%), volume spike ${(lastCandle.volume / avgVol20).toFixed(1)}×, RSI ${overextRSI.toFixed(0)}. Entry ${fmt(ep)} (first red candle close), TP1 ${fmt(tp1)} (midline), SL ${fmt(sl)} (above spike high ${fmt(recentHigh)}).`;
           }
         }
       }
