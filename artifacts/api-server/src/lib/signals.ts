@@ -2054,6 +2054,72 @@ export function computeLevels(
     }
   }
 
+  // ── BB_OVEREXTENSION SELL: last completed candle closed above upper BB ────────
+  // A coin that closes outside the Bollinger Band on elevated volume has almost
+  // certainly overextended and will snap back toward the midline. Unlike the
+  // BB_REJECTION block above (which requires MACD to already be declining while
+  // price is touching the band), this fires AFTER the overextension closes.
+  // Common scenario: altcoin pumps on no fundamental news, exits the band,
+  // then dumps immediately as retail buyers run out.
+  //
+  // No higherTfAllowsSell gate: the close-above-band + volume-spike condition
+  // is the signal quality filter — these setups work in both bull and bear markets
+  // because they are mean-reversion plays, not trend-following shorts.
+  //
+  // Entry:  limit at pre-pump upper BB (so we short into any dead-cat bounce)
+  // TP1:    BB midline (mean reversion target)
+  // SL:     above spike high + 0.5×ATR buffer (enforces minimum 2:1 R:R)
+  if (signal === "WAIT" && !isLongOnly) {
+    const overextCompleted = candles.slice(0, candles.length - 1);
+    if (overextCompleted.length >= 32) { // need at least 30 for BB + 1 prior candle
+      const lastCandle  = overextCompleted[overextCompleted.length - 1];
+      // Pre-pump BB: calculated on all candles EXCEPT the last completed one,
+      // so the band width isn't inflated by the spike itself.
+      const prePumpCloses = overextCompleted.slice(0, -1).map((c) => c.close);
+      const prePumpBB = calcBollingerBands(prePumpCloses, 30, 2);
+
+      if (prePumpBB) {
+        const closeAboveBand = lastCandle.close > prePumpBB.upper;
+        // Require a meaningful overextension: at least 1% above the pre-pump band.
+        // Hairline closes above the band are noise; genuine pump-exits are obvious.
+        const overextPct = (lastCandle.close - prePumpBB.upper) / prePumpBB.upper;
+        const meaningfulBreak = overextPct >= 0.01;
+
+        // Volume spike: last candle volume > 1.5× the 20-bar average before it.
+        const preVol = overextCompleted.slice(-21, -1);
+        const avgVol20 = preVol.length > 0 ? preVol.reduce((s, c) => s + c.volume, 0) / preVol.length : 0;
+        const volumeSpike = avgVol20 > 0 && lastCandle.volume > avgVol20 * 1.5;
+
+        // Current (live) price must not have run far above the band — we're not
+        // chasing. If price is still 2+ ATR above the pre-pump band, skip.
+        const priceStillNear = currentPrice <= prePumpBB.upper + 2 * atr;
+
+        if (closeAboveBand && meaningfulBreak && volumeSpike && priceStillNear) {
+          const ep  = round(prePumpBB.upper);
+          const tp1 = round(prePumpBB.middle);
+          if (tp1 < ep) { // sanity: TP must be below entry for a SELL
+            // SL above the spike high of the last 5 candles + 0.5×ATR buffer.
+            const recentHigh = Math.max(...overextCompleted.slice(-5).map((c) => c.high));
+            const slFromSpike = round(recentHigh + 0.5 * atr);
+            // Also enforce a minimum 2:1 R:R from entry.
+            const minSl = round(ep + 0.5 * (ep - tp1));
+            const sl  = Math.max(slFromSpike, minSl);
+            const tp2 = round(floorTarget(ep, sl, tp1 - (ep - tp1), MIN_RR_TP2, "SELL"));
+            signal       = "SELL";
+            signalType   = "BB_REJECTION";
+            entryPrice   = ep;
+            stopLoss     = sl;
+            takeProfit1  = tp1;
+            takeProfit2  = tp2;
+            dca1         = undefined;
+            patternResult = null;
+            signalReason = `[${tfLabel}] BB OVEREXTENSION SELL: Last close ${fmt(lastCandle.close)} above pre-pump upper BB ${fmt(prePumpBB.upper)} (+${(overextPct * 100).toFixed(1)}%), volume spike ${(lastCandle.volume / avgVol20).toFixed(1)}×. Entry ${fmt(ep)} (upper BB), TP1 ${fmt(tp1)} (midline), SL ${fmt(sl)} (above spike high ${fmt(recentHigh)}).`;
+          }
+        }
+      }
+    }
+  }
+
   // ── PATTERN_BREAKOUT detection (confirmed chart pattern breakout) ────────────
   // Last in the cascade — fires only when all other signal types are WAIT.
   // Detects confirmed breakouts from triangles, wedges, flags, pennants, H&S/IHS.
