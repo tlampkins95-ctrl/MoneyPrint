@@ -137,7 +137,8 @@ export function getMinPriceRp(symbol: string): number {
 
 interface AccountData {
   account?: {
-    accountBalanceRv?: string;
+    accountBalanceRv?: string;       // wallet balance (realized PnL only)
+    totalUnrealisedPnlRv?: string;   // unrealized PnL across all open positions
     freeMarginRv?: string;
     availableBalanceRv?: string;
     userMode?: number;  // 0 = one-way, 1 = hedge (two-way)
@@ -192,21 +193,26 @@ export async function getUSDTBalance(): Promise<number | null> {
       );
     }
 
-    // Use total account equity (accountBalanceRv) for risk sizing so that 2%
-    // always means 2% of the full portfolio, not 2% of whatever margin
-    // happens to be unlocked after existing positions consume collateral.
-    // freeMarginRv shrinks as positions open, producing inconsistently small
-    // risk amounts even though the portfolio value hasn't changed.
-    const raw =
+    // Total equity = wallet balance + unrealized PnL across open positions.
+    // The Phemex UI shows this combined figure. Using wallet-only
+    // (accountBalanceRv) causes 2% sizing to drift from what the user expects
+    // when open positions have unrealized gains or losses.
+    const walletRaw =
       data.account?.accountBalanceRv ??
       data.account?.availableBalanceRv ??
       data.account?.freeMarginRv;
-    const v = parseFloat(raw ?? "");
-    if (!isFinite(v) || v <= 0) {
-      logger.warn({ raw, data }, "Phemex balance parse failed — raw value unexpected");
+    const wallet     = parseFloat(walletRaw ?? "");
+    const unrealised = parseFloat(data.account?.totalUnrealisedPnlRv ?? "0");
+    const equity     = wallet + (isFinite(unrealised) ? unrealised : 0);
+    if (!isFinite(wallet) || wallet <= 0) {
+      logger.warn({ walletRaw, data }, "Phemex balance parse failed — raw value unexpected");
       return null;
     }
-    return v;
+    logger.info(
+      { walletBalance: wallet, unrealisedPnl: isFinite(unrealised) ? unrealised : 0, totalEquity: equity },
+      "phemex-trader: account equity",
+    );
+    return equity;
   } catch (err) {
     logger.warn({ err }, "getUSDTBalance: request failed");
     return null;
