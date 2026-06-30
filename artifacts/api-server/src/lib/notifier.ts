@@ -19,6 +19,7 @@ import {
   fetchContractSpecs,
   setSymbolLeverage,
   placeOrder,
+  placeLimitClose,
   placeStopOrder,
   cancelExistingStopOrders,
   cancelOrder,
@@ -230,6 +231,14 @@ interface OpenPhemexOrder {
   orderId:      string;
   phemexSymbol: string;
   posSide?:     "Long" | "Short";  // required in hedge mode
+  // Split-TP tracking (set for every auto-traded order)
+  fullQty?:     number;    // full position qty at entry
+  entryPx?:     number;    // actual entry price (anchored for Market IOC)
+  pxDecimals?:  number;
+  qtyDecimals?: number;
+  tp1OrderId?:  string;    // reduce-only limit at TP1 (half qty)
+  tp2OrderId?:  string;    // reduce-only limit at TP2 (half qty)
+  tp1Filled?:   boolean;   // true once TP1 fills and SL has been moved to BE
 }
 const openPhemexOrders = new Map<string, OpenPhemexOrder>();
 
@@ -552,18 +561,21 @@ async function executePhemexTrade(
   //   new_sl = currentPrice + risk
   const minPx = getMinPriceRp(phemexSymbol);
   const isMarketIocSell = side === "Sell" && minPx > 0 && levels.entryPrice < minPx;
-  let effectiveSL = levels.stopLoss;
-  let effectiveTP = levels.takeProfit1;
+  let effectiveSL  = levels.stopLoss;
+  let effectiveTP  = levels.takeProfit1;
+  let effectiveTP2 = levels.takeProfit2;
   if (isMarketIocSell) {
-    const reward = levels.entryPrice - levels.takeProfit1;
-    const risk   = levels.stopLoss   - levels.entryPrice;
-    const ref    = levels.currentPrice;
-    effectiveTP  = ref - reward;
-    effectiveSL  = ref + risk;
+    const reward  = levels.entryPrice - levels.takeProfit1;
+    const reward2 = levels.entryPrice - levels.takeProfit2;
+    const risk    = levels.stopLoss   - levels.entryPrice;
+    const ref     = levels.currentPrice;
+    effectiveTP   = ref - reward;
+    effectiveTP2  = ref - reward2;
+    effectiveSL   = ref + risk;
     logger.info(
       { symbol, phemexSymbol, signalEntry: levels.entryPrice, currentPrice: ref,
         origSL: levels.stopLoss, origTP: levels.takeProfit1,
-        newSL: effectiveSL, newTP: effectiveTP },
+        newSL: effectiveSL, newTP: effectiveTP, newTP2: effectiveTP2 },
       "phemex-trader: Market IOC SELL — SL/TP re-anchored to current price",
     );
   }
@@ -574,23 +586,59 @@ async function executePhemexTrade(
   // orders of magnitude larger than the intended 2% risk would suggest.
   await setSymbolLeverage(phemexSymbol, phemexMaxLeverage());
 
+  const entryTs = Date.now();
   const orderId = await placeOrder({
     phemexSymbol,
     side,
-    qtyRq:        rawQty.toFixed(qtyDecimals),
-    priceRp:      levels.entryPrice.toFixed(pxDecimals),
-    stopLossRp:   effectiveSL.toFixed(pxDecimals),
-    takeProfitRp: effectiveTP.toFixed(pxDecimals),
-    clOrdID:      `phx-${symbol}-${timeframe}-${Date.now()}`,
+    qtyRq:      rawQty.toFixed(qtyDecimals),
+    priceRp:    levels.entryPrice.toFixed(pxDecimals),
+    stopLossRp: effectiveSL.toFixed(pxDecimals),
+    // No bracket TP — two reduce-only limit orders below handle TP1/TP2 separately.
+    clOrdID:    `phx-${symbol}-${timeframe}-${entryTs}`,
   });
 
   if (orderId) {
     failedOrderAt.delete(k);
     const posSide = side === "Buy" ? "Long" : "Short";
-    openPhemexOrders.set(k, { orderId, phemexSymbol, posSide });
+
+    // Split-TP: 50% closes at TP1 (locks in profit), 50% rides to TP2.
+    // After TP1 fills, the next poll cycle moves SL to breakeven so the runner is free.
+    const halfQtyRq    = (rawQty / 2).toFixed(qtyDecimals);
+    const actualEntryPx = isMarketIocSell ? levels.currentPrice : levels.entryPrice;
+    const [tp1OrderId, tp2OrderId] = await Promise.all([
+      placeLimitClose({
+        phemexSymbol,
+        posSide,
+        priceRp: effectiveTP.toFixed(pxDecimals),
+        qtyRq:   halfQtyRq,
+        clOrdID: `phx-tp1-${symbol}-${timeframe}-${entryTs}`,
+      }),
+      placeLimitClose({
+        phemexSymbol,
+        posSide,
+        priceRp: effectiveTP2.toFixed(pxDecimals),
+        qtyRq:   halfQtyRq,
+        clOrdID: `phx-tp2-${symbol}-${timeframe}-${entryTs}`,
+      }),
+    ]);
+
+    openPhemexOrders.set(k, {
+      orderId,
+      phemexSymbol,
+      posSide,
+      fullQty:    rawQty,
+      entryPx:    actualEntryPx,
+      pxDecimals,
+      qtyDecimals,
+      tp1OrderId: tp1OrderId ?? undefined,
+      tp2OrderId: tp2OrderId ?? undefined,
+      tp1Filled:  false,
+    });
     logger.info(
-      { symbol, timeframe, side, qty: rawQty, entry: levels.entryPrice, sl: effectiveSL, tp: effectiveTP, orderId, accountSize },
-      "phemex-trader: order tracked",
+      { symbol, timeframe, side, qty: rawQty, halfQtyRq, entry: actualEntryPx,
+        sl: effectiveSL, tp1: effectiveTP, tp2: effectiveTP2,
+        orderId, tp1OrderId, tp2OrderId, accountSize },
+      "phemex-trader: order + split-TP tracked",
     );
   } else {
     failedOrderAt.set(k, Date.now());
@@ -1029,7 +1077,12 @@ async function checkSymbol(
     ) {
       const openOrder = openPhemexOrders.get(k);
       if (openOrder) {
-        void cancelOrder(openOrder.phemexSymbol, openOrder.orderId, openOrder.posSide).then(() => {
+        const cancelTasks: Promise<void>[] = [
+          cancelOrder(openOrder.phemexSymbol, openOrder.orderId, openOrder.posSide),
+        ];
+        if (openOrder.tp1OrderId) cancelTasks.push(cancelOrder(openOrder.phemexSymbol, openOrder.tp1OrderId, openOrder.posSide));
+        if (openOrder.tp2OrderId) cancelTasks.push(cancelOrder(openOrder.phemexSymbol, openOrder.tp2OrderId, openOrder.posSide));
+        void Promise.allSettled(cancelTasks).then(() => {
           openPhemexOrders.delete(k);
         });
       }
@@ -1043,6 +1096,37 @@ async function checkSymbol(
       lastAlertAt: prev?.lastAlertAt ?? 0,
       lastPatternKey: levels.signal === "WAIT" ? undefined : prev?.lastPatternKey,
     });
+
+    // TP1 fill detection: if the tracked position has shrunk to ~50% of fullQty,
+    // TP1 hit. Cancel the bracket SL and place a new stop at breakeven (entry price)
+    // so the second half rides risk-free to TP2.
+    const tp1CheckOrder = openPhemexOrders.get(k);
+    if (
+      (levels.signal === "BUY" || levels.signal === "SELL") &&
+      tp1CheckOrder?.fullQty !== undefined &&
+      !tp1CheckOrder.tp1Filled
+    ) {
+      try {
+        const pos = await checkExistingPosition(tp1CheckOrder.phemexSymbol, tp1CheckOrder.posSide!);
+        if (pos && pos.size < tp1CheckOrder.fullQty * 0.75) {
+          await cancelExistingStopOrders(tp1CheckOrder.phemexSymbol, tp1CheckOrder.posSide!);
+          await placeStopOrder({
+            phemexSymbol: tp1CheckOrder.phemexSymbol,
+            posSide:      tp1CheckOrder.posSide!,
+            stopPx:       tp1CheckOrder.entryPx!,
+            qtyRq:        (tp1CheckOrder.fullQty / 2).toFixed(tp1CheckOrder.qtyDecimals ?? 0),
+            pxDecimals:   tp1CheckOrder.pxDecimals ?? 2,
+          });
+          openPhemexOrders.set(k, { ...tp1CheckOrder, tp1Filled: true });
+          logger.info(
+            { symbol, timeframe, entryPx: tp1CheckOrder.entryPx, fullQty: tp1CheckOrder.fullQty, posSize: pos.size },
+            "phemex-trader: TP1 filled — SL moved to breakeven",
+          );
+        }
+      } catch (err) {
+        logger.warn({ err, symbol, timeframe }, "phemex-trader: TP1 fill check failed — skipping BE move");
+      }
+    }
 
     // Catch-up auto-trade: if the auto-trader is on, signal is active, and no
     // Phemex order is currently tracked for this slot, place one now.
@@ -1343,6 +1427,21 @@ async function checkTrendingSymbol(
       );
     }
 
+    // Cancel any tracked TP orders when a trending coin's signal returns to WAIT.
+    if (levels.signal === "WAIT" && prev?.signal !== "WAIT" && isPhemexTradingEnabled()) {
+      const openOrder = openPhemexOrders.get(k);
+      if (openOrder) {
+        const cancelTasks: Promise<void>[] = [
+          cancelOrder(openOrder.phemexSymbol, openOrder.orderId, openOrder.posSide),
+        ];
+        if (openOrder.tp1OrderId) cancelTasks.push(cancelOrder(openOrder.phemexSymbol, openOrder.tp1OrderId, openOrder.posSide));
+        if (openOrder.tp2OrderId) cancelTasks.push(cancelOrder(openOrder.phemexSymbol, openOrder.tp2OrderId, openOrder.posSide));
+        void Promise.allSettled(cancelTasks).then(() => {
+          openPhemexOrders.delete(k);
+        });
+      }
+    }
+
     stateMap.set(k, {
       ...(prev ?? {}),
       signal: levels.signal,
@@ -1350,6 +1449,35 @@ async function checkTrendingSymbol(
       lastAlertSignal: prev?.lastAlertSignal,
       lastPatternKey: levels.signal === "WAIT" ? undefined : prev?.lastPatternKey,
     });
+
+    // TP1 fill detection for trending coins — same logic as checkSymbol.
+    const tp1CheckOrderT = openPhemexOrders.get(k);
+    if (
+      (levels.signal === "BUY" || levels.signal === "SELL") &&
+      tp1CheckOrderT?.fullQty !== undefined &&
+      !tp1CheckOrderT.tp1Filled
+    ) {
+      try {
+        const pos = await checkExistingPosition(tp1CheckOrderT.phemexSymbol, tp1CheckOrderT.posSide!);
+        if (pos && pos.size < tp1CheckOrderT.fullQty * 0.75) {
+          await cancelExistingStopOrders(tp1CheckOrderT.phemexSymbol, tp1CheckOrderT.posSide!);
+          await placeStopOrder({
+            phemexSymbol: tp1CheckOrderT.phemexSymbol,
+            posSide:      tp1CheckOrderT.posSide!,
+            stopPx:       tp1CheckOrderT.entryPx!,
+            qtyRq:        (tp1CheckOrderT.fullQty / 2).toFixed(tp1CheckOrderT.qtyDecimals ?? 0),
+            pxDecimals:   tp1CheckOrderT.pxDecimals ?? 2,
+          });
+          openPhemexOrders.set(k, { ...tp1CheckOrderT, tp1Filled: true });
+          logger.info(
+            { symbolKey, timeframe, entryPx: tp1CheckOrderT.entryPx, fullQty: tp1CheckOrderT.fullQty, posSize: pos.size },
+            "phemex-trader: trending TP1 filled — SL moved to breakeven",
+          );
+        }
+      } catch (err) {
+        logger.warn({ err, symbolKey, timeframe }, "phemex-trader: trending TP1 fill check failed — skipping BE move");
+      }
+    }
 
     // Catch-up auto-trade for trending coins: if the auto-trader is on, the
     // signal is PENDING, and no order is tracked, place one now. Covers the

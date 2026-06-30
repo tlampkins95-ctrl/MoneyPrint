@@ -297,7 +297,7 @@ export interface PlaceOrderParams {
   qtyRq:         string;    // base-currency quantity, already step-rounded, as string
   priceRp:       string;    // limit entry price as string
   stopLossRp:    string;    // SL trigger price as string
-  takeProfitRp:  string;    // TP trigger price as string
+  takeProfitRp?: string;    // TP trigger price as string (omit to skip bracket TP)
   clOrdID:       string;    // unique client order id
 }
 
@@ -391,7 +391,6 @@ export async function placeOrder(params: PlaceOrderParams): Promise<string | nul
     timeInForce:  useMarket ? "ImmediateOrCancel" : "GoodTillCancel",
     orderQtyRq:   params.qtyRq,
     stopLossRp:   params.stopLossRp,
-    takeProfitRp: params.takeProfitRp,
     // NOTE: do NOT include slOrdPxRp / tpOrdPxRp — even "0" causes code 39999
     // on linear perp bracket orders. Market execution is the default when these
     // fields are absent.
@@ -402,6 +401,10 @@ export async function placeOrder(params: PlaceOrderParams): Promise<string | nul
   // Market orders must not include priceRp.
   if (!useMarket) {
     body["priceRp"] = clampedPrice;
+  }
+  // Bracket TP is optional — omit when using separate reduce-only TP limit orders.
+  if (params.takeProfitRp !== undefined) {
+    body["takeProfitRp"] = params.takeProfitRp;
   }
 
   if (hedgeMode) {
@@ -506,6 +509,45 @@ export async function placeStopOrder(params: {
     return data.orderID;
   } catch (err) {
     logger.warn({ err, params }, "phemex-trader: placeStopOrder failed");
+    return null;
+  }
+}
+
+/**
+ * Places a reduce-only GTC limit order to close part of an open position.
+ * Used for split-TP: two separate half-qty limit orders at TP1 and TP2 instead
+ * of a single bracket TP that would close the full position.
+ */
+export async function placeLimitClose(params: {
+  phemexSymbol: string;
+  posSide:      "Long" | "Short";
+  priceRp:      string;
+  qtyRq:        string;
+  clOrdID:      string;
+}): Promise<string | null> {
+  const hedgeMode = resolveHedgeMode();
+  // Close direction is opposite to position direction.
+  const side: "Buy" | "Sell" = params.posSide === "Long" ? "Sell" : "Buy";
+  const body: Record<string, string | boolean> = {
+    symbol:      params.phemexSymbol,
+    clOrdID:     params.clOrdID,
+    side,
+    ordType:     "Limit",
+    timeInForce: "GoodTillCancel",
+    orderQtyRq:  params.qtyRq,
+    priceRp:     params.priceRp,
+    reduceOnly:  true,
+  };
+  if (hedgeMode) {
+    body["posSide"] = params.posSide;
+  }
+  logger.info({ ...body }, "phemex-trader: placing reduce-only TP limit close");
+  try {
+    const data = await phemexRequest<OrderResponseData>("POST", "/g-orders", {}, body);
+    logger.info({ orderID: data.orderID, clOrdID: params.clOrdID }, "phemex-trader: TP limit close placed");
+    return data.orderID;
+  } catch (err) {
+    logger.warn({ err, params }, "phemex-trader: placeLimitClose failed");
     return null;
   }
 }
