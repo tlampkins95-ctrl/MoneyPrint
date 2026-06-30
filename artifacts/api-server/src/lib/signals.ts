@@ -1747,7 +1747,11 @@ export function computeLevels(
           if (Math.abs(currentPrice - fib50Buy) <= FIB50_TOLERANCE_ATR * swingAtr) {
             const ep  = round(fib50Buy);
             const tp1 = round(swingALow + 0.786 * buySwingRange);  // 78.6% fib — TP1
-            const sl  = round(ep - 0.5 * (tp1 - ep));              // 2:1 R:R (risk = reward/2)
+            // 1d candles regularly span ≥1 ATR; enforce 1.5 ATR minimum on 1d. Other TFs: 2:1 R:R.
+            const slFormula = ep - 0.5 * (tp1 - ep);
+            const sl  = round(timeframe === "1d"
+              ? Math.min(slFormula, ep - 1.5 * swingAtr)
+              : slFormula);
             const tp2 = round(floorTarget(ep, sl, swingBHigh, MIN_RR_TP2, "BUY")); // swing high
             signal       = "BUY";
             entryPrice   = ep;
@@ -1821,7 +1825,13 @@ export function computeLevels(
           if (Math.abs(currentPrice - fib50Sell) <= FIB50_TOLERANCE_ATR * swingAtr) {
             const ep  = round(fib50Sell);
             const tp1 = round(swingAHigh - 0.786 * sellSwingRange);  // 78.6% fib — TP1
-            const sl  = round(ep + 0.5 * (ep - tp1));                // 2:1 R:R (risk = reward/2)
+            // 1d candles regularly span ≥1 ATR; the formula-derived SL (0.143×swingRange ≈ 1 ATR)
+            // gets clipped by normal daily candle noise. Enforce a 1.5 ATR minimum on 1d so
+            // the trade has room to breathe. Other TFs keep the strict 2:1 R:R.
+            const slFormula = ep + 0.5 * (ep - tp1);
+            const sl  = round(timeframe === "1d"
+              ? Math.max(slFormula, ep + 1.5 * swingAtr)
+              : slFormula);
             const tp2 = round(floorTarget(ep, sl, swingBLow, MIN_RR_TP2, "SELL")); // swing low
             signal       = "SELL";
             entryPrice   = ep;

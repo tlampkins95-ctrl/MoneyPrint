@@ -27,6 +27,8 @@
 - [Phemex activeList field names](phemex-activeList-fields.md) — orderType/execInst/side (not ordType/reduceOnly/posSide); posSide absent, derive from side.
 - [detectCandlestickSignal never wired](candlestick-signal-wiring.md) — was imported but never called in signals.ts; now wired after detectChartPattern in PATTERN_BREAKOUT block.
 - [Higher-TF trend gate](higher-tf-trend-gate.md) — higherTfAllowsSell/higherTfAllowsBuy use daily MACD histogram (NOT EMAs). ALL signal types (including FIB50_SWING) require these gates. Declarations must live BEFORE the FIB50_SWING block or TS2448 fires.
+- [Higher-TF gate coverage](higher-tf-gate-coverage.md) — all 6 SELL + 5 BUY assignments verified; FIB50_SWING and DOUBLE_TOP SELL were missing gates; BB_OVEREXTENSION was explicitly bypassing them; all fixed.
+- [FIB50_SWING 1d SL ATR minimum](fib50swing-1d-sl-atr.md) — formula SL ≈ 1 ATR on 1d (clipped by daily candle noise); enforced 1.5 ATR minimum for 1d only; other TFs keep strict 2:1 R:R.
 - [User strategy indicators](user-strategy-indicators.md) — strategy uses Bollinger Bands + MACD only. No EMAs in the strategy. Never build gates or filters using EMA crossovers.
 - [Phemex leverage endpoint](phemex-leverage-endpoint.md) — PUT /g-positions/leverage takes params as QUERY STRING not body; sending as JSON body causes code 10500 signature error. Pass as 3rd arg (query) to phemexRequest, not 4th (body).
 - [Margin-based position sizing](margin-based-sizing.md) — user wants margin = PHEMEX_RISK_PCT × balance (not risk-based). Formula: margin = balance × riskPct; notional = margin × maxLeverage; qty = notional / entry. PHEMEX_RISK_PCT=0.02, PHEMEX_MAX_LEVERAGE=20 in production artifact.toml.
