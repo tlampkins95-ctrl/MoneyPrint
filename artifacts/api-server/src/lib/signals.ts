@@ -791,7 +791,7 @@ function findDaggerBearSetup(
 // kept when it is further from entry than these floors; otherwise the target
 // is pushed out so a winning trade always pays at least this many R.
 export const MIN_RR_TP1 = 1.5;
-export const MIN_RR_TP2 = 2.5;
+export const MIN_RR_TP2 = 2.2;
 
 // ─── Position sizing ─────────────────────────────────────────────────────────
 // Defaults assume a $500 starting account, 1% risk per trade, Phemex USDT
