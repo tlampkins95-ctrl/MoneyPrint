@@ -1207,6 +1207,20 @@ async function checkSymbol(
     // because there was no state change, but the order still needs to be placed.
     const lastFailed = failedOrderAt.get(k) ?? 0;
     const recentlyFailed = Date.now() - lastFailed < FAILED_ORDER_RETRY_MS;
+    // TP retry: if we placed an entry order but TPs were never set (e.g. the
+    // limit entry filled AFTER the initial placeLimitClose attempt), the tracker
+    // holds the entry orderId but tp1OrderId is undefined. openPhemexOrders.has(k)
+    // would suppress the catch-up block, so clear the stale tracker here and let
+    // the catch-up below reinitialize the TPs on this same poll cycle.
+    // Guard: tp1Filled===false (explicitly set on real orders) distinguishes
+    // a real tracked order from sentinel objects (tp1Filled===undefined).
+    {
+      const t = openPhemexOrders.get(k);
+      if (t && t.tp1Filled === false && !t.tp1OrderId && !t.tp2OrderId) {
+        logger.info({ symbol, timeframe }, "phemex-trader: tracked order missing TPs — clearing stale tracker for TP retry");
+        openPhemexOrders.delete(k);
+      }
+    }
     // All signal types reach executePhemexTrade for catch-up.
     // The re-entry type gate (FIB50_SWING only) lives inside executePhemexTrade:
     // if a position already exists it restores TPs for any signal type; if no
@@ -1559,14 +1573,25 @@ async function checkTrendingSymbol(
     // there was no state change.
     const lastFailedT = failedOrderAt.get(k) ?? 0;
     const recentlyFailedT = Date.now() - lastFailedT < FAILED_ORDER_RETRY_MS;
-    // DOUBLE_TOP, DOUBLE_BOTTOM, and PATTERN_BREAKOUT are excluded from catch-up:
-    // their entries are pinned to a specific price level at signal time. If the
-    // server restarted and price has already moved away from that level (e.g. TAO
-    // shorted at the bottom after falling from the pattern high), a catch-up order
-    // enters at a worse price with the same SL — near-zero reward or loss on entry.
-    // Only FIB50_SWING has a zone-based entry that tolerates catch-up re-entry.
+    // TP retry: same as checkSymbol — if the tracker exists but TPs were never
+    // placed (limit entry filled after initial TP attempt), clear the stale
+    // tracker so the catch-up block below can reinitialize TPs this poll cycle.
+    {
+      const t = openPhemexOrders.get(k);
+      if (t && t.tp1Filled === false && !t.tp1OrderId && !t.tp2OrderId) {
+        logger.info({ symbolKey, timeframe }, "phemex-trader: trending tracked order missing TPs — clearing stale tracker for TP retry");
+        openPhemexOrders.delete(k);
+      }
+    }
+    // DOUBLE_TOP, DOUBLE_BOTTOM, and PATTERN_BREAKOUT are excluded from fresh
+    // catch-up re-entry: their entries are pinned to a specific price level at
+    // signal time. If price has already moved away (e.g. TAO shorted at the
+    // bottom after falling from the pattern high), a catch-up re-enters at a
+    // worse price with the same SL — near-zero reward or loss on entry.
+    // EXCEPTION: FILLED_PROFIT means a position is already open. We only need
+    // to restore TP orders — skip the type gate entirely in that case.
     const trendingCatchUpTypeAllowed =
-      levels.signalType === "FIB50_SWING";
+      levels.signalType === "FIB50_SWING" || levels.tradeState === "FILLED_PROFIT";
     if (
       (levels.signal === "BUY" || levels.signal === "SELL") &&
       (levels.tradeState === "PENDING" || levels.tradeState === "FILLED_PROFIT") &&
@@ -1577,7 +1602,7 @@ async function checkTrendingSymbol(
       !openPhemexOrders.has(k) &&
       !recentlyFailedT
     ) {
-      logger.info({ symbolKey, timeframe, signal: levels.signal, signalType: levels.signalType }, "phemex-trader: trending catch-up order — no tracked order for active signal");
+      logger.info({ symbolKey, timeframe, signal: levels.signal, signalType: levels.signalType, tradeState: levels.tradeState }, "phemex-trader: trending catch-up order — no tracked order for active signal");
       void executePhemexTrade(symbolKey, timeframe, levels, tMeta.phemexPerp, {
         decimals: tMeta.decimals,
         phemexQtyStep: tMeta.phemexQtyStep,
