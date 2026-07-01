@@ -289,6 +289,47 @@ export async function checkExistingPosition(
   }
 }
 
+export interface OpenPhemexPosition {
+  phemexSymbol: string;
+  posSide:      "Long" | "Short";
+  size:         number;
+  entryPrice:   number;
+  stopLossRp:   number;
+}
+
+/**
+ * Returns all open USDT-perp positions on the account (size > 0).
+ * Used at startup to detect positions not tracked by openPhemexOrders.
+ * Never throws — returns [] on any API failure.
+ */
+export async function getAllOpenPhemexPositions(): Promise<OpenPhemexPosition[]> {
+  try {
+    const data = await phemexRequest<AccountData>(
+      "GET",
+      "/g-accounts/accountPositions",
+      { currency: "USDT" },
+    );
+    const result: OpenPhemexPosition[] = [];
+    for (const p of data.positions ?? []) {
+      const size = parseFloat(p.size ?? p.qty ?? "0");
+      if (!isFinite(size) || size === 0) continue;
+      const rawPosSide = p.posSide ?? p.side ?? "";
+      if (rawPosSide !== "Long" && rawPosSide !== "Short") continue;
+      result.push({
+        phemexSymbol: p.symbol,
+        posSide:      rawPosSide as "Long" | "Short",
+        size,
+        entryPrice:   parseFloat(p.avgEntryPriceRp ?? "0"),
+        stopLossRp:   parseFloat(p.stopLossRp ?? "0"),
+      });
+    }
+    return result;
+  } catch (err) {
+    logger.warn({ err }, "phemex-trader: getAllOpenPhemexPositions failed");
+    return [];
+  }
+}
+
 // ─── Orders ──────────────────────────────────────────────────────────────────
 
 export interface PlaceOrderParams {

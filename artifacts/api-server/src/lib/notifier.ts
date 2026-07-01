@@ -10,6 +10,7 @@ import { computeLevelsStable, fetchSpotPrice, getActiveTrade, applyFuturesBasis,
 import {
   buildAlertContext,
   sendTelegramAlert,
+  sendTelegramMessage,
   isTelegramEnabled,
 } from "./telegram-notifier";
 import { broadcastWebPush } from "./web-push-notifier";
@@ -30,6 +31,7 @@ import {
   getMinPriceRp,
   checkExistingPosition,
   checkExistingOrder,
+  getAllOpenPhemexPositions,
 } from "./phemex-trader";
 
 type SignalKind = "BUY" | "SELL" | "WAIT";
@@ -1716,6 +1718,69 @@ function onTradeClosed(
 
 let started = false;
 
+/**
+ * Scans all open Phemex positions 30s after startup and alerts on any that
+ * are not tracked by the auto-trader (not in openPhemexOrders, not a static
+ * symbol, not currently in the trending cache).
+ *
+ * Why positions go orphaned:
+ *  1. Trending TTL expires (8h) → DB row deleted → coin dropped from cache
+ *  2. Server restart loads only non-expired rows → coin absent from poll loop
+ *  3. The `if (!tMeta) return` guard in checkTrendingSymbol silently stops it
+ *  4. Any active_trades record persists but is never polled → position unmanaged
+ *
+ * Static symbols and active trending coins are excluded — their own catch-up
+ * blocks restore TPs on the first tick. This function only fires on true orphans.
+ */
+async function detectOrphanedPositions(): Promise<void> {
+  if (!isPhemexTradingEnabled()) return;
+  try {
+    const { getTrendingSymbols } = await import("./trending-discovery");
+    const positions = await getAllOpenPhemexPositions();
+    if (!positions.length) return;
+
+    const trendingCache = getTrendingSymbols();
+
+    for (const { phemexSymbol, posSide, size, entryPrice } of positions) {
+      // Already tracked — catch-up block handled it
+      const alreadyTracked = [...openPhemexOrders.values()].some(
+        o => o.phemexSymbol === phemexSymbol && o.posSide === posSide,
+      );
+      if (alreadyTracked) continue;
+
+      // Static symbol — the static symbol catch-up block restores TPs
+      const isStatic = Object.values(SYMBOLS).some(m => m.phemexPerp === phemexSymbol);
+      if (isStatic) continue;
+
+      // Currently-trending symbol — the trending catch-up block restores TPs
+      const isTrending = trendingCache.some(t => t.phemexPerp === phemexSymbol);
+      if (isTrending) continue;
+
+      // True orphan — not managed by any auto-trader path
+      const side = posSide === "Long" ? "LONG 📈" : "SHORT 📉";
+      const entryStr = entryPrice > 0 ? entryPrice.toFixed(4) : "unknown";
+      const msg =
+        `⚠️ <b>ORPHANED POSITION DETECTED</b>\n\n` +
+        `<b>${phemexSymbol} ${side}</b>\n` +
+        `Size: ${size}  |  Entry: ${entryStr}\n\n` +
+        `This position is <b>not tracked</b> by the auto-trader.\n` +
+        `Likely cause: symbol expired from the trending list after the trade was placed.\n\n` +
+        `<i>Set TPs/SL manually on Phemex — the auto-trader will not manage this position.</i>`;
+
+      logger.warn(
+        { phemexSymbol, posSide, size, entryPrice },
+        "phemex-trader: ORPHANED POSITION — not tracked by auto-trader",
+      );
+
+      if (isTelegramEnabled()) {
+        void sendTelegramMessage(msg);
+      }
+    }
+  } catch (err) {
+    logger.warn({ err }, "phemex-trader: detectOrphanedPositions failed");
+  }
+}
+
 export function startSignalNotifier(): void {
   if (started) return;
   const telegramOn = isTelegramEnabled();
@@ -1733,6 +1798,10 @@ export function startSignalNotifier(): void {
   // clamp prices for symbols whose market price is below the exchange floor.
   if (isPhemexTradingEnabled()) {
     void fetchContractSpecs();
+    // After the first tick has had time to populate openPhemexOrders (30s),
+    // scan for any Phemex positions that no catch-up path handled — true orphans
+    // whose tracking expired while the position was still open.
+    setTimeout(() => void detectOrphanedPositions(), 30_000);
   }
 
   // Wire up the trade-close hook so signals.ts can notify us when a trade

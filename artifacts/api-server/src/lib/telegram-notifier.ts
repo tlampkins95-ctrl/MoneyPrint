@@ -46,7 +46,7 @@ export function buildAlertContext(
   return { symbolKey, meta, timeframe, tfLabel, levels, link };
 }
 
-async function sendTelegramMessage(text: string, photoUrl?: string): Promise<void> {
+export async function sendTelegramMessage(text: string, photoUrl?: string): Promise<void> {
   const token = process.env["TELEGRAM_BOT_TOKEN"];
   const chatId = process.env["TELEGRAM_CHAT_ID"];
   if (!token || !chatId) return;
