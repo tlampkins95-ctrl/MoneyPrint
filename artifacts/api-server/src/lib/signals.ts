@@ -1861,16 +1861,17 @@ export function computeLevels(
   // Gates:
   //   • Confirmation required — neckline must be broken (dtResult.confirmed).
   //     "Forming" double tops are theoretical patterns, not actionable shorts.
-  //   • Daily trend alignment (1h): if daily EMA21 > EMA50 (uptrend), skip.
-  //     Shorting a 1h double top into 6 consecutive green daily candles loses.
-  //   • Weekly trend alignment (1d): if weekly EMA21 > EMA50 (uptrend), skip.
+  //   • No higher-TF trend gate — double top IS a reversal signal; it forms
+  //     specifically at the top of an uptrend. Gating on weekly/daily MACD
+  //     being bearish would block every valid distribution pattern (the trend
+  //     hasn't turned yet when the top is forming).
   //   • isLongOnly guard prevents shorts on spot-only instruments.
   //
   //   Entry:  avgTop (average of the two peaks = resistance)
   //   SL:     avgTop + 0.5 × ATR (just above resistance)
   //   TP1:    neckline (valley between the two peaks)
   //   TP2:    neckline − (avgTop − neckline)  [measured move]
-  if (signal === "WAIT" && !isLongOnly && higherTfAllowsSell) {
+  if (signal === "WAIT" && !isLongOnly) {
     const dtBars = candles.slice(0, candles.length - 1); // exclude live bar, same as FIB50_SWING
     const dtResult = detectFastDoubleTop(dtBars) ?? detectDoubleTop(dtBars);
     if (dtResult?.upperBound != null && dtResult.necklinePrice != null && dtResult.confirmed) {
