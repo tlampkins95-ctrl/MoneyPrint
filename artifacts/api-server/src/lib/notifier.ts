@@ -22,6 +22,7 @@ import {
   placeLimitClose,
   placeStopOrder,
   cancelExistingStopOrders,
+  cancelExistingTpOrders,
   cancelOrder,
   cancelAllOrders,
   phemexRiskPct,
@@ -460,7 +461,6 @@ async function executePhemexTrade(
       { symbol, timeframe, phemexSymbol, side, existingSize, existingSlPrice },
       "phemex-trader: position already exists on Phemex — registering in tracker, skipping new order",
     );
-    openPhemexOrders.set(k, { orderId: `pre-existing-${Date.now()}`, phemexSymbol, posSide: posSideForCheck });
     // If Phemex shows no SL on this position (stopLossRp === 0), the bracket
     // was silently dropped or the position predates bracket support. Place a
     // stop-market reduce-only order now to protect it.
@@ -479,6 +479,78 @@ async function executePhemexTrade(
         qtyRq:      existingSize.toFixed(qtyDecimals),
         pxDecimals,
       });
+    }
+    // Re-place split-TP orders that were lost when openPhemexOrders was wiped
+    // on server restart. Cancel any stale reduce-only Limit orders first to
+    // prevent doubling up if TPs somehow survived the restart.
+    // If TP1 already hit (persisted in active-trades), place only TP2 for the
+    // full remaining size; otherwise place both at half size each.
+    const entryTs = Date.now();
+    const persistedTrade = getActiveTrade(symbol, timeframe);
+    const tp1AlreadyHit = persistedTrade?.tp1Hit === true;
+    await cancelExistingTpOrders(phemexSymbol, posSideForCheck);
+
+    let tp1OrderId: string | null = null;
+    let tp2OrderId: string | null = null;
+    if (tp1AlreadyHit) {
+      tp2OrderId = await placeLimitClose({
+        phemexSymbol,
+        posSide:  posSideForCheck,
+        priceRp:  levels.takeProfit2.toFixed(pxDecimals),
+        qtyRq:    existingSize.toFixed(qtyDecimals),
+        clOrdID:  `phx-tp2-${symbol}-${timeframe}-${entryTs}`,
+      });
+    } else {
+      const halfQtyRq = (existingSize / 2).toFixed(qtyDecimals);
+      [tp1OrderId, tp2OrderId] = await Promise.all([
+        placeLimitClose({
+          phemexSymbol,
+          posSide:  posSideForCheck,
+          priceRp:  levels.takeProfit1.toFixed(pxDecimals),
+          qtyRq:    halfQtyRq,
+          clOrdID:  `phx-tp1-${symbol}-${timeframe}-${entryTs}`,
+        }),
+        placeLimitClose({
+          phemexSymbol,
+          posSide:  posSideForCheck,
+          priceRp:  levels.takeProfit2.toFixed(pxDecimals),
+          qtyRq:    halfQtyRq,
+          clOrdID:  `phx-tp2-${symbol}-${timeframe}-${entryTs}`,
+        }),
+      ]);
+    }
+    openPhemexOrders.set(k, {
+      orderId:    `pre-existing-${entryTs}`,
+      phemexSymbol,
+      posSide:    posSideForCheck,
+      fullQty:    tp1AlreadyHit ? existingSize * 2 : existingSize,
+      entryPx:    levels.entryPrice,
+      pxDecimals,
+      qtyDecimals,
+      tp1OrderId: tp1OrderId ?? undefined,
+      tp2OrderId: tp2OrderId ?? undefined,
+      tp1Filled:  tp1AlreadyHit,
+    });
+    logger.info(
+      { symbol, timeframe, phemexSymbol, existingSize, tp1AlreadyHit,
+        tp1: levels.takeProfit1, tp2: levels.takeProfit2, tp1OrderId, tp2OrderId },
+      "phemex-trader: existing position — split-TP orders restored",
+    );
+    return;
+  }
+
+  // Non-FIB50_SWING catch-up guard: no position exists and the signal is
+  // price-pinned (DOUBLE_TOP, DOUBLE_BOTTOM, BB_REJECTION, PATTERN_BREAKOUT).
+  // Re-entering at current price with the original SL is dangerous — skip and
+  // register a sentinel so the catch-up block stops retrying.
+  // FIB50_SWING uses a zone-based entry that tolerates catch-up re-entry.
+  if (isCatchUp && levels.signalType !== "FIB50_SWING") {
+    logger.info(
+      { symbol, timeframe, signalType: levels.signalType },
+      "phemex-trader: catch-up skipped — no position to restore for non-FIB50_SWING signal",
+    );
+    if (!openPhemexOrders.has(k)) {
+      openPhemexOrders.set(k, { orderId: `no-catchup-${Date.now()}`, phemexSymbol, posSide: posSideForCheck });
     }
     return;
   }
@@ -1135,15 +1207,13 @@ async function checkSymbol(
     // because there was no state change, but the order still needs to be placed.
     const lastFailed = failedOrderAt.get(k) ?? 0;
     const recentlyFailed = Date.now() - lastFailed < FAILED_ORDER_RETRY_MS;
-    // Only FIB50_SWING survives catch-up on regular symbols.
-    // DOUBLE_TOP, DOUBLE_BOTTOM, and PATTERN_BREAKOUT entries are pinned to a
-    // specific price level at signal time. A catch-up after restart enters at the
-    // current (wrong) price with the same SL — stale and dangerous.
-    const catchUpTypeAllowed = levels.signalType === "FIB50_SWING";
+    // All signal types reach executePhemexTrade for catch-up.
+    // The re-entry type gate (FIB50_SWING only) lives inside executePhemexTrade:
+    // if a position already exists it restores TPs for any signal type; if no
+    // position exists it only re-enters for FIB50_SWING.
     if (
       (levels.signal === "BUY" || levels.signal === "SELL") &&
-      levels.tradeState === "PENDING" &&
-      catchUpTypeAllowed &&
+      (levels.tradeState === "PENDING" || levels.tradeState === "FILLED_PROFIT") &&
       isPhemexTradingEnabled() &&
       phemexAutoTraderEnabled &&
       !openPhemexOrders.has(k) &&
@@ -1153,10 +1223,13 @@ async function checkSymbol(
       if (phemexSymbol) {
         // Reward-distance check: if TP1 is too close to entry the signal is
         // ranging or stale. Register a sentinel so the catch-up stops retrying.
+        // Skip this check for FILLED_PROFIT — the position is already open and
+        // we are restoring TP orders, not making an entry decision.
         const rewardDist = Math.abs(levels.entryPrice - levels.takeProfit1);
         const rewardPct  = rewardDist / levels.entryPrice;
         const MIN_REWARD_PCT = 0.03; // 3% minimum — tighter than trending (5%) since metals/forex can have smaller swings
-        if (rewardPct < MIN_REWARD_PCT) {
+        const skipRewardCheck = levels.tradeState === "FILLED_PROFIT";
+        if (!skipRewardCheck && rewardPct < MIN_REWARD_PCT) {
           logger.warn(
             { symbol, timeframe, rewardPct: rewardPct.toFixed(4), entryPrice: levels.entryPrice, tp1: levels.takeProfit1 },
             "phemex-trader: catch-up reward distance too small (ranging/stale) — order skipped",
@@ -1166,7 +1239,7 @@ async function checkSymbol(
             openPhemexOrders.set(k, { orderId: `ranging-skip-${Date.now()}`, phemexSymbol, posSide: skipPosSide });
           }
         } else {
-          logger.info({ symbol, timeframe, signal: levels.signal, signalType: levels.signalType }, "phemex-trader: catch-up order — no tracked order for active signal");
+          logger.info({ symbol, timeframe, signal: levels.signal, signalType: levels.signalType, tradeState: levels.tradeState }, "phemex-trader: catch-up order — no tracked order for active signal");
           void executePhemexTrade(symbol, timeframe, levels, phemexSymbol, undefined, undefined, true);
         }
       }
@@ -1496,7 +1569,7 @@ async function checkTrendingSymbol(
       levels.signalType === "FIB50_SWING";
     if (
       (levels.signal === "BUY" || levels.signal === "SELL") &&
-      levels.tradeState === "PENDING" &&
+      (levels.tradeState === "PENDING" || levels.tradeState === "FILLED_PROFIT") &&
       trendingCatchUpTypeAllowed &&
       isPhemexTradingEnabled() &&
       phemexAutoTraderEnabled &&

@@ -430,6 +430,40 @@ export async function placeOrder(params: PlaceOrderParams): Promise<string | nul
 }
 
 /**
+ * Cancels all resting reduce-only Limit orders for a given symbol+side.
+ * Called before re-placing split-TP orders on restart to prevent duplicate
+ * close orders stacking across server restarts.
+ */
+export async function cancelExistingTpOrders(
+  phemexSymbol: string,
+  posSide: "Long" | "Short",
+): Promise<void> {
+  try {
+    const data = await phemexRequest<{ rows: Array<Record<string, unknown>> }>(
+      "GET", "/g-orders/activeList", { symbol: phemexSymbol },
+    );
+    const tpOrders = (data.rows ?? []).filter(
+      o => o["orderType"] === "Limit" && o["execInst"] === "ReduceOnly",
+    ).filter(o => {
+      const derivedPosSide = o["side"] === "Buy" ? "Short" : "Long";
+      return derivedPosSide === posSide;
+    });
+    if (tpOrders.length === 0) return;
+    logger.info(
+      { phemexSymbol, posSide, count: tpOrders.length },
+      "phemex-trader: cancelling stale TP limit orders before placing new ones",
+    );
+    await Promise.all(
+      tpOrders.map(o =>
+        cancelOrder(phemexSymbol, o["orderID"] as string, posSide),
+      ),
+    );
+  } catch (err) {
+    logger.warn({ err, phemexSymbol, posSide }, "phemex-trader: cancelExistingTpOrders failed (non-fatal)");
+  }
+}
+
+/**
  * Cancels all resting reduce-only Stop orders for a given symbol+side.
  * Called before placing a new protective SL to prevent stacking duplicate
  * stop-market orders across server restarts.
