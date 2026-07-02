@@ -2084,7 +2084,7 @@ export function computeLevels(
   // TP1:    BB midline (mean reversion target)
   // SL:     above spike high + 0.5×ATR buffer (enforces minimum 2:1 R:R)
   // macdWarm ensures MACD values are reliable (needs 26+9 bars of history).
-  if (signal === "WAIT" && !isLongOnly && macdWarm && higherTfAllowsSell) {
+  if (signal === "WAIT" && !isLongOnly && macdSellOk && higherTfAllowsSell) {
     const overextCompleted = candles.slice(0, candles.length - 1);
     if (overextCompleted.length >= 32) { // need at least 30 for BB + 1 prior candle
       const lastCandle  = overextCompleted[overextCompleted.length - 1];
@@ -2194,7 +2194,7 @@ export function computeLevels(
           patternResult = pbPattern;
           signalReason  = `[${tfLabel}] PATTERN BREAKOUT BUY: ${pbPattern.pattern} confirmed. Entry ${fmt(ep)}, SL ${fmt(sl)} (below ${fmt(pbPattern.necklinePrice)} rail − 0.3×ATR), TP1 ${fmt(tp1)} (2:1 R:R), TP2 ${fmt(tp2)} (measured move).`;
         }
-      } else if (!isLongOnly && higherTfAllowsSell) {
+      } else if (!isLongOnly && macdSellOk && higherTfAllowsSell) {
         const ep   = round(currentPrice);
         const sl   = round(pbPattern.upperBound + 0.3 * atr);
         const risk = sl - ep;
@@ -2219,7 +2219,7 @@ export function computeLevels(
     if (signal === "WAIT") {
       const csPattern = detectCandlestickSignal(pbCompleted);
       if (csPattern?.confirmed && csPattern.necklinePrice != null) {
-        if (csPattern.direction === "bearish" && !isLongOnly && higherTfAllowsSell) {
+        if (csPattern.direction === "bearish" && !isLongOnly && macdSellOk && higherTfAllowsSell) {
           const ep       = round(currentPrice);
           const sl       = round(csPattern.necklinePrice + 0.3 * atr);
           const risk     = sl - ep;
