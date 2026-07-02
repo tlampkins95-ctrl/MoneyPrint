@@ -1871,7 +1871,7 @@ export function computeLevels(
   //   SL:     avgTop + 0.5 × ATR (just above resistance)
   //   TP1:    neckline (valley between the two peaks)
   //   TP2:    neckline − (avgTop − neckline)  [measured move]
-  if (signal === "WAIT" && !isLongOnly) {
+  if (signal === "WAIT" && !isLongOnly && macdSellOk && higherTfAllowsSell) {
     const dtBars = candles.slice(0, candles.length - 1); // exclude live bar, same as FIB50_SWING
     const dtResult = detectFastDoubleTop(dtBars) ?? detectDoubleTop(dtBars);
     if (dtResult?.upperBound != null && dtResult.necklinePrice != null && dtResult.confirmed) {
@@ -1907,7 +1907,7 @@ export function computeLevels(
   //   SL:     avgBot − 0.5 × ATR (just below support)
   //   TP1:    neckline (peak between the two troughs)
   //   TP2:    neckline + (neckline − avgBot)  [measured move]
-  if (signal === "WAIT") {
+  if (signal === "WAIT" && macdBuyOk && higherTfAllowsBuy) {
     const dbBars = candles.slice(0, candles.length - 1);
     const dbResult = detectDoubleBottom(dbBars);
     if (dbResult?.upperBound != null && dbResult.necklinePrice != null && dbResult.confirmed) {
@@ -2177,7 +2177,7 @@ export function computeLevels(
       pbPattern.pattern !== "DOUBLE_BOTTOM"
     ) {
       const patternHeight = pbPattern.upperBound - pbPattern.necklinePrice;
-      if (pbPattern.direction === "bullish" && higherTfAllowsBuy) {
+      if (pbPattern.direction === "bullish" && macdBuyOk && higherTfAllowsBuy) {
         const ep   = round(currentPrice);
         const sl   = round(pbPattern.necklinePrice - 0.3 * atr);
         const risk = ep - sl;
@@ -2239,7 +2239,7 @@ export function computeLevels(
             patternResult = csPattern;
             signalReason  = `[${tfLabel}] ${csPattern.pattern}: bearish reversal confirmed. Entry ${fmt(ep)}, SL ${fmt(sl)} (above engulf high ${fmt(csPattern.necklinePrice)} + 0.3×ATR), TP1 ${fmt(tp1)} (2:1 R:R), TP2 ${fmt(tp2)} (measured move).`;
           }
-        } else if (csPattern.direction === "bullish" && higherTfAllowsBuy) {
+        } else if (csPattern.direction === "bullish" && macdBuyOk && higherTfAllowsBuy) {
           const ep       = round(currentPrice);
           const sl       = round(csPattern.necklinePrice - 0.3 * atr);
           const risk     = ep - sl;
