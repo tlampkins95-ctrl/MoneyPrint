@@ -311,6 +311,120 @@ async function executePhemexTrade(
   } : undefined);
   if (!meta) return;
 
+  // Compute precision and direction early — needed by both the quality gates
+  // and the existing-position TP restoration path below.
+  const side: "Buy" | "Sell" = levels.signal === "BUY" ? "Buy" : "Sell";
+  const posSideForCheck: "Long" | "Short" = side === "Buy" ? "Long" : "Short";
+  const qtyStep     = meta.phemexQtyStep ?? 0.001;
+  const qtyDecimals = Math.max(0, -Math.floor(Math.log10(qtyStep)));
+  const pxDecimals  = meta.decimals ?? 2;
+
+  // Call getUSDTBalance() BEFORE any position or order operations.
+  // This is critical: getUSDTBalance() sets the cached detectedHedgeMode as a
+  // side-effect. If hedge mode hasn't been detected yet, resolveHedgeMode()
+  // returns false and all subsequent cancelOrder / placeStopOrder / placeLimitClose
+  // calls omit posSide — causing Phemex 39999 rejections in hedge-mode accounts.
+  const realBalance = await getUSDTBalance();
+  const accountSize = realBalance ?? DEFAULT_ACCOUNT_SIZE;
+
+  // Check for an already-open position BEFORE entry-quality gates.
+  // If a position already exists we are restoring TPs on an already-filled
+  // trade — the reward/candle-range/EMA20 guards are for new-entry quality
+  // only and must NOT block TP restoration (e.g. DYDX with <5% reward range).
+  let existingPos: { size: number; stopLossRp: number } | null;
+  try {
+    existingPos = await checkExistingPosition(phemexSymbol, posSideForCheck);
+  } catch {
+    // API failure: safest default is to skip rather than risk doubling exposure.
+    logger.warn({ symbol, timeframe, phemexSymbol }, "phemex-trader: checkExistingPosition threw — skipping order (safe default)");
+    return;
+  }
+  if (existingPos !== null) {
+    const { size: existingSize, stopLossRp: existingSlPrice } = existingPos;
+    logger.info(
+      { symbol, timeframe, phemexSymbol, side, existingSize, existingSlPrice },
+      "phemex-trader: position already exists on Phemex — registering in tracker, skipping new order",
+    );
+    // If Phemex shows no SL on this position (stopLossRp === 0), the bracket
+    // was silently dropped or the position predates bracket support. Place a
+    // stop-market reduce-only order now to protect it.
+    if (existingSlPrice === 0) {
+      logger.warn(
+        { symbol, timeframe, phemexSymbol, slPrice: levels.stopLoss },
+        "phemex-trader: existing position has no SL — placing stop-market order",
+      );
+      // Cancel any stale SL stop orders from prior restarts before placing a
+      // fresh one. Without this, every restart stacks another stop-market.
+      await cancelExistingStopOrders(phemexSymbol, posSideForCheck);
+      await placeStopOrder({
+        phemexSymbol,
+        posSide:    posSideForCheck,
+        stopPx:     levels.stopLoss,
+        qtyRq:      existingSize.toFixed(qtyDecimals),
+        pxDecimals,
+      });
+    }
+    // Re-place split-TP orders that were lost when openPhemexOrders was wiped
+    // on server restart. Cancel any stale reduce-only Limit orders first to
+    // prevent doubling up if TPs somehow survived the restart.
+    // If TP1 already hit (persisted in active-trades), place only TP2 for the
+    // full remaining size; otherwise place both at half size each.
+    const entryTs = Date.now();
+    const persistedTrade = getActiveTrade(symbol, timeframe);
+    const tp1AlreadyHit = persistedTrade?.tp1Hit === true;
+    await cancelExistingTpOrders(phemexSymbol, posSideForCheck);
+
+    let tp1OrderId: string | null = null;
+    let tp2OrderId: string | null = null;
+    if (tp1AlreadyHit) {
+      tp2OrderId = await placeLimitClose({
+        phemexSymbol,
+        posSide:  posSideForCheck,
+        priceRp:  levels.takeProfit2.toFixed(pxDecimals),
+        qtyRq:    existingSize.toFixed(qtyDecimals),
+        clOrdID:  `phx-tp2-${symbol}-${timeframe}-${entryTs}`,
+      });
+    } else {
+      const halfQtyRq = (existingSize / 2).toFixed(qtyDecimals);
+      [tp1OrderId, tp2OrderId] = await Promise.all([
+        placeLimitClose({
+          phemexSymbol,
+          posSide:  posSideForCheck,
+          priceRp:  levels.takeProfit1.toFixed(pxDecimals),
+          qtyRq:    halfQtyRq,
+          clOrdID:  `phx-tp1-${symbol}-${timeframe}-${entryTs}`,
+        }),
+        placeLimitClose({
+          phemexSymbol,
+          posSide:  posSideForCheck,
+          priceRp:  levels.takeProfit2.toFixed(pxDecimals),
+          qtyRq:    halfQtyRq,
+          clOrdID:  `phx-tp2-${symbol}-${timeframe}-${entryTs}`,
+        }),
+      ]);
+    }
+    openPhemexOrders.set(k, {
+      orderId:    `pre-existing-${entryTs}`,
+      phemexSymbol,
+      posSide:    posSideForCheck,
+      fullQty:    tp1AlreadyHit ? existingSize * 2 : existingSize,
+      entryPx:    levels.entryPrice,
+      pxDecimals,
+      qtyDecimals,
+      tp1OrderId: tp1OrderId ?? undefined,
+      tp2OrderId: tp2OrderId ?? undefined,
+      tp1Filled:  tp1AlreadyHit,
+    });
+    logger.info(
+      { symbol, timeframe, phemexSymbol, existingSize, tp1AlreadyHit,
+        tp1: levels.takeProfit1, tp2: levels.takeProfit2, tp1OrderId, tp2OrderId },
+      "phemex-trader: existing position — split-TP orders restored",
+    );
+    return;
+  }
+
+  // No existing position — run entry-quality gates before placing a fresh order.
+
   // For trending coins: reject if the reward distance is too small relative to
   // entry price. A swing this tight means the coin is ranging — not trending —
   // and the signal is noise. Gate is trending-only; static symbols have their
@@ -396,9 +510,6 @@ async function executePhemexTrade(
     openPhemexOrders.delete(k);
   }
 
-  const realBalance = await getUSDTBalance();
-  const accountSize = realBalance ?? DEFAULT_ACCOUNT_SIZE;
-
   const sizing = computePositionSizing(
     symbol,
     meta,
@@ -432,112 +543,6 @@ async function executePhemexTrade(
   );
   if (!rawQty || rawQty <= 0) {
     logger.warn({ symbol, timeframe, sizing }, "phemex-trader: zero qty — skipping order");
-    return;
-  }
-
-  // Format qty and prices to reasonable string precision.
-  // Use phemexQtyStep to determine decimal places for qty.
-  const qtyStep    = meta.phemexQtyStep ?? 0.001;
-  const qtyDecimals = Math.max(0, -Math.floor(Math.log10(qtyStep)));
-  const pxDecimals  = meta.decimals ?? 2;
-
-  const side: "Buy" | "Sell" = levels.signal === "BUY" ? "Buy" : "Sell";
-  const posSideForCheck: "Long" | "Short" = side === "Buy" ? "Long" : "Short";
-
-  // Guard against re-entering a position that already exists on Phemex.
-  // After a server restart, openPhemexOrders is wiped but Phemex still holds
-  // the positions. Without this check, the catch-up block would double-enter
-  // every active signal within 20 seconds of startup.
-  let existingPos: { size: number; stopLossRp: number } | null;
-  try {
-    existingPos = await checkExistingPosition(phemexSymbol, posSideForCheck);
-  } catch {
-    // API failure: we don't know whether a position exists. Safest default is
-    // to skip placing a new order rather than risk doubling exposure.
-    logger.warn({ symbol, timeframe, phemexSymbol }, "phemex-trader: checkExistingPosition threw — skipping order (safe default)");
-    return;
-  }
-  if (existingPos !== null) {
-    const { size: existingSize, stopLossRp: existingSlPrice } = existingPos;
-    logger.info(
-      { symbol, timeframe, phemexSymbol, side, existingSize, existingSlPrice },
-      "phemex-trader: position already exists on Phemex — registering in tracker, skipping new order",
-    );
-    // If Phemex shows no SL on this position (stopLossRp === 0), the bracket
-    // was silently dropped or the position predates bracket support. Place a
-    // stop-market reduce-only order now to protect it.
-    if (existingSlPrice === 0) {
-      logger.warn(
-        { symbol, timeframe, phemexSymbol, slPrice: levels.stopLoss },
-        "phemex-trader: existing position has no SL — placing stop-market order",
-      );
-      // Cancel any stale SL stop orders from prior restarts before placing a
-      // fresh one. Without this, every restart stacks another stop-market.
-      await cancelExistingStopOrders(phemexSymbol, posSideForCheck);
-      await placeStopOrder({
-        phemexSymbol,
-        posSide:    posSideForCheck,
-        stopPx:     levels.stopLoss,
-        qtyRq:      existingSize.toFixed(qtyDecimals),
-        pxDecimals,
-      });
-    }
-    // Re-place split-TP orders that were lost when openPhemexOrders was wiped
-    // on server restart. Cancel any stale reduce-only Limit orders first to
-    // prevent doubling up if TPs somehow survived the restart.
-    // If TP1 already hit (persisted in active-trades), place only TP2 for the
-    // full remaining size; otherwise place both at half size each.
-    const entryTs = Date.now();
-    const persistedTrade = getActiveTrade(symbol, timeframe);
-    const tp1AlreadyHit = persistedTrade?.tp1Hit === true;
-    await cancelExistingTpOrders(phemexSymbol, posSideForCheck);
-
-    let tp1OrderId: string | null = null;
-    let tp2OrderId: string | null = null;
-    if (tp1AlreadyHit) {
-      tp2OrderId = await placeLimitClose({
-        phemexSymbol,
-        posSide:  posSideForCheck,
-        priceRp:  levels.takeProfit2.toFixed(pxDecimals),
-        qtyRq:    existingSize.toFixed(qtyDecimals),
-        clOrdID:  `phx-tp2-${symbol}-${timeframe}-${entryTs}`,
-      });
-    } else {
-      const halfQtyRq = (existingSize / 2).toFixed(qtyDecimals);
-      [tp1OrderId, tp2OrderId] = await Promise.all([
-        placeLimitClose({
-          phemexSymbol,
-          posSide:  posSideForCheck,
-          priceRp:  levels.takeProfit1.toFixed(pxDecimals),
-          qtyRq:    halfQtyRq,
-          clOrdID:  `phx-tp1-${symbol}-${timeframe}-${entryTs}`,
-        }),
-        placeLimitClose({
-          phemexSymbol,
-          posSide:  posSideForCheck,
-          priceRp:  levels.takeProfit2.toFixed(pxDecimals),
-          qtyRq:    halfQtyRq,
-          clOrdID:  `phx-tp2-${symbol}-${timeframe}-${entryTs}`,
-        }),
-      ]);
-    }
-    openPhemexOrders.set(k, {
-      orderId:    `pre-existing-${entryTs}`,
-      phemexSymbol,
-      posSide:    posSideForCheck,
-      fullQty:    tp1AlreadyHit ? existingSize * 2 : existingSize,
-      entryPx:    levels.entryPrice,
-      pxDecimals,
-      qtyDecimals,
-      tp1OrderId: tp1OrderId ?? undefined,
-      tp2OrderId: tp2OrderId ?? undefined,
-      tp1Filled:  tp1AlreadyHit,
-    });
-    logger.info(
-      { symbol, timeframe, phemexSymbol, existingSize, tp1AlreadyHit,
-        tp1: levels.takeProfit1, tp2: levels.takeProfit2, tp1OrderId, tp2OrderId },
-      "phemex-trader: existing position — split-TP orders restored",
-    );
     return;
   }
 
@@ -1756,24 +1761,104 @@ async function detectOrphanedPositions(): Promise<void> {
       const isTrending = trendingCache.some(t => t.phemexPerp === phemexSymbol);
       if (isTrending) continue;
 
-      // True orphan — not managed by any auto-trader path
-      const side = posSide === "Long" ? "LONG 📈" : "SHORT 📉";
-      const entryStr = entryPrice > 0 ? entryPrice.toFixed(4) : "unknown";
-      const msg =
-        `⚠️ <b>ORPHANED POSITION DETECTED</b>\n\n` +
-        `<b>${phemexSymbol} ${side}</b>\n` +
-        `Size: ${size}  |  Entry: ${entryStr}\n\n` +
-        `This position is <b>not tracked</b> by the auto-trader.\n` +
-        `Likely cause: symbol expired from the trending list after the trade was placed.\n\n` +
-        `<i>Set TPs/SL manually on Phemex — the auto-trader will not manage this position.</i>`;
-
+      // True orphan — attempt auto-TP restoration from stored signal data.
       logger.warn(
         { phemexSymbol, posSide, size, entryPrice },
-        "phemex-trader: ORPHANED POSITION — not tracked by auto-trader",
+        "phemex-trader: ORPHANED POSITION — not tracked by auto-trader, attempting TP restoration",
       );
 
-      if (isTelegramEnabled()) {
-        void sendTelegramMessage(msg);
+      // Search all tracked timeframes for a stored signal with valid TPs.
+      // For trending coins symbolKey === phemexSymbol; this covers both.
+      let restoredTf: Timeframe | null = null;
+      let storedTp1 = 0;
+      let storedTp2 = 0;
+      let tp1WasHit = false;
+      for (const tf of TRACKED_TIMEFRAMES) {
+        const trade = getActiveTrade(phemexSymbol, tf);
+        if (!trade) continue;
+        const expectedSignal = posSide === "Short" ? "SELL" : "BUY";
+        if (trade.signal !== expectedSignal) continue;
+        if (trade.takeProfit1 > 0) {
+          restoredTf = tf;
+          storedTp1  = trade.takeProfit1;
+          storedTp2  = trade.takeProfit2;
+          tp1WasHit  = trade.tp1Hit;
+          break;
+        }
+      }
+
+      const posSideFmt = posSide === "Long" ? "LONG 📈" : "SHORT 📉";
+      const entryStr   = entryPrice > 0 ? entryPrice.toFixed(4) : "unknown";
+
+      if (restoredTf && storedTp1 > 0) {
+        try {
+          await cancelExistingTpOrders(phemexSymbol, posSide);
+
+          const halfQty = (size / 2).toFixed(4);
+          const now     = Date.now();
+          const tp1Id   = tp1WasHit ? null : await placeLimitClose({
+            phemexSymbol,
+            posSide,
+            priceRp: storedTp1.toFixed(6),
+            qtyRq:   halfQty,
+            clOrdID: `phx-tp1-orphan-${phemexSymbol}-${now}`,
+          });
+          const tp2Id = storedTp2 > 0 ? await placeLimitClose({
+            phemexSymbol,
+            posSide,
+            priceRp: storedTp2.toFixed(6),
+            qtyRq:   halfQty,
+            clOrdID: `phx-tp2-orphan-${phemexSymbol}-${now}`,
+          }) : null;
+
+          // Register in tracker so subsequent polls see this as managed.
+          const k = key(phemexSymbol, restoredTf);
+          openPhemexOrders.set(k, {
+            orderId:    tp1Id ?? tp2Id ?? `orphan-restored-${now}`,
+            phemexSymbol,
+            posSide,
+            fullQty:    size,
+            entryPx:    entryPrice,
+            tp1OrderId: tp1Id ?? undefined,
+            tp2OrderId: tp2Id ?? undefined,
+            tp1Filled:  tp1WasHit,
+          });
+
+          const msg =
+            `✅ <b>ORPHANED POSITION — TPs AUTO-RESTORED</b>\n\n` +
+            `<b>${phemexSymbol} ${posSideFmt}</b>\n` +
+            `Size: ${size}  |  Entry: ${entryStr}\n` +
+            (tp1WasHit ? `` : `TP1: ${storedTp1.toFixed(6)}\n`) +
+            (storedTp2 > 0 ? `TP2: ${storedTp2.toFixed(6)}\n` : ``) +
+            `\n<i>Signal data recovered from ${restoredTf} timeframe. Position is now tracked.</i>`;
+
+          logger.info(
+            { phemexSymbol, posSide, size, storedTp1, storedTp2, restoredTf },
+            "phemex-trader: orphaned position TPs auto-restored",
+          );
+          if (isTelegramEnabled()) void sendTelegramMessage(msg);
+        } catch (placeErr) {
+          logger.warn({ placeErr, phemexSymbol }, "phemex-trader: orphan TP placement failed");
+          const msg =
+            `⚠️ <b>ORPHANED POSITION — TP PLACEMENT FAILED</b>\n\n` +
+            `<b>${phemexSymbol} ${posSideFmt}</b>\n` +
+            `Size: ${size}  |  Entry: ${entryStr}\n\n` +
+            `<i>Auto-TP placement failed. Set TPs manually on Phemex.</i>`;
+          if (isTelegramEnabled()) void sendTelegramMessage(msg);
+        }
+      } else {
+        // No stored signal data — nothing to compute TPs from.
+        const msg =
+          `⚠️ <b>ORPHANED POSITION — NO SIGNAL DATA</b>\n\n` +
+          `<b>${phemexSymbol} ${posSideFmt}</b>\n` +
+          `Size: ${size}  |  Entry: ${entryStr}\n\n` +
+          `<i>Signal data fully expired — no TP levels available.\nSet TPs/SL manually on Phemex.</i>`;
+
+        logger.warn(
+          { phemexSymbol, posSide, size },
+          "phemex-trader: orphaned position — no signal data, cannot auto-set TPs",
+        );
+        if (isTelegramEnabled()) void sendTelegramMessage(msg);
       }
     }
   } catch (err) {
