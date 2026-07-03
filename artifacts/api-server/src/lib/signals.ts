@@ -1451,54 +1451,41 @@ export function computeLevels(
   //            "Rising" = last completed bar's histogram > previous completed bar's.
   //
   // Falls back to allow (true) when history is too short for MACD to warm.
-  // SELL gate: daily (for 1h) or weekly (for 1d) MACD histogram must be
-  // NEGATIVE (< 0) AND FALLING (current < prev). Requiring it to be negative
-  // prevents shorts when the higher-TF trend is still bullish but just pulling
-  // back slightly — the classic "fading a strong uptrend" failure mode.
   let higherTfAllowsSell = true;
   if (timeframe === "1h" && dailyCandlesForWeekly && dailyCandlesForWeekly.length >= 35) {
     const dCloses   = dailyCandlesForWeekly.map((c) => c.close);
     const dHist     = calcMACDHist(dCloses);
     const dLastHist = dHist[dHist.length - 2]; // last completed daily bar
     const dPrevHist = dHist[dHist.length - 3]; // bar before that
-    if (Number.isFinite(dLastHist) && Number.isFinite(dPrevHist) &&
-        (dLastHist >= dPrevHist || dLastHist >= 0)) {
-      higherTfAllowsSell = false; // daily MACD not negative+falling — no 1h shorts
+    if (Number.isFinite(dLastHist) && Number.isFinite(dPrevHist) && dLastHist >= dPrevHist) {
+      higherTfAllowsSell = false; // daily MACD not curling down — no 1h shorts
     }
   } else if (timeframe === "1d" && weeklyCandlesForDaily && weeklyCandlesForDaily.length >= 35) {
     const wCloses   = weeklyCandlesForDaily.map((c) => c.close);
     const wHist     = calcMACDHist(wCloses);
     const wLastHist = wHist[wHist.length - 2];
     const wPrevHist = wHist[wHist.length - 3];
-    if (Number.isFinite(wLastHist) && Number.isFinite(wPrevHist) &&
-        (wLastHist >= wPrevHist || wLastHist >= 0)) {
-      higherTfAllowsSell = false; // weekly MACD not negative+falling — no 1d shorts
+    if (Number.isFinite(wLastHist) && Number.isFinite(wPrevHist) && wLastHist >= wPrevHist) {
+      higherTfAllowsSell = false; // weekly MACD not curling down — no 1d shorts
     }
   }
 
-  // BUY gate: daily (for 1h) or weekly (for 1d) MACD histogram must be
-  // POSITIVE (> 0) AND RISING (current > prev). Requiring it to be positive
-  // prevents longs when the higher-TF trend is still bearish but just ticking
-  // up — the classic "catching a falling knife" failure mode seen when 20+ crypto
-  // coins enter drawdown simultaneously after a pump-and-pullback.
   let higherTfAllowsBuy = true;
   if (timeframe === "1h" && dailyCandlesForWeekly && dailyCandlesForWeekly.length >= 35) {
     const dCloses   = dailyCandlesForWeekly.map((c) => c.close);
     const dHist     = calcMACDHist(dCloses);
     const dLastHist = dHist[dHist.length - 2]; // last completed daily bar
     const dPrevHist = dHist[dHist.length - 3]; // bar before that
-    if (Number.isFinite(dLastHist) && Number.isFinite(dPrevHist) &&
-        (dLastHist <= dPrevHist || dLastHist <= 0)) {
-      higherTfAllowsBuy = false; // daily MACD not positive+rising — no 1h longs
+    if (Number.isFinite(dLastHist) && Number.isFinite(dPrevHist) && dLastHist <= dPrevHist) {
+      higherTfAllowsBuy = false; // daily MACD not curling up — no 1h longs
     }
   } else if (timeframe === "1d" && weeklyCandlesForDaily && weeklyCandlesForDaily.length >= 35) {
     const wCloses   = weeklyCandlesForDaily.map((c) => c.close);
     const wHist     = calcMACDHist(wCloses);
     const wLastHist = wHist[wHist.length - 2];
     const wPrevHist = wHist[wHist.length - 3];
-    if (Number.isFinite(wLastHist) && Number.isFinite(wPrevHist) &&
-        (wLastHist <= wPrevHist || wLastHist <= 0)) {
-      higherTfAllowsBuy = false; // weekly MACD not positive+rising — no 1d longs
+    if (Number.isFinite(wLastHist) && Number.isFinite(wPrevHist) && wLastHist <= wPrevHist) {
+      higherTfAllowsBuy = false; // weekly MACD not curling up — no 1d longs
     }
   }
 
