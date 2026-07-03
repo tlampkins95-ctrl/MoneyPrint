@@ -247,12 +247,12 @@ interface OpenPhemexOrder {
 
 // How long an unfilled entry limit may sit before it is considered stale and
 // cancelled so the next poll can re-enter at the current price.
-// Threshold = 2 × the candle period for the timeframe.
+// Threshold = 1 × the candle period for the timeframe.
 const TF_STALE_MS: Record<string, number> = {
-  "1h":  2 *    60 * 60_000,   // 2 hours
-  "4h":  2 *   240 * 60_000,   // 8 hours
-  "1d":  2 *  1440 * 60_000,   // 2 days
-  "1w":  2 * 10080 * 60_000,   // 2 weeks
+  "1h":     60 * 60_000,   // 1 hour
+  "4h":    240 * 60_000,   // 4 hours
+  "1d":   1440 * 60_000,   // 1 day
+  "1w":  10080 * 60_000,   // 1 week
 };
 const openPhemexOrders = new Map<string, OpenPhemexOrder>();
 
