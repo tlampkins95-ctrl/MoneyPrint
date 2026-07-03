@@ -1,4 +1,5 @@
 - [OpenAPI enum completeness](openapi-enum-completeness.md) — ActiveSignalsEntry has a 4th enum location with different YAML structure; replace_all misses it; always verify all 4 after codegen.
+- [BB_BREAKOUT signal](bb-breakout-signal.md) — money print: pctB>1.0+macdBuyOk→BUY; pctB<0+macdSellOk→SELL; FIB50_SWING is blocked when pctB is outside the bands so BB_BREAKOUT inherits those setups.
 - [Response parse hardening](response-parse-hardening.md) — use safeParse not parse for server-own-output validation; hard parse crashes the entire route on schema lag.
 - [Daily flip cooldown](daily-flip-cooldown.md) — 1d candles are live/incomplete intraday; direction-flip bypass must have a per-TF minimum or a $50 Gold move sends SELL→BUY within minutes.
 - [Signal audit bugs](signal-audit-bugs.md) — 4 bugs from full code audit: sellAllowed/ema200+MACD, trending dedup guard, FIB type whitelist, RowProps union.

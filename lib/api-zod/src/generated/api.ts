@@ -98,10 +98,11 @@ export const GetLevelsResponse = zod.object({
       "DOUBLE_BOTTOM",
       "BB_REJECTION",
       "BB_WALK",
+      "BB_BREAKOUT",
       "PATTERN_BREAKOUT",
     ])
     .describe(
-      "Which signal mode generated this signal. FIB50_SWING = swing fibonacci retracement: enter at 50% fib of recent swing, TP1 at 78.6% fib, SL 2:1 R:R. DOUBLE_TOP = bearish reversal; entry at resistance, TP1 at neckline. DOUBLE_BOTTOM = bullish reversal; entry at support, TP1 at neckline. BB_REJECTION = Bollinger Band exhaustion reversal; entry at BB30 extreme, TP1 at 50% fib of recent swing, SL 2:1 R:R.",
+      "Which signal mode generated this signal. FIB50_SWING = swing fibonacci retracement: enter at 50% fib of recent swing, TP1 at 78.6% fib, SL 2:1 R:R. DOUBLE_TOP = bearish reversal; entry at resistance, TP1 at neckline. DOUBLE_BOTTOM = bullish reversal; entry at support, TP1 at neckline. BB_REJECTION = Bollinger Band exhaustion reversal; entry at BB30 extreme, TP1 at 50% fib of recent swing, SL 2:1 R:R. BB_BREAKOUT = outside-band momentum continuation (money print): price above upper \/ below lower BB30 with MACD confirming — ride the breakout.",
     ),
   signalReason: zod
     .string()
@@ -622,10 +623,11 @@ export const GetActiveSignalsResponse = zod.object({
                 "DOUBLE_BOTTOM",
                 "BB_REJECTION",
                 "BB_WALK",
+                "BB_BREAKOUT",
                 "PATTERN_BREAKOUT",
               ])
               .describe(
-                "Which signal mode generated this signal. FIB50_SWING = swing fibonacci retracement: enter at 50% fib of recent swing, TP1 at 78.6% fib, SL 2:1 R:R. DOUBLE_TOP = bearish reversal; entry at resistance, TP1 at neckline. DOUBLE_BOTTOM = bullish reversal; entry at support, TP1 at neckline. BB_REJECTION = Bollinger Band exhaustion reversal; entry at BB30 extreme, TP1 at 50% fib of recent swing, SL 2:1 R:R.",
+                "Which signal mode generated this signal. FIB50_SWING = swing fibonacci retracement: enter at 50% fib of recent swing, TP1 at 78.6% fib, SL 2:1 R:R. DOUBLE_TOP = bearish reversal; entry at resistance, TP1 at neckline. DOUBLE_BOTTOM = bullish reversal; entry at support, TP1 at neckline. BB_REJECTION = Bollinger Band exhaustion reversal; entry at BB30 extreme, TP1 at 50% fib of recent swing, SL 2:1 R:R. BB_BREAKOUT = outside-band momentum continuation (money print): price above upper \/ below lower BB30 with MACD confirming — ride the breakout.",
               ),
             signalReason: zod
               .string()
@@ -1186,6 +1188,7 @@ export const GetTradeHistoryResponse = zod.object({
         "DOUBLE_BOTTOM",
         "BB_REJECTION",
         "BB_WALK",
+        "BB_BREAKOUT",
         "PATTERN_BREAKOUT",
       ]),
       entryPrice: zod.number(),
@@ -1263,6 +1266,7 @@ export const GetSignalLogResponse = zod.object({
         "DOUBLE_BOTTOM",
         "BB_REJECTION",
         "BB_WALK",
+        "BB_BREAKOUT",
         "PATTERN_BREAKOUT",
       ]),
       entryPrice: zod.number(),

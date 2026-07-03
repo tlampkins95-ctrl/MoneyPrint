@@ -89,7 +89,7 @@ export const LevelsDataSignal = {
 } as const;
 
 /**
- * Which signal mode generated this signal. FIB50_SWING = swing fibonacci retracement: enter at 50% fib of recent swing, TP1 at 78.6% fib, SL 2:1 R:R. DOUBLE_TOP = bearish reversal; entry at resistance, TP1 at neckline. DOUBLE_BOTTOM = bullish reversal; entry at support, TP1 at neckline. BB_REJECTION = Bollinger Band exhaustion reversal; entry at BB30 extreme, TP1 at 50% fib of recent swing, SL 2:1 R:R.
+ * Which signal mode generated this signal. FIB50_SWING = swing fibonacci retracement: enter at 50% fib of recent swing, TP1 at 78.6% fib, SL 2:1 R:R. DOUBLE_TOP = bearish reversal; entry at resistance, TP1 at neckline. DOUBLE_BOTTOM = bullish reversal; entry at support, TP1 at neckline. BB_REJECTION = Bollinger Band exhaustion reversal; entry at BB30 extreme, TP1 at 50% fib of recent swing, SL 2:1 R:R. BB_BREAKOUT = outside-band momentum continuation (money print): price above upper / below lower BB30 with MACD confirming — ride the breakout.
  */
 export type LevelsDataSignalType =
   (typeof LevelsDataSignalType)[keyof typeof LevelsDataSignalType];
@@ -100,6 +100,7 @@ export const LevelsDataSignalType = {
   DOUBLE_BOTTOM: "DOUBLE_BOTTOM",
   BB_REJECTION: "BB_REJECTION",
   BB_WALK: "BB_WALK",
+  BB_BREAKOUT: "BB_BREAKOUT",
   PATTERN_BREAKOUT: "PATTERN_BREAKOUT",
 } as const;
 
@@ -313,7 +314,7 @@ export interface LevelsData {
   priceChangePct: number;
   /** Single clear trade signal */
   signal: LevelsDataSignal;
-  /** Which signal mode generated this signal. FIB50_SWING = swing fibonacci retracement: enter at 50% fib of recent swing, TP1 at 78.6% fib, SL 2:1 R:R. DOUBLE_TOP = bearish reversal; entry at resistance, TP1 at neckline. DOUBLE_BOTTOM = bullish reversal; entry at support, TP1 at neckline. BB_REJECTION = Bollinger Band exhaustion reversal; entry at BB30 extreme, TP1 at 50% fib of recent swing, SL 2:1 R:R. */
+  /** Which signal mode generated this signal. FIB50_SWING = swing fibonacci retracement: enter at 50% fib of recent swing, TP1 at 78.6% fib, SL 2:1 R:R. DOUBLE_TOP = bearish reversal; entry at resistance, TP1 at neckline. DOUBLE_BOTTOM = bullish reversal; entry at support, TP1 at neckline. BB_REJECTION = Bollinger Band exhaustion reversal; entry at BB30 extreme, TP1 at 50% fib of recent swing, SL 2:1 R:R. BB_BREAKOUT = outside-band momentum continuation (money print): price above upper / below lower BB30 with MACD confirming — ride the breakout. */
   signalType: LevelsDataSignalType;
   /** Plain-language explanation of why this signal was generated */
   signalReason: string;
@@ -559,6 +560,7 @@ export const ClosedTradeSignalType = {
   DOUBLE_BOTTOM: "DOUBLE_BOTTOM",
   BB_REJECTION: "BB_REJECTION",
   BB_WALK: "BB_WALK",
+  BB_BREAKOUT: "BB_BREAKOUT",
   PATTERN_BREAKOUT: "PATTERN_BREAKOUT",
 } as const;
 
@@ -631,6 +633,7 @@ export const SignalLogEntrySignalType = {
   DOUBLE_BOTTOM: "DOUBLE_BOTTOM",
   BB_REJECTION: "BB_REJECTION",
   BB_WALK: "BB_WALK",
+  BB_BREAKOUT: "BB_BREAKOUT",
   PATTERN_BREAKOUT: "PATTERN_BREAKOUT",
 } as const;
 

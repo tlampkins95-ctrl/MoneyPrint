@@ -1517,7 +1517,7 @@ export function computeLevels(
   const SWING_SL_BUFFER_ATR = 0.5;  // extra buffer below/above swing extreme for SL
 
   let signal: "BUY" | "SELL" | "WAIT" = "WAIT";
-  let signalType: "FIB50_SWING" | "DOUBLE_TOP" | "DOUBLE_BOTTOM" | "BB_REJECTION" | "BB_WALK" | "PATTERN_BREAKOUT" = "FIB50_SWING";
+  let signalType: "FIB50_SWING" | "DOUBLE_TOP" | "DOUBLE_BOTTOM" | "BB_REJECTION" | "BB_WALK" | "BB_BREAKOUT" | "PATTERN_BREAKOUT" = "FIB50_SWING";
   let signalReason = "";
   let patternResult: PatternResult | null = null;
   let entryPrice = currentPrice;
@@ -1562,6 +1562,11 @@ export function computeLevels(
     // SELL: entry must be ≥ BB middle band (price in upper half of channel).
     // Fail-open when fewer than 30 bars are available.
     const bb30 = calcBollingerBands(completed.map((c) => c.close), 30, 2);
+    // %B = (price − lower) / (upper − lower). >1 = above upper band; <0 = below lower band.
+    // Fails open (0.5) when BB isn't warm.
+    const pctB30 = bb30
+      ? (currentPrice - bb30.lower) / (bb30.upper - bb30.lower)
+      : 0.5;
 
     // ── BUY Setup: swing low A → new high B → retrace to 50% fib ────────────
     // Iterates structural swing lows from most-recent to oldest so the first
@@ -1570,7 +1575,9 @@ export function computeLevels(
     // BB midline gate: only buy from the LOWER half of the range.
     // Price above the midline = already in "sell zone" — a BUY here is
     // buying the top half. Fails open when BB isn't warm yet.
-    const fibBuyBbOk = !bb || currentPrice < bb.middle;
+    // pctB30 < 0 guard: price is BELOW the lower band — a momentum breakdown,
+    // not a mean-reversion bounce. Block the fib BUY; BB_BREAKOUT SELL handles it.
+    const fibBuyBbOk = !bb || (currentPrice < bb.middle && pctB30 >= 0);
     if (higherTfAllowsBuy && macdBuyOk && fibBuyBbOk) {
       const swingLows        = findSwingLows(completed, 3, SWING_LOOKBACK);
       const swingHighsForBuy = findSwingHighs(completed, 3, SWING_LOOKBACK);
@@ -1652,7 +1659,9 @@ export function computeLevels(
     // Price below the midline = already in "buy zone" — a SELL here is
     // shorting the bottom (the TAO/ZEC weekend problem). Fails open when
     // BB isn't warm yet.
-    const fibSellBbOk = !bb || currentPrice > bb.middle;
+    // pctB30 > 1 guard: price is ABOVE the upper band — a momentum breakout, not
+    // a mean-reversion fade. Block the fib SELL; BB_BREAKOUT BUY handles it.
+    const fibSellBbOk = !bb || (currentPrice > bb.middle && pctB30 <= 1.0);
     if (signal === "WAIT" && !isLongOnly && higherTfAllowsSell && (histPrev1 < histPrev2) && fibSellBbOk) {
       const swingHighs        = findSwingHighs(completed, 3, SWING_LOOKBACK);
       const swingLowsForSell  = findSwingLows(completed, 3, SWING_LOOKBACK);
@@ -2181,6 +2190,74 @@ export function computeLevels(
     }
   }
 
+  // ── BB_BREAKOUT: outside-band momentum continuation ("money print") ──────────
+  // When price is ABOVE the upper BB30 on the current timeframe AND the same-TF
+  // MACD histogram is rising, the move is a genuine breakout — not an
+  // overextension ripe for reversal. The upper band becomes support; ride the
+  // continuation long. Conversely, price BELOW the lower band with MACD falling
+  // = short the momentum breakdown.
+  //
+  // This signal is the redirect target for FIB50_SWING trades that get blocked
+  // by the pctB30 > 1.0 / pctB30 < 0 guards — instead of doing nothing, the
+  // system pivots to the direction the market is actually moving.
+  //
+  // Entry:  currentPrice (momentum market order)
+  // BUY SL: BB upper − 0.3×ATR (band becomes support; close below = failed breakout)
+  // SELL SL: BB lower + 0.3×ATR (band becomes resistance)
+  // TP1:    entry ± 1.5×risk
+  // TP2:    entry ± 2.5×risk
+  //
+  // Gates: same-TF macdBuyOk/macdSellOk + daily curl gate (higherTfAllows*)
+  if (signal === "WAIT" && macdWarm) {
+    const bbkCompleted = candles.slice(0, candles.length - 1);
+    if (bbkCompleted.length >= 30) {
+      const bbkBands = calcBollingerBands(bbkCompleted.map((c) => c.close), 30, 2);
+      if (bbkBands) {
+        const pctBk = (currentPrice - bbkBands.lower) / (bbkBands.upper - bbkBands.lower);
+
+        if (pctBk > 1.0 && macdBuyOk && higherTfAllowsBuy) {
+          // BUY: price above upper band + MACD rising
+          const ep   = round(currentPrice);
+          const sl   = round(bbkBands.upper - 0.3 * atr);
+          const risk = ep - sl;
+          if (risk > 0) {
+            const tp1 = round(ep + 1.5 * risk);
+            const tp2 = round(ep + 2.5 * risk);
+            signal       = "BUY";
+            signalType   = "BB_BREAKOUT";
+            entryPrice   = ep;
+            stopLoss     = sl;
+            takeProfit1  = tp1;
+            takeProfit2  = tp2;
+            dca1         = undefined;
+            patternResult = null;
+            signalReason = `[${tfLabel}] BB BREAKOUT BUY: Price ${fmt(ep)} above upper BB30 ${fmt(bbkBands.upper)} (%B ${pctBk.toFixed(2)}), MACD rising — momentum continuation long. SL ${fmt(sl)} (below band), TP1 ${fmt(tp1)}, TP2 ${fmt(tp2)}.`;
+          }
+        }
+
+        if (signal === "WAIT" && pctBk < 0 && macdSellOk && higherTfAllowsSell && !isLongOnly) {
+          // SELL: price below lower band + MACD falling
+          const ep   = round(currentPrice);
+          const sl   = round(bbkBands.lower + 0.3 * atr);
+          const risk = sl - ep;
+          if (risk > 0) {
+            const tp1 = round(ep - 1.5 * risk);
+            const tp2 = round(ep - 2.5 * risk);
+            signal       = "SELL";
+            signalType   = "BB_BREAKOUT";
+            entryPrice   = ep;
+            stopLoss     = sl;
+            takeProfit1  = tp1;
+            takeProfit2  = tp2;
+            dca1         = undefined;
+            patternResult = null;
+            signalReason = `[${tfLabel}] BB BREAKOUT SELL: Price ${fmt(ep)} below lower BB30 ${fmt(bbkBands.lower)} (%B ${pctBk.toFixed(2)}), MACD falling — momentum continuation short. SL ${fmt(sl)} (above band), TP1 ${fmt(tp1)}, TP2 ${fmt(tp2)}.`;
+          }
+        }
+      }
+    }
+  }
+
   // ── PATTERN_BREAKOUT detection (confirmed chart pattern breakout) ────────────
   // Last in the cascade — fires only when all other signal types are WAIT.
   // Detects confirmed breakouts from triangles, wedges, flags, pennants, H&S/IHS.
@@ -2407,7 +2484,7 @@ type Levels = ReturnType<typeof computeLevels>;
 
 interface ActiveTrade {
   signal: "BUY" | "SELL";
-  signalType?: "FIB50_SWING" | "DOUBLE_TOP" | "DOUBLE_BOTTOM" | "BB_REJECTION" | "BB_WALK" | "PATTERN_BREAKOUT";
+  signalType?: "FIB50_SWING" | "DOUBLE_TOP" | "DOUBLE_BOTTOM" | "BB_REJECTION" | "BB_WALK" | "BB_BREAKOUT" | "PATTERN_BREAKOUT";
   signalReason: string;
   entryPrice: number;
   stopLoss: number;
@@ -2703,7 +2780,7 @@ async function syncFromDb(): Promise<void> {
       if (activeTrades.has(row.key)) continue; // local file wins for existing keys
       const v = row.data as Partial<ActiveTrade>;
       // Skip trades from previous strategies — they have wrong levels.
-      if (v.signalType !== "FIB50_SWING" && v.signalType !== "DOUBLE_TOP" && v.signalType !== "DOUBLE_BOTTOM" && v.signalType !== "BB_REJECTION" && v.signalType !== "BB_WALK" && v.signalType !== "PATTERN_BREAKOUT") continue;
+      if (v.signalType !== "FIB50_SWING" && v.signalType !== "DOUBLE_TOP" && v.signalType !== "DOUBLE_BOTTOM" && v.signalType !== "BB_REJECTION" && v.signalType !== "BB_WALK" && v.signalType !== "BB_BREAKOUT" && v.signalType !== "PATTERN_BREAKOUT") continue;
       activeTrades.set(row.key, {
         ...(v as ActiveTrade),
         signalType: v.signalType,
@@ -2744,7 +2821,7 @@ function loadActiveTradesFromDisk(): void {
     let didMigrate = false;
     for (const [k, v] of Object.entries(obj)) {
       // Skip trades from previous strategies — they have wrong levels.
-      if (v.signalType !== "FIB50_SWING" && v.signalType !== "DOUBLE_TOP" && v.signalType !== "DOUBLE_BOTTOM" && v.signalType !== "BB_REJECTION" && v.signalType !== "BB_WALK" && v.signalType !== "PATTERN_BREAKOUT") { didMigrate = true; continue; }
+      if (v.signalType !== "FIB50_SWING" && v.signalType !== "DOUBLE_TOP" && v.signalType !== "DOUBLE_BOTTOM" && v.signalType !== "BB_REJECTION" && v.signalType !== "BB_WALK" && v.signalType !== "BB_BREAKOUT" && v.signalType !== "PATTERN_BREAKOUT") { didMigrate = true; continue; }
       // Backward-compat for snapshots persisted before fill-tracking existed.
       // Default triggered=false; the next tick's candle scan since openedAt
       // will retroactively flip it to true if price actually did tag entry.
