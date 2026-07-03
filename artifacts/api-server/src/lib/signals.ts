@@ -1974,9 +1974,28 @@ export function computeLevels(
         histPrev2 > 0 &&
         histPrev2 < histPrev3 &&   // bar 2 already declining from bar 3
         histPrev1 < histPrev2;     // bar 1 still declining from bar 2
+
+      // Weekly macro gate: if the weekly MACD histogram is positive (bull market),
+      // BB_REJECTION SELL will BB-walk into repeated SL hits. Require weekly ≤ 0.
+      let weeklyAllowsBbrSell = true;
+      {
+        const bbrWeeklyCandles =
+          timeframe === "1d" ? synthesizeWeeklyCandles(bbrCompleted) :
+          timeframe === "1w" ? bbrCompleted :
+          (dailyCandlesForWeekly ? synthesizeWeeklyCandles(dailyCandlesForWeekly) : []);
+        if (bbrWeeklyCandles.length >= 35) {
+          const wHist = calcMACDHist(bbrWeeklyCandles.map((c: { close: number }) => c.close));
+          const wLastHist = wHist[wHist.length - 2]; // last *completed* weekly bar
+          if (Number.isFinite(wLastHist) && wLastHist > 0) {
+            weeklyAllowsBbrSell = false;
+          }
+        }
+      }
+
       if (
         !isLongOnly &&
         higherTfAllowsSell &&
+        weeklyAllowsBbrSell &&
         bbrSellMacd &&
         volFading &&
         Math.abs(currentPrice - bb30r.upper) <= BBR_TOL_ATR * atr
