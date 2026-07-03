@@ -1451,41 +1451,54 @@ export function computeLevels(
   //            "Rising" = last completed bar's histogram > previous completed bar's.
   //
   // Falls back to allow (true) when history is too short for MACD to warm.
+  // SELL gate: daily (for 1h) or weekly (for 1d) MACD histogram must be
+  // NEGATIVE (< 0) AND FALLING (current < prev). Requiring it to be negative
+  // prevents shorts when the higher-TF trend is still bullish but just pulling
+  // back slightly — the classic "fading a strong uptrend" failure mode.
   let higherTfAllowsSell = true;
   if (timeframe === "1h" && dailyCandlesForWeekly && dailyCandlesForWeekly.length >= 35) {
     const dCloses   = dailyCandlesForWeekly.map((c) => c.close);
     const dHist     = calcMACDHist(dCloses);
     const dLastHist = dHist[dHist.length - 2]; // last completed daily bar
     const dPrevHist = dHist[dHist.length - 3]; // bar before that
-    if (Number.isFinite(dLastHist) && Number.isFinite(dPrevHist) && dLastHist >= dPrevHist) {
-      higherTfAllowsSell = false; // daily MACD not curling down — no 1h shorts
+    if (Number.isFinite(dLastHist) && Number.isFinite(dPrevHist) &&
+        (dLastHist >= dPrevHist || dLastHist >= 0)) {
+      higherTfAllowsSell = false; // daily MACD not negative+falling — no 1h shorts
     }
   } else if (timeframe === "1d" && weeklyCandlesForDaily && weeklyCandlesForDaily.length >= 35) {
     const wCloses   = weeklyCandlesForDaily.map((c) => c.close);
     const wHist     = calcMACDHist(wCloses);
     const wLastHist = wHist[wHist.length - 2];
     const wPrevHist = wHist[wHist.length - 3];
-    if (Number.isFinite(wLastHist) && Number.isFinite(wPrevHist) && wLastHist >= wPrevHist) {
-      higherTfAllowsSell = false; // weekly MACD not curling down — no 1d shorts
+    if (Number.isFinite(wLastHist) && Number.isFinite(wPrevHist) &&
+        (wLastHist >= wPrevHist || wLastHist >= 0)) {
+      higherTfAllowsSell = false; // weekly MACD not negative+falling — no 1d shorts
     }
   }
 
+  // BUY gate: daily (for 1h) or weekly (for 1d) MACD histogram must be
+  // POSITIVE (> 0) AND RISING (current > prev). Requiring it to be positive
+  // prevents longs when the higher-TF trend is still bearish but just ticking
+  // up — the classic "catching a falling knife" failure mode seen when 20+ crypto
+  // coins enter drawdown simultaneously after a pump-and-pullback.
   let higherTfAllowsBuy = true;
   if (timeframe === "1h" && dailyCandlesForWeekly && dailyCandlesForWeekly.length >= 35) {
     const dCloses   = dailyCandlesForWeekly.map((c) => c.close);
     const dHist     = calcMACDHist(dCloses);
     const dLastHist = dHist[dHist.length - 2]; // last completed daily bar
     const dPrevHist = dHist[dHist.length - 3]; // bar before that
-    if (Number.isFinite(dLastHist) && Number.isFinite(dPrevHist) && dLastHist <= dPrevHist) {
-      higherTfAllowsBuy = false; // daily MACD not curling up — no 1h longs
+    if (Number.isFinite(dLastHist) && Number.isFinite(dPrevHist) &&
+        (dLastHist <= dPrevHist || dLastHist <= 0)) {
+      higherTfAllowsBuy = false; // daily MACD not positive+rising — no 1h longs
     }
   } else if (timeframe === "1d" && weeklyCandlesForDaily && weeklyCandlesForDaily.length >= 35) {
     const wCloses   = weeklyCandlesForDaily.map((c) => c.close);
     const wHist     = calcMACDHist(wCloses);
     const wLastHist = wHist[wHist.length - 2];
     const wPrevHist = wHist[wHist.length - 3];
-    if (Number.isFinite(wLastHist) && Number.isFinite(wPrevHist) && wLastHist <= wPrevHist) {
-      higherTfAllowsBuy = false; // weekly MACD not curling up — no 1d longs
+    if (Number.isFinite(wLastHist) && Number.isFinite(wPrevHist) &&
+        (wLastHist <= wPrevHist || wLastHist <= 0)) {
+      higherTfAllowsBuy = false; // weekly MACD not positive+rising — no 1d longs
     }
   }
 
@@ -2225,8 +2238,14 @@ export function computeLevels(
       if (bbkBands) {
         const pctBk = (currentPrice - bbkBands.lower) / (bbkBands.upper - bbkBands.lower);
 
-        if (pctBk > 1.0 && macdBuyOk && higherTfAllowsBuy) {
-          // BUY: price above upper band + MACD rising
+        // Band-walk confirmation: the previous completed bar must also have closed
+        // outside the band. A single-bar spike above/below and then revert is the
+        // most common false positive; requiring 2 consecutive bars outside filters it.
+        const prevClose = bbkCompleted[bbkCompleted.length - 2]?.close ?? currentPrice;
+
+        // BUY: price above upper band + MACD histogram positive AND rising + prev bar also outside
+        const bbkBuyMacd = macdWarm && histPrev1 > 0 && histPrev1 > histPrev2;
+        if (pctBk > 1.0 && bbkBuyMacd && higherTfAllowsBuy && prevClose > bbkBands.upper) {
           const ep   = round(currentPrice);
           const sl   = round(bbkBands.upper - 0.3 * atr);
           const risk = ep - sl;
@@ -2241,12 +2260,13 @@ export function computeLevels(
             takeProfit2  = tp2;
             dca1         = undefined;
             patternResult = null;
-            signalReason = `[${tfLabel}] BB BREAKOUT BUY: Price ${fmt(ep)} above upper BB30 ${fmt(bbkBands.upper)} (%B ${pctBk.toFixed(2)}), MACD rising — momentum continuation long. SL ${fmt(sl)} (below band), TP1 ${fmt(tp1)}, TP2 ${fmt(tp2)}.`;
+            signalReason = `[${tfLabel}] BB BREAKOUT BUY: Price ${fmt(ep)} above upper BB30 ${fmt(bbkBands.upper)} (%B ${pctBk.toFixed(2)}), MACD positive+rising — 2-bar band walk confirmed. SL ${fmt(sl)} (below band), TP1 ${fmt(tp1)}, TP2 ${fmt(tp2)}.`;
           }
         }
 
-        if (signal === "WAIT" && pctBk < 0 && macdSellOk && higherTfAllowsSell && !isLongOnly) {
-          // SELL: price below lower band + MACD falling
+        // SELL: price below lower band + MACD histogram negative AND falling + prev bar also outside
+        const bbkSellMacd = macdWarm && histPrev1 < 0 && histPrev1 < histPrev2;
+        if (signal === "WAIT" && pctBk < 0 && bbkSellMacd && higherTfAllowsSell && !isLongOnly && prevClose < bbkBands.lower) {
           const ep   = round(currentPrice);
           const sl   = round(bbkBands.lower + 0.3 * atr);
           const risk = sl - ep;
@@ -2261,7 +2281,7 @@ export function computeLevels(
             takeProfit2  = tp2;
             dca1         = undefined;
             patternResult = null;
-            signalReason = `[${tfLabel}] BB BREAKOUT SELL: Price ${fmt(ep)} below lower BB30 ${fmt(bbkBands.lower)} (%B ${pctBk.toFixed(2)}), MACD falling — momentum continuation short. SL ${fmt(sl)} (above band), TP1 ${fmt(tp1)}, TP2 ${fmt(tp2)}.`;
+            signalReason = `[${tfLabel}] BB BREAKOUT SELL: Price ${fmt(ep)} below lower BB30 ${fmt(bbkBands.lower)} (%B ${pctBk.toFixed(2)}), MACD negative+falling — 2-bar band walk confirmed. SL ${fmt(sl)} (above band), TP1 ${fmt(tp1)}, TP2 ${fmt(tp2)}.`;
           }
         }
       }
