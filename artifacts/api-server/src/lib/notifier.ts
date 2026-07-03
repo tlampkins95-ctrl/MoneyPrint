@@ -651,14 +651,26 @@ async function executePhemexTrade(
     // If the entry limit is still unfilled AND has been sitting for more than
     // 2 candle periods, cancel it and fall through so the next poll places a
     // fresh order at the current signal entry price.
-    // Guard: if tp1OrderId is set the position is already filled and we're
-    // managing TPs — never cancel in that case.
-    if (prevEntry?.tp1OrderId == null && ageMs > staleMs) {
+    // The presence of existingOrderId (from checkExistingOrder activeList) is
+    // the reliable "entry still unfilled" signal — tp1OrderId is NOT a valid
+    // guard because TPs are placed immediately after the entry limit, before fill.
+    if (ageMs > staleMs) {
       logger.info(
         { symbol, timeframe, phemexSymbol, orderId: existingOrderId, ageMs, staleMs },
         "phemex-trader: stale unfilled limit cancelled — will re-enter on next poll",
       );
-      void cancelOrder(phemexSymbol, existingOrderId, posSideForCheck);
+      // Await cancellation to prevent duplicate live orders. Also cancel any
+      // dangling reduce-only TP orders — they'd conflict with fresh TPs once
+      // the new entry fills.
+      try {
+        const cancelTasks: Promise<void>[] = [cancelOrder(phemexSymbol, existingOrderId, posSideForCheck)];
+        if (prevEntry?.tp1OrderId) cancelTasks.push(cancelOrder(phemexSymbol, prevEntry.tp1OrderId, posSideForCheck));
+        if (prevEntry?.tp2OrderId) cancelTasks.push(cancelOrder(phemexSymbol, prevEntry.tp2OrderId, posSideForCheck));
+        await Promise.allSettled(cancelTasks);
+      } catch (cancelErr) {
+        logger.warn({ cancelErr, phemexSymbol, orderId: existingOrderId }, "phemex-trader: stale cancel threw — skipping re-entry to be safe");
+        return;
+      }
       openPhemexOrders.delete(k);
       // Fall through to fresh order placement below.
     } else {
