@@ -4,6 +4,7 @@ import {
   CandlestickSeries,
   BaselineSeries,
   LineSeries,
+  HistogramSeries,
   LineStyle,
   type IChartApi,
   type ISeriesApi,
@@ -63,6 +64,12 @@ export function LevelsChart({
   const lastDateRef       = useRef<string | null>(null);
   // Only scroll to real-time once per chart instance (not on every 10s refetch)
   const hasScrolledRef    = useRef(false);
+  // MACD subpanel — separate chart instance, synced time scale
+  const macdContainerRef  = useRef<HTMLDivElement>(null);
+  const macdChartRef      = useRef<IChartApi | null>(null);
+  const macdHistRef       = useRef<ISeriesApi<"Histogram"> | null>(null);
+  const macdLineRef       = useRef<ISeriesApi<"Line"> | null>(null);
+  const macdSignalRef     = useRef<ISeriesApi<"Line"> | null>(null);
   const histParams = { symbol: symbol as GetPriceHistorySymbol, timeframe, bars: 200 };
 
   const { data: history } = useGetPriceHistory(histParams, {
@@ -100,11 +107,15 @@ export function LevelsChart({
   // Default OFF to keep the chart clean. Resets on symbol/TF change.
   const [showFibs, setShowFibs] = useState(false);
 
+  // MACD(12,26,9) subpane toggle — default ON.
+  const [showMacd, setShowMacd] = useState(true);
+
   // Reset overlays when symbol/timeframe changes so defaults re-evaluate.
   useEffect(() => {
     setPatternUserOverride(null);
     setShowBB(true);
     setShowFibs(false);
+    setShowMacd(true);
   }, [symbol, timeframe]);
 
   // ── Create / recreate chart when symbol or timeframe changes ───────────
@@ -258,6 +269,88 @@ export function LevelsChart({
     };
   }, [symbol, timeframe]);
 
+  // ── MACD chart (separate synced instance) ─────────────────────────────
+  // Recreated whenever symbol or timeframe changes so the time scale stays
+  // in sync with the main chart. Uses a dedicated div below the main chart.
+  useEffect(() => {
+    const el = macdContainerRef.current;
+    if (!el) return;
+
+    const macdChart = createChart(el, {
+      layout: {
+        background: { color: "#0a0a0a" },
+        textColor:  "#71717a",
+        fontSize:   10,
+        fontFamily: "JetBrains Mono, ui-monospace, SFMono-Regular, monospace",
+      },
+      grid: {
+        vertLines: { color: "#18181b" },
+        horzLines: { color: "#18181b" },
+      },
+      rightPriceScale: { borderColor: "#27272a", minimumWidth: 60 },
+      leftPriceScale:  { visible: false },
+      timeScale:       { borderColor: "#27272a", visible: false },
+      crosshair:       { vertLine: { visible: true }, horzLine: { visible: false } },
+      autoSize: true,
+    });
+
+    const macdHist = macdChart.addSeries(HistogramSeries, {
+      priceScaleId:     "right",
+      priceLineVisible: false,
+      lastValueVisible: false,
+    });
+    const macdLine = macdChart.addSeries(LineSeries, {
+      color:                  "#60a5fa",
+      lineWidth:              1 as LineWidth,
+      priceScaleId:           "right",
+      priceLineVisible:       false,
+      lastValueVisible:       false,
+      crosshairMarkerVisible: false,
+    });
+    const macdSignal = macdChart.addSeries(LineSeries, {
+      color:                  "#f59e0b",
+      lineWidth:              1 as LineWidth,
+      lineStyle:              LineStyle.Dashed,
+      priceScaleId:           "right",
+      priceLineVisible:       false,
+      lastValueVisible:       false,
+      crosshairMarkerVisible: false,
+    });
+
+    // Sync time scales by calendar time (not bar index), so the different
+    // bar counts between the two charts don't mis-align the view.
+    let syncing = false;
+    const onMainTime = (range: { from: Time; to: Time } | null) => {
+      if (syncing || !range) return;
+      syncing = true;
+      try { macdChart.timeScale().setVisibleRange(range); } catch { /**/ }
+      syncing = false;
+    };
+    const onMacdTime = (range: { from: Time; to: Time } | null) => {
+      if (syncing || !range) return;
+      syncing = true;
+      try { chartRef.current?.timeScale().setVisibleRange(range); } catch { /**/ }
+      syncing = false;
+    };
+    chartRef.current?.timeScale().subscribeVisibleTimeRangeChange(onMainTime);
+    macdChart.timeScale().subscribeVisibleTimeRangeChange(onMacdTime);
+
+    macdChartRef.current  = macdChart;
+    macdHistRef.current   = macdHist;
+    macdLineRef.current   = macdLine;
+    macdSignalRef.current = macdSignal;
+
+    return () => {
+      chartRef.current?.timeScale().unsubscribeVisibleTimeRangeChange(onMainTime);
+      macdChart.timeScale().unsubscribeVisibleTimeRangeChange(onMacdTime);
+      macdHistRef.current   = null;
+      macdLineRef.current   = null;
+      macdSignalRef.current = null;
+      try { macdChart.remove(); } catch { /**/ }
+      macdChartRef.current = null;
+    };
+  }, [symbol, timeframe]);
+
   // ── Feed candle data ───────────────────────────────────────────────────
   useEffect(() => {
     const series = candleSeriesRef.current;
@@ -339,6 +432,96 @@ export function LevelsChart({
     middle.setData(mData);
     lower.setData(lData);
   }, [history, showBB]);
+
+  // ── MACD(12,26,9) subpane ─────────────────────────────────────────────
+  // Computed entirely in the component from candle closes — same formula as
+  // the backend calcMACDHist gate. Histogram colour follows TradingView convention:
+  //   positive & rising  → bright green;  positive & falling → pale green
+  //   negative & falling → bright red;    negative & rising  → pale red
+  useEffect(() => {
+    const hist   = macdHistRef.current;
+    const line   = macdLineRef.current;
+    const signal = macdSignalRef.current;
+    if (!hist || !line || !signal) return;
+
+    if (!showMacd || !history?.candles?.length) {
+      hist.setData([]);
+      line.setData([]);
+      signal.setData([]);
+      return;
+    }
+
+    const closes = history.candles.map((c) => c.close);
+
+    // EMA helper (standard Wilder/TradingView variant: SMA seed then EMA)
+    const ema = (src: number[], period: number): number[] => {
+      const k = 2 / (period + 1);
+      const out: number[] = new Array(src.length).fill(NaN);
+      const seed = period - 1;
+      if (src.length <= seed) return out;
+      out[seed] = src.slice(0, period).reduce((a, b) => a + b, 0) / period;
+      for (let i = seed + 1; i < src.length; i++) {
+        out[i] = src[i] * k + out[i - 1] * (1 - k);
+      }
+      return out;
+    };
+
+    const ema12  = ema(closes, 12);
+    const ema26  = ema(closes, 26);
+    const macdLine: number[] = ema12.map((v, i) =>
+      Number.isFinite(v) && Number.isFinite(ema26[i]) ? v - ema26[i] : NaN,
+    );
+    // Seed signal EMA from the first finite MACD value
+    const signalLine = ema(macdLine.filter((v) => Number.isFinite(v)), 9);
+    // Rebuild full-length signal array aligned to candle indices
+    const signalFull: number[] = new Array(closes.length).fill(NaN);
+    let sigIdx = 0;
+    for (let i = 0; i < closes.length; i++) {
+      if (Number.isFinite(macdLine[i])) {
+        if (sigIdx < signalLine.length) signalFull[i] = signalLine[sigIdx++];
+      }
+    }
+
+    type HistPt = { time: ReturnType<typeof toTime>; value: number; color: string };
+    type LinePt  = { time: ReturnType<typeof toTime>; value: number };
+    const histData: HistPt[] = [];
+    const lineData: LinePt[] = [];
+    const sigData:  LinePt[] = [];
+
+    for (let i = 0; i < closes.length; i++) {
+      const m  = macdLine[i];
+      const s  = signalFull[i];
+      const mp = macdLine[i - 1];
+      const t  = toTime(history.candles[i].date);
+      if (Number.isFinite(m)) lineData.push({ time: t, value: m });
+      if (Number.isFinite(s)) sigData.push({ time: t, value: s });
+      if (Number.isFinite(m) && Number.isFinite(s)) {
+        const hval = m - s;
+        const prev = i > 0 && Number.isFinite(macdLine[i - 1]) && Number.isFinite(signalFull[i - 1])
+          ? mp - signalFull[i - 1]
+          : hval;
+        const rising = hval >= prev;
+        const color  = hval >= 0
+          ? (rising ? "#26a69a" : "#a0d9cf")   // green shades
+          : (rising ? "#f4a0a0" : "#ef5350");   // red shades
+        histData.push({ time: t, value: hval, color });
+      }
+    }
+
+    hist.setData(histData);
+    line.setData(lineData);
+    signal.setData(sigData);
+
+    // After populating data, copy the main chart's current time window to
+    // the MACD chart. The subscription only fires on CHANGES, so first load
+    // requires an explicit copy.
+    const tRange = chartRef.current?.timeScale().getVisibleRange();
+    if (tRange) {
+      try { macdChartRef.current?.timeScale().setVisibleRange(tRange); } catch { /**/ }
+    } else {
+      macdChartRef.current?.timeScale().fitContent();
+    }
+  }, [history, showMacd]);
 
   // ── Refresh price lines + zone bands whenever levels change ───────────
   useEffect(() => {
@@ -569,8 +752,13 @@ export function LevelsChart({
   })();
 
   return (
-    <div className="relative h-full w-full rounded-sm overflow-hidden border border-zinc-800">
-      <div ref={containerRef} className="h-full w-full" />
+    <div className="relative h-full w-full rounded-sm overflow-hidden border border-zinc-800 flex flex-col">
+      <div ref={containerRef} className="flex-1 min-h-0" />
+      {/* MACD subpanel — separate synced chart */}
+      <div
+        ref={macdContainerRef}
+        className={`border-t border-zinc-800 transition-all duration-200 ${showMacd ? "h-[120px]" : "h-0 overflow-hidden"}`}
+      />
 
       {/* Symbol label — top-left */}
       <div className="absolute top-2 left-3 z-20 pointer-events-none font-mono text-[11px] text-zinc-400 select-none">
@@ -581,6 +769,17 @@ export function LevelsChart({
       {/* Signal + live price badge — top-right */}
       {levels && (
         <div className="absolute top-2 right-2 z-20 flex items-center gap-1 font-mono select-none">
+          {/* MACD toggle — subpane with histogram + line + signal. Default ON. */}
+          <button
+            onClick={() => setShowMacd(v => !v)}
+            className={`px-2 py-0.5 rounded-sm font-mono text-[10px] border transition-colors cursor-pointer ${
+              showMacd
+                ? "bg-violet-950/90 border-violet-500/60 text-violet-300 hover:bg-violet-900/90"
+                : "bg-zinc-900/80 border-zinc-700 text-zinc-500 hover:text-zinc-300 hover:border-zinc-500"
+            }`}
+          >
+            MACD
+          </button>
           {/* BB toggle — Bollinger Bands (SMA-30, 2σ). Always ON per symbol/TF load. */}
           <button
             onClick={() => setShowBB(v => !v)}
