@@ -1781,7 +1781,12 @@ export function computeLevels(
   if (signal === "WAIT" && !isLongOnly) {
     const dtBars = candles.slice(0, candles.length - 1); // exclude live bar, same as FIB50_SWING
     const dtResult = detectFastDoubleTop(dtBars) ?? detectDoubleTop(dtBars);
-    if (dtResult?.upperBound != null && dtResult.necklinePrice != null && dtResult.confirmed) {
+    // Volume gate: right peak must carry at least as much relative volume as the left peak.
+    // Rising right-side volume confirms distribution is accelerating at resistance.
+    // Fails open when volume data is unavailable (leftVolume/rightVolume undefined).
+    const dtVolOk = dtResult?.leftVolume == null || dtResult?.rightVolume == null ||
+                    dtResult.rightVolume >= dtResult.leftVolume;
+    if (dtResult?.upperBound != null && dtResult.necklinePrice != null && dtResult.confirmed && dtVolOk) {
       const resistance = dtResult.upperBound;
       if (Math.abs(currentPrice - resistance) <= FIB50_TOLERANCE_ATR * atr) {
         const ep  = round(resistance);
@@ -1821,7 +1826,12 @@ export function computeLevels(
   if (signal === "WAIT" && macdBuyOk) {
     const dbBars = candles.slice(0, candles.length - 1);
     const dbResult = detectDoubleBottom(dbBars);
-    if (dbResult?.upperBound != null && dbResult.necklinePrice != null) {
+    // Volume gate: right trough must carry at least as much relative volume as the left trough.
+    // Rising right-side volume confirms accumulation is increasing at support.
+    // Fails open when volume data is unavailable.
+    const dbVolOk = dbResult?.leftVolume == null || dbResult?.rightVolume == null ||
+                    dbResult.rightVolume >= dbResult.leftVolume;
+    if (dbResult?.upperBound != null && dbResult.necklinePrice != null && dbVolOk) {
       const support  = dbResult.upperBound;
       const neckline = dbResult.necklinePrice;
       const sl       = round(support - atr * 0.5);

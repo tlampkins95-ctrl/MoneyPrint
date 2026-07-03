@@ -52,6 +52,11 @@ export interface PatternResult {
   upperBoundStartPrice?: number; // upper rail price at patternStartDate (left anchor)
   patternStartDate?:     string; // ISO date of the earliest swing point (left anchor)
   patternEndDate?:       string; // ISO date of the last completed bar (n-2) (right anchor)
+  // Volume at each side of a DOUBLE_TOP or DOUBLE_BOTTOM pattern (vol/20MA ratio).
+  // Populated by detectDoubleTop, detectFastDoubleTop, detectDoubleBottom.
+  // Absent for all other pattern types.
+  leftVolume?:   number; // vol/20MA ratio at the left peak (DOUBLE_TOP) or left trough (DOUBLE_BOTTOM)
+  rightVolume?:  number; // vol/20MA ratio at the right peak or right trough
 }
 
 interface SwingPoint { idx: number; price: number; }
@@ -244,14 +249,12 @@ export function detectDoubleTop(candles: CandleRaw[]): PatternResult | null {
     // Valley must be at least 4% below the tops — shallow dips are just noise
     if ((avgTop - valley.price) / avgTop < 0.04) continue;
     if (H2.idx < candles.length - 20) continue;
-    // Volume confirmation: left peak vol/20MA ratio must exceed right peak.
-    // Guard against data gaps that produce zero-volume candles.
+    // Compute vol/20MA ratios for both peaks and expose them in the result.
+    // The volume gate (right ≥ left) is enforced in signals.ts, not here, so
+    // the detector returns the pattern regardless of volume direction.
     const ma1 = vol20MA(candles, H1.idx), ma2 = vol20MA(candles, H2.idx);
-    if (ma1 > 0 && ma2 > 0) {
-      const r1 = volAtPeak(candles, H1.idx) / ma1;
-      const r2 = volAtPeak(candles, H2.idx) / ma2;
-      if (r1 <= r2) continue; // left peak must be relatively MORE active
-    }
+    const leftVolume  = ma1 > 0 ? volAtPeak(candles, H1.idx) / ma1 : undefined;
+    const rightVolume = ma2 > 0 ? volAtPeak(candles, H2.idx) / ma2 : undefined;
     return {
       pattern: "DOUBLE_TOP", direction: "bearish", category: "reversal",
       confirmed: candles[candles.length - 2].close < valley.price,
@@ -259,6 +262,8 @@ export function detectDoubleTop(candles: CandleRaw[]): PatternResult | null {
       upperBound:      +avgTop.toFixed(10),
       patternStartDate: candles[H1.idx]?.date,
       patternEndDate:   candles[H2.idx]?.date,
+      leftVolume,
+      rightVolume,
     };
   }
   return null;
@@ -284,11 +289,8 @@ export function detectFastDoubleTop(candles: CandleRaw[]): PatternResult | null 
     if ((avgTop - valley.price) / avgTop < 0.04) continue;
     if (H2.idx < candles.length - 8) continue;
     const ma1 = vol20MA(candles, H1.idx), ma2 = vol20MA(candles, H2.idx);
-    if (ma1 > 0 && ma2 > 0) {
-      const r1 = volAtPeak(candles, H1.idx) / ma1;
-      const r2 = volAtPeak(candles, H2.idx) / ma2;
-      if (r1 <= r2) continue;
-    }
+    const leftVolume  = ma1 > 0 ? volAtPeak(candles, H1.idx) / ma1 : undefined;
+    const rightVolume = ma2 > 0 ? volAtPeak(candles, H2.idx) / ma2 : undefined;
     return {
       pattern: "DOUBLE_TOP", direction: "bearish", category: "reversal",
       confirmed: candles[candles.length - 2].close < valley.price,
@@ -296,6 +298,8 @@ export function detectFastDoubleTop(candles: CandleRaw[]): PatternResult | null 
       upperBound:      +avgTop.toFixed(10),
       patternStartDate: candles[H1.idx]?.date,
       patternEndDate:   candles[H2.idx]?.date,
+      leftVolume,
+      rightVolume,
     };
   }
   return null;
@@ -319,14 +323,11 @@ export function detectDoubleBottom(candles: CandleRaw[]): PatternResult | null {
     // Peak between them must be at least 4% above the troughs
     if ((peak.price - avgBot) / avgBot < 0.04) continue;
     if (L2.idx < candles.length - 40) continue;
-    // Volume confirmation: left trough vol/20MA ratio must exceed right trough.
-    // Guard against data gaps that produce zero-volume candles.
+    // Compute vol/20MA ratios for both troughs and expose them in the result.
+    // The volume gate (right ≥ left) is enforced in signals.ts, not here.
     const ma1 = vol20MA(candles, L1.idx), ma2 = vol20MA(candles, L2.idx);
-    if (ma1 > 0 && ma2 > 0) {
-      const r1 = volAtPeak(candles, L1.idx) / ma1;
-      const r2 = volAtPeak(candles, L2.idx) / ma2;
-      if (r1 <= r2) continue; // left trough must be relatively MORE active (capitulation)
-    }
+    const leftVolume  = ma1 > 0 ? volAtPeak(candles, L1.idx) / ma1 : undefined;
+    const rightVolume = ma2 > 0 ? volAtPeak(candles, L2.idx) / ma2 : undefined;
     return {
       pattern: "DOUBLE_BOTTOM", direction: "bullish", category: "reversal",
       confirmed: candles[candles.length - 2].close > peak.price,
@@ -334,6 +335,8 @@ export function detectDoubleBottom(candles: CandleRaw[]): PatternResult | null {
       upperBound:       +avgBot.toFixed(10),
       patternStartDate:  candles[L1.idx]?.date,
       patternEndDate:    candles[L2.idx]?.date,
+      leftVolume,
+      rightVolume,
     };
   }
   return null;
