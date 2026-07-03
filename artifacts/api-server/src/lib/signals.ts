@@ -1357,15 +1357,8 @@ export function computeLevels(
   const closes = candles.map((c) => c.close);
   const ema21 = calcEMA(closes, 21);
   const ema50 = calcEMA(closes, 50);
-  const ema200 = calcEMA(closes, 200);
   const last21 = ema21[ema21.length - 1];
   const last50 = ema50[ema50.length - 1];
-  // Use prev bar (last completed candle) for EMA200 and MACD checks — the
-  // current bar may be an incomplete live tick and would contaminate the signal.
-  const prevEma200 = ema200[ema200.length - 2];
-  const lastEma200 = ema200[ema200.length - 1];
-  const prevEma50  = ema50[ema50.length - 2];
-  const ema200Warm = closes.length >= 210 && !isNaN(prevEma200) && prevEma200 > 0;
   const ema21Recent = ema21.slice(-5).filter((v) => !isNaN(v));
   const slopeUp = ema21Recent[ema21Recent.length - 1] > ema21Recent[0];
 
@@ -1445,85 +1438,6 @@ export function computeLevels(
     else if (last21 < last50) trend = "DOWNTREND";
     // else: EMAs are neutral despite high ADX — keep RANGING
   }
-
-  // EMA200 regime gate (institutional trend bias). When the 200-EMA is warm
-  // enough to be reliable, price above EMA200 = bull regime (buy fades only),
-  // price below EMA200 = bear regime (sell fades only). Skip on daily — the
-  // available daily history is often only ~500 bars so EMA200 warms up but
-  // chews through most of the usable period, leaving few tradeable bars.
-  // Use prev bar's close so the gate is based on a completed candle.
-  const useEma200Gate = ema200Warm && timeframe !== "1d";
-  const ema200BuyOk  = !useEma200Gate || prev.close >= prevEma200;
-  const ema200SellOk = !useEma200Gate || prev.close <= prevEma200;
-
-  // Breakout / breakdown gates — synced with runBreakoutBacktest so live
-  // behaviour and backtest results describe the same signal.
-  //
-  // Entry filters (all must pass):
-  //   1. Magnitude: price ≥0.25×ATR past R2/S2. Marginal scratches above the
-  //      level fail at a much higher rate and aren't genuine breakouts.
-  //   2. RSI 55–78 for BUY / 22–45 for SELL. Ceiling lowered from 88→78 to
-  //      filter over-extended, near-exhaustion moves. Floor at 55/ceiling at 45
-  //      ensures momentum is established but not parabolic.
-  //   3. EMA21 > EMA50 trend alignment for BUY (EMA21 < EMA50 for SELL).
-  //      Falls open when EMA50 not yet warm (<50 bars). Matches backtest
-  //      trendBullish/trendBearish gate.
-  //   4. currentPrice > EMA21 (immediate momentum confirmation for BUY;
-  //      currentPrice < EMA21 for SELL).
-  //   5. MACD histogram positive AND rising for BUY (negative AND falling for
-  //      SELL), using last two completed bars. Matches backtest macdBuyOk gate.
-  //   6. EMA200 regime gate (bypassed on 1d — same as pivot-bounce path).
-  //
-  // These only fire inside the WAIT else-branch so pivot-bounce setups always
-  // take priority.
-  const ema5050WarmBreakout = closes.length >= 50 && !isNaN(last21) && !isNaN(last50);
-  // Fail-CLOSED: if EMA21/50 aren't warm, trend direction rejects rather than passing.
-  // The old fail-open let DAGGER, EMA_CROSS, and PATTERN_BREAKOUT fire with no trend
-  // confirmation on symbols without enough history.
-  const trendBullishBreakout = ema5050WarmBreakout && last21 > last50;
-  const trendBearishBreakout = ema5050WarmBreakout && last21 < last50;
-  // Fail-CLOSED: MACD must be warm and histogram must be positive/ticking up for BUY,
-  // negative/ticking down for SELL. The old fail-open let DAGGER, EMA_CROSS, and
-  // PATTERN_BREAKOUT fire with zero momentum confirmation on short-history symbols.
-  const macdBreakoutBuyOk  = macdWarm && histPrev1 > 0 && histPrev1 > histPrev2;
-  const macdBreakoutSellOk = macdWarm && histPrev1 < 0 && histPrev1 < histPrev2;
-
-  // Extension filter: suppress breakout entries when price has already run
-  // more than 5×ATR away from EMA50. Fail-CLOSED when EMA50 not warm.
-  const notOverExtendedBuy  = ema5050WarmBreakout && (last.close - last50) < 5 * atr;
-  const notOverExtendedSell = ema5050WarmBreakout && (last50 - last.close) < 5 * atr;
-
-  // Candle-close quality gate — mirrors the backtest's strong-close check.
-  // All breakout quality checks are evaluated on `last` (candles[length - 1]),
-  // the fully-settled completed bar, matching backtest semantics where
-  // `today` is the signal bar whose close is checked. Using `last.close`
-  // (instead of live tick `currentPrice`) ensures the signal only fires
-  // after a bar has confirmed the breakout via its close — the same condition
-  // the backtest evaluates. Entry price is still `currentPrice` (market entry
-  // at the live tick once the bar confirms).
-  //
-  //   BUY: last.close > R2 + 0.25×ATR  → magnitude confirmed by bar close
-  //        last.close > low + 0.6×range  → body in top 40% (raised from 50% midpoint)
-  //        last.close > EMA21            → fast-MA confirmation on closed bar
-  //        (last.close − EMA50) < 5×ATR → extension filter (not over-extended)
-  //   SELL: symmetric (close in bottom 40% of bar range)
-  //
-  // Raising from 50% (midpoint) to 60% filters wick-heavy bars where the close
-  // rolled back from the high — the empirical separator between winning and losing
-  // breakout entries (winner avg body 72%, loser avg 59% across ETHUSD 1h sample).
-  const breakoutBarBuyFloor  = last.low  + 0.6 * (last.high - last.low); // top 40%
-  const breakoutBarSellCeil  = last.high - 0.6 * (last.high - last.low); // bottom 40%
-
-  const breakoutBuyOk =
-    last.close > pivots.r2 + 0.25 * atr &&
-    !isNaN(rsi) && rsi >= 55 && rsi <= 78 &&
-    trendBullishBreakout &&
-    last.close > last21 &&
-    macdBreakoutBuyOk &&
-    last.close > breakoutBarBuyFloor &&
-    notOverExtendedBuy &&
-    (!useEma200Gate || last.close > prevEma200);
-
 
   // ── Higher-TF MACD direction gates ────────────────────────────────────────
   // Strategy: BB + MACD only. No EMAs.
@@ -1733,7 +1647,7 @@ export function computeLevels(
     // shorting the bottom (the TAO/ZEC weekend problem). Fails open when
     // BB isn't warm yet.
     const fibSellBbOk = !bb || currentPrice > bb.middle;
-    if (signal === "WAIT" && !isLongOnly && higherTfAllowsSell && macdSellOk && fibSellBbOk) {
+    if (signal === "WAIT" && !isLongOnly && higherTfAllowsSell && (histPrev1 < histPrev2) && fibSellBbOk) {
       const swingHighs        = findSwingHighs(completed, 3, SWING_LOOKBACK);
       const swingLowsForSell  = findSwingLows(completed, 3, SWING_LOOKBACK);
       sellSearch: for (let j = swingHighs.length - 1; j >= 0; j--) {
@@ -1824,7 +1738,7 @@ export function computeLevels(
   //   SL:     avgTop + 0.5 × ATR (just above resistance)
   //   TP1:    neckline (valley between the two peaks)
   //   TP2:    neckline − (avgTop − neckline)  [measured move]
-  if (signal === "WAIT" && !isLongOnly && macdSellOk && higherTfAllowsSell) {
+  if (signal === "WAIT" && !isLongOnly) {
     const dtBars = candles.slice(0, candles.length - 1); // exclude live bar, same as FIB50_SWING
     const dtResult = detectFastDoubleTop(dtBars) ?? detectDoubleTop(dtBars);
     if (dtResult?.upperBound != null && dtResult.necklinePrice != null && dtResult.confirmed) {
@@ -2168,7 +2082,7 @@ export function computeLevels(
   // TP1:    BB midline (mean reversion target)
   // SL:     above spike high + 0.5×ATR buffer (enforces minimum 2:1 R:R)
   // macdWarm ensures MACD values are reliable (needs 26+9 bars of history).
-  if (signal === "WAIT" && !isLongOnly && macdSellOk && higherTfAllowsSell) {
+  if (signal === "WAIT" && !isLongOnly && macdWarm && higherTfAllowsSell) {
     const overextCompleted = candles.slice(0, candles.length - 1);
     if (overextCompleted.length >= 32) { // need at least 30 for BB + 1 prior candle
       const lastCandle  = overextCompleted[overextCompleted.length - 1];
