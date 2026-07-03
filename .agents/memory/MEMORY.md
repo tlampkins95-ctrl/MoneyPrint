@@ -5,7 +5,7 @@
 - [FIB50_SWING backtest parity](fib50swing-backtest.md) — backtest signalType dispatch, daily candle fetch for weekly gate, and expected 1D sparsity explained.
 - [Duplicate seed alerts on restart](duplicate-seed-alerts.md) — stateMap is in-memory; restarts wipe it and seed re-fires for every pending 1H signal; fix is to persist lastAlertAt+lastAlertSignal to .runtime/notifier-alert-state.json.
 - [FIB50_SWING swing selection](fib50swing-swing-selection.md) — must iterate structural swing points most-recent-first, not absolute extreme; BB30 gate removed (blocks valid setups in trending markets).
-- [1h daily trend gate](1h-daily-trend-gate.md) — 1h FIB50_SWING SELL needs BOTH daily EMA bearish AND weeklyTrend==="DOWN"; daily EMA alone fires 20x/day in bull corrections at 1.4% win rate.
+- [1h daily trend gate](1h-daily-trend-gate.md) — OBSOLETE: EMA-based gate removed. higherTfAllowsBuy/Sell now uses MACD curl direction only (see Higher-TF trend gate entry).
 - [Signal slot priority](signal-slot-priority.md) — FIB50_SWING runs before PATTERN_BREAKOUT; if FIB50_SWING floods (fire→SL→fire), PATTERN_BREAKOUT never fires. Fix the upstream signal, not the downstream one.
 - [PATTERN_BREAKOUT removed and restored](pattern-breakout-removed.md) — signal was deleted (detectChartPattern imported but never called); restored last in cascade; Phemex auto-trade already gated to FIB50_SWING/DOUBLE_TOP only.
 - [DOUBLE_BOTTOM signal type](double-bottom-signal-type.md) — adding new signalTypes needs 5 parallel updates; stale PENDING trades lock in old labels.
@@ -26,7 +26,7 @@
 - [Self-hedge via conflicting timeframe signals](self-hedge-guard.md) — 1h BUY + 1d SELL for same symbol both execute in hedge mode, opening Long+Short simultaneously. Fix: check opposite posSide in checkExistingPosition before placing any order.
 - [Phemex activeList field names](phemex-activeList-fields.md) — orderType/execInst/side (not ordType/reduceOnly/posSide); posSide absent, derive from side.
 - [detectCandlestickSignal never wired](candlestick-signal-wiring.md) — was imported but never called in signals.ts; now wired after detectChartPattern in PATTERN_BREAKOUT block.
-- [Higher-TF trend gate](higher-tf-trend-gate.md) — higherTfAllowsSell/higherTfAllowsBuy use daily MACD histogram (NOT EMAs). ALL signal types (including FIB50_SWING) require these gates. Declarations must live BEFORE the FIB50_SWING block or TS2448 fires.
+- [Higher-TF trend gate](higher-tf-trend-gate.md) — higherTfAllowsBuy: daily MACD hist RISING (current>prev). higherTfAllowsSell: daily MACD hist FALLING. NO sign check (not >0 or <0). FIB50_SWING has NO separate EMA gate — weeklyAllowsBuy/Sell deleted.
 - [Higher-TF gate coverage](higher-tf-gate-coverage.md) — all 6 SELL + 5 BUY assignments verified; FIB50_SWING and DOUBLE_TOP SELL were missing gates; BB_OVEREXTENSION was explicitly bypassing them; all fixed.
 - [FIB50_SWING 1d SL ATR minimum](fib50swing-1d-sl-atr.md) — formula SL ≈ 1 ATR on 1d (clipped by daily candle noise); enforced 1.5 ATR minimum for 1d only; other TFs keep strict 2:1 R:R.
 - [User strategy indicators](user-strategy-indicators.md) — strategy uses Bollinger Bands + MACD only. No EMAs in the strategy. Never build gates or filters using EMA crossovers.
