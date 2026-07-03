@@ -1267,13 +1267,19 @@ async function checkSymbol(
     // unlike the executePhemexTrade path which only runs on transitions/catch-up.
     // If a real entry limit has been sitting unfilled for > 2× the candle period,
     // cancel it so the catch-up block below can place a fresh order this same poll.
-    // IMPORTANT: cancel staleCand.orderId directly (the tracked entry ID) rather
-    // than the return value of checkExistingOrder, which matches by posSide only
-    // and could return a reduce-only TP/SL order in hedge mode.
+    //
+    // Guards:
+    //  • tradeState === "PENDING": entry not yet filled, so no open position
+    //    and no TP/SL orders exist — makes the post-cancel confirmation safe.
+    //  • cancelOrder() swallows errors, so we confirm cancellation by calling
+    //    checkExistingOrder() after the cancel. Because tradeState is PENDING,
+    //    there are no TP orders sharing the posSide — a null return truly means
+    //    the entry is gone and it is safe to delete the tracker.
     if (isPhemexTradingEnabled() && phemexAutoTraderEnabled) {
       const staleCand = openPhemexOrders.get(k);
       if (
         staleCand?.placedAt != null &&
+        levels.tradeState === "PENDING" &&
         (levels.signal === "BUY" || levels.signal === "SELL")
       ) {
         const ageMs   = Date.now() - staleCand.placedAt;
@@ -1281,15 +1287,21 @@ async function checkSymbol(
         if (ageMs > staleMs) {
           const stalePosSide = levels.signal === "BUY" ? "Long" : "Short";
           try {
-            // Cancel the specific tracked entry orderId — never a TP/SL.
-            // If the entry already filled, Phemex will return a non-fatal error
-            // (order not found) and we keep the tracker so the position is managed.
             await cancelOrder(staleCand.phemexSymbol, staleCand.orderId, stalePosSide);
-            logger.info(
-              { symbol, timeframe, phemexSymbol: staleCand.phemexSymbol, orderId: staleCand.orderId, ageMs, staleMs },
-              "phemex-trader: stale unfilled limit cancelled — placing fresh order",
-            );
-            openPhemexOrders.delete(k);
+            // cancelOrder swallows errors; confirm the order is truly gone.
+            const stillActive = await checkExistingOrder(staleCand.phemexSymbol, stalePosSide);
+            if (stillActive === null) {
+              logger.info(
+                { symbol, timeframe, phemexSymbol: staleCand.phemexSymbol, orderId: staleCand.orderId, ageMs, staleMs },
+                "phemex-trader: stale unfilled limit cancelled — placing fresh order",
+              );
+              openPhemexOrders.delete(k);
+            } else {
+              logger.warn(
+                { symbol, timeframe, phemexSymbol: staleCand.phemexSymbol, orderId: staleCand.orderId },
+                "phemex-trader: stale cancel did not remove order — keeping tracker",
+              );
+            }
           } catch (staleErr) {
             logger.warn({ staleErr, symbol, timeframe }, "phemex-trader: stale-limit cancel failed — keeping existing tracker");
           }
@@ -1713,12 +1725,14 @@ async function checkTrendingSymbol(
       }
     }
     // Per-poll stale entry-limit check for trending coins — mirrors checkSymbol.
-    // Cancel staleCandT.orderId directly (tracked entry ID) to avoid touching
-    // reduce-only TP/SL orders that share the same posSide in hedge mode.
+    // Gated on tradeState === "PENDING": entry unfilled, no position open, no
+    // TP orders exist — checkExistingOrder post-cancel is unambiguous.
+    // cancelOrder() swallows errors; confirm via checkExistingOrder before delete.
     if (isPhemexTradingEnabled() && phemexAutoTraderEnabled) {
       const staleCandT = openPhemexOrders.get(k);
       if (
         staleCandT?.placedAt != null &&
+        levels.tradeState === "PENDING" &&
         (levels.signal === "BUY" || levels.signal === "SELL")
       ) {
         const ageMsT   = Date.now() - staleCandT.placedAt;
@@ -1727,11 +1741,19 @@ async function checkTrendingSymbol(
           const stalePosSideT = levels.signal === "BUY" ? "Long" : "Short";
           try {
             await cancelOrder(staleCandT.phemexSymbol, staleCandT.orderId, stalePosSideT);
-            logger.info(
-              { symbolKey, timeframe, phemexSymbol: staleCandT.phemexSymbol, orderId: staleCandT.orderId, ageMs: ageMsT, staleMs: staleMsT },
-              "phemex-trader: trending stale unfilled limit cancelled — placing fresh order",
-            );
-            openPhemexOrders.delete(k);
+            const stillActiveT = await checkExistingOrder(staleCandT.phemexSymbol, stalePosSideT);
+            if (stillActiveT === null) {
+              logger.info(
+                { symbolKey, timeframe, phemexSymbol: staleCandT.phemexSymbol, orderId: staleCandT.orderId, ageMs: ageMsT, staleMs: staleMsT },
+                "phemex-trader: trending stale unfilled limit cancelled — placing fresh order",
+              );
+              openPhemexOrders.delete(k);
+            } else {
+              logger.warn(
+                { symbolKey, timeframe, phemexSymbol: staleCandT.phemexSymbol, orderId: staleCandT.orderId },
+                "phemex-trader: trending stale cancel did not remove order — keeping tracker",
+              );
+            }
           } catch (staleErrT) {
             logger.warn({ staleErrT, symbolKey, timeframe }, "phemex-trader: trending stale-limit cancel failed — keeping existing tracker");
           }
