@@ -659,16 +659,14 @@ async function executePhemexTrade(
         { symbol, timeframe, phemexSymbol, orderId: existingOrderId, ageMs, staleMs },
         "phemex-trader: stale unfilled limit cancelled — will re-enter on next poll",
       );
-      // Await cancellation to prevent duplicate live orders. Also cancel any
-      // dangling reduce-only TP orders — they'd conflict with fresh TPs once
-      // the new entry fills.
+      // Cancel only the stale entry limit. TP1/TP2 reduce-only orders are
+      // intentionally left untouched — they will be cleaned up by the WAIT
+      // transition cancel path or replaced when the fresh entry fills.
+      // If entry cancellation fails, abort re-entry to avoid duplicate live orders.
       try {
-        const cancelTasks: Promise<void>[] = [cancelOrder(phemexSymbol, existingOrderId, posSideForCheck)];
-        if (prevEntry?.tp1OrderId) cancelTasks.push(cancelOrder(phemexSymbol, prevEntry.tp1OrderId, posSideForCheck));
-        if (prevEntry?.tp2OrderId) cancelTasks.push(cancelOrder(phemexSymbol, prevEntry.tp2OrderId, posSideForCheck));
-        await Promise.allSettled(cancelTasks);
+        await cancelOrder(phemexSymbol, existingOrderId, posSideForCheck);
       } catch (cancelErr) {
-        logger.warn({ cancelErr, phemexSymbol, orderId: existingOrderId }, "phemex-trader: stale cancel threw — skipping re-entry to be safe");
+        logger.warn({ cancelErr, phemexSymbol, orderId: existingOrderId }, "phemex-trader: stale entry cancel failed — skipping re-entry to avoid duplicate orders");
         return;
       }
       openPhemexOrders.delete(k);
