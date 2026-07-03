@@ -223,6 +223,19 @@ function detectSignals(candles, label) {
   return signals;
 }
 
+// ─── Deduplicate: skip signals that fire while a prior trade is still open ────
+function dedup(signals) {
+  const kept = [];
+  let busyUntilBar = -1;
+  for (const sig of signals) {
+    if (sig.entryBar <= busyUntilBar) continue; // prior trade still open
+    kept.push(sig);
+    // Reserve the slot for up to MAX_HOLD_DAYS after entry
+    busyUntilBar = sig.entryBar + MAX_HOLD_DAYS;
+  }
+  return kept;
+}
+
 // ─── Simulate outcomes ────────────────────────────────────────────────────────
 function simulate(candles, signals) {
   return signals.map(sig => {
@@ -270,23 +283,31 @@ async function main() {
       continue;
     }
 
-    const signals = detectSignals(candles, coin);
+    const signals = dedup(detectSignals(candles, coin));
     const results = simulate(candles, signals);
     const tp = results.filter(r => r.outcome === "TP").length;
     const sl = results.filter(r => r.outcome === "SL").length;
     const open = results.filter(r => r.outcome === "OPEN").length;
     const settled = tp + sl;
     const pnl = results.reduce((s, r) => s + (r.pnlPct ?? 0), 0);
+    const avgPnl = results.length ? pnl / results.length : 0;
 
     if (!results.length) {
       console.log(`${candles.length} bars  (no signals)`);
     } else {
       const wr = settled > 0 ? `WR ${(tp/settled*100)|0}%` : "WR —";
-      console.log(`${candles.length} bars  ${results.length} sigs  TP=${tp} SL=${sl} OPEN=${open}  ${wr}  P&L ${pnl >= 0 ? "+" : ""}${pnl.toFixed(1)}%`);
+      const pnlTag = `P&L ${pnl >= 0 ? "+" : ""}${pnl.toFixed(1)}%  avg ${avgPnl >= 0 ? "+" : ""}${avgPnl.toFixed(1)}%/trade`;
+      console.log(`${candles.length} bars  ${results.length} trades  TP=${tp} SL=${sl} OPEN=${open}  ${wr}  ${pnlTag}`);
+      // running cumulative P&L across trades
+      let cum = 0;
       for (const r of results) {
-        const p = r.pnlPct != null ? ` (${r.pnlPct >= 0 ? "+" : ""}${r.pnlPct.toFixed(1)}%)` : "";
-        const days = r.exitDays != null ? ` ${r.exitDays}d` : "";
-        console.log(`  ${r.date} ${r.dir} rr=${r.rr.toFixed(1)} sq=${r.squeezeDays}d tp%=${r.pctMoveTP.toFixed(1)} → ${r.outcome}${p}${days}`);
+        const p = r.pnlPct ?? 0;
+        cum += p;
+        const pStr  = r.pnlPct != null ? `${r.pnlPct >= 0 ? "+" : ""}${r.pnlPct.toFixed(1)}%` : "OPEN";
+        const cumStr = `cum ${cum >= 0 ? "+" : ""}${cum.toFixed(1)}%`;
+        const days  = r.exitDays != null ? ` ${r.exitDays}d` : "";
+        const icon  = r.outcome === "TP" ? "✓" : r.outcome === "SL" ? "✗" : "~";
+        console.log(`  ${r.date} ${r.dir} sq=${r.squeezeDays}d  ${icon} ${r.outcome.padEnd(4)} ${pStr.padStart(7)}  ${cumStr}${days}`);
       }
     }
     allResults.push(...results);
