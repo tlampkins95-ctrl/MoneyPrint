@@ -1035,6 +1035,37 @@ async function checkSymbol(
         }
       }
 
+      // BB_REJECTION SELL conflict guard: suppress even on direction flips when
+      // the daily is actively BUY. The higher-TF gate above exempts direction
+      // flips (1h BUY→SELL), but a mean-reversion short against a confirmed
+      // daily bullish setup is almost always wrong — UNI-type scenario where
+      // a 1h BB_REJECTION fires into a daily bullish triangle breakout.
+      if (
+        !isFilledTrade &&
+        levels.signalType === "BB_REJECTION" &&
+        levels.signal === "SELL" &&
+        higherTf === "1d" &&
+        higherCandles.length >= 2
+      ) {
+        const adjHigherBbr =
+          spot != null && SYMBOLS[symbol].hasFuturesBasis
+            ? applyFuturesBasis(higherCandles, spot, makeRounder(SYMBOLS[symbol].decimals))
+            : higherCandles;
+        const dailyResultBbr = computeLevelsStable(adjHigherBbr, spot, "1d", symbol, SYMBOLS[symbol]);
+        if (dailyResultBbr.signal === "BUY") {
+          logger.info(
+            { symbol, timeframe, signalType: levels.signalType, dailySignal: dailyResultBbr.signal },
+            "BB_REJECTION SELL suppressed — daily is actively bullish (conflict guard)",
+          );
+          stateMap.set(k, {
+            ...(prev ?? {}),
+            signal: prev?.signal ?? "WAIT",
+            lastAlertAt: prev?.lastAlertAt ?? 0,
+          });
+          return;
+        }
+      }
+
       // Phemex auto-trade: place order on every fresh signal transition that
       // passes all gates above. Seed snapshots are excluded — they represent
       // catch-up state on restart, not live signals.
@@ -1431,6 +1462,34 @@ async function checkTrendingSymbol(
           logger.info(
             { symbolKey, timeframe, signal: levels.signal, higherTf, higherSignal: higherResult.signal },
             "Trending signal alert suppressed (higher TF actively opposed)",
+          );
+          stateMap.set(k, {
+            ...(prev ?? {}),
+            signal: prev?.signal ?? "WAIT",
+            lastAlertAt: prev?.lastAlertAt ?? 0,
+          });
+          return;
+        }
+      }
+
+      // BB_REJECTION SELL conflict guard (trending coins): suppress even on
+      // direction flips when the daily is actively BUY. Trending coins are on
+      // the list because they're pumping — shorting them via mean-reversion
+      // against a confirmed daily BUY is always wrong.
+      if (
+        !isFilledTrade &&
+        levels.signalType === "BB_REJECTION" &&
+        levels.signal === "SELL" &&
+        higherTf === "1d" &&
+        (higherCandles as typeof candles).length >= 2
+      ) {
+        const dailyResultBbrT = computeLevelsStable(
+          higherCandles as typeof candles, spot, "1d", symbolKey, tMeta,
+        );
+        if (dailyResultBbrT.signal === "BUY") {
+          logger.info(
+            { symbolKey, timeframe, signalType: levels.signalType, dailySignal: dailyResultBbrT.signal },
+            "Trending BB_REJECTION SELL suppressed — daily is actively bullish (conflict guard)",
           );
           stateMap.set(k, {
             ...(prev ?? {}),
