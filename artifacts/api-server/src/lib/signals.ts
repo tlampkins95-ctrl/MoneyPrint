@@ -1532,6 +1532,10 @@ export function computeLevels(
   let displaySwingHigh = fibs.swingHigh;
   let displaySwingLow  = fibs.swingLow;
   let displayFib50     = 0;
+  // Nearest valid fib50 for each direction even when price is outside tolerance —
+  // used to show distinct LONG/SHORT zone watch values in WAIT state.
+  let candidateBuyFib50  = 0;
+  let candidateSellFib50 = 0;
 
   // Fire on 1D, 1H, and 1W.
   if (timeframe === "1d" || timeframe === "1h" || timeframe === "1w") {
@@ -1611,6 +1615,8 @@ export function computeLevels(
             const prevHighCeiling = Math.max(...priorHighsBeforeA);
             if (swingBHigh <= prevHighCeiling + 0.25 * swingAtr) continue;
           }
+          // Capture nearest valid BUY fib50 even when outside tolerance (for zone display).
+          if (candidateBuyFib50 === 0) candidateBuyFib50 = fib50Buy;
           if (Math.abs(currentPrice - fib50Buy) <= FIB50_TOLERANCE_ATR * swingAtr) {
             const ep  = round(fib50Buy);
             const tp1 = round(swingALow + 0.786 * buySwingRange);  // 78.6% fib — TP1
@@ -1689,6 +1695,8 @@ export function computeLevels(
             const prevLowFloor = Math.min(...priorLowsBeforeA);
             if (swingBLow >= prevLowFloor - 0.25 * swingAtr) continue;
           }
+          // Capture nearest valid SELL fib50 even when outside tolerance (for zone display).
+          if (candidateSellFib50 === 0) candidateSellFib50 = fib50Sell;
           if (Math.abs(currentPrice - fib50Sell) <= FIB50_TOLERANCE_ATR * swingAtr) {
             const ep  = round(fib50Sell);
             const tp1 = round(swingAHigh - 0.786 * sellSwingRange);  // 78.6% fib — TP1
@@ -1716,6 +1724,29 @@ export function computeLevels(
           }
         }
       }
+    }
+  }
+
+  // ── Structural zone display fallback ────────────────────────────────────────
+  // When the FIB50_SWING search (gated by MACD/BB) finds no candidates, both
+  // zone watch panels show identical currentPrice ± tolerance. As a fallback,
+  // use the nearest structural swing LOW (LONG zone center) and swing HIGH
+  // (SHORT zone center) so the two panels always show distinct, meaningful
+  // support/resistance watch levels in WAIT state.
+  if ((candidateBuyFib50 === 0 || candidateSellFib50 === 0) &&
+      (timeframe === "1d" || timeframe === "1h" || timeframe === "1w")) {
+    const dispCompleted = candles.slice(0, candles.length - 1);
+
+    if (candidateBuyFib50 === 0) {
+      const dispSwingLows = findSwingLows(dispCompleted, 3, SWING_LOOKBACK);
+      const nearestLow = [...dispSwingLows].reverse().find(s => s.price < currentPrice);
+      if (nearestLow) candidateBuyFib50 = nearestLow.price;
+    }
+
+    if (candidateSellFib50 === 0) {
+      const dispSwingHighs = findSwingHighs(dispCompleted, 3, SWING_LOOKBACK);
+      const nearestHigh = [...dispSwingHighs].reverse().find(s => s.price > currentPrice);
+      if (nearestHigh) candidateSellFib50 = nearestHigh.price;
     }
   }
 
@@ -2265,10 +2296,15 @@ export function computeLevels(
   // Entry zone for chart display: ±FIB50_TOLERANCE_ATR around the entry price.
   const entryZoneLow  = round(entryPrice - FIB50_TOLERANCE_ATR * atr);
   const entryZoneHigh = round(entryPrice + FIB50_TOLERANCE_ATR * atr);
-  const buyZoneLow    = signal === "BUY"  ? entryZoneLow  : round(currentPrice - FIB50_TOLERANCE_ATR * atr);
-  const buyZoneHigh   = signal === "BUY"  ? entryZoneHigh : round(currentPrice + FIB50_TOLERANCE_ATR * atr);
-  const sellZoneLow   = signal === "SELL" ? entryZoneLow  : round(currentPrice - FIB50_TOLERANCE_ATR * atr);
-  const sellZoneHigh  = signal === "SELL" ? entryZoneHigh : round(currentPrice + FIB50_TOLERANCE_ATR * atr);
+  // In WAIT state, use the nearest valid fib50 for each direction so the
+  // LONG and SHORT zone watch panels show distinct, meaningful values instead
+  // of the same currentPrice ± tolerance fallback.
+  const buyCenter  = signal === "BUY"  ? entryPrice : (candidateBuyFib50  > 0 ? candidateBuyFib50  : currentPrice);
+  const sellCenter = signal === "SELL" ? entryPrice : (candidateSellFib50 > 0 ? candidateSellFib50 : currentPrice);
+  const buyZoneLow    = signal === "BUY"  ? entryZoneLow  : round(buyCenter  - FIB50_TOLERANCE_ATR * atr);
+  const buyZoneHigh   = signal === "BUY"  ? entryZoneHigh : round(buyCenter  + FIB50_TOLERANCE_ATR * atr);
+  const sellZoneLow   = signal === "SELL" ? entryZoneLow  : round(sellCenter - FIB50_TOLERANCE_ATR * atr);
+  const sellZoneHigh  = signal === "SELL" ? entryZoneHigh : round(sellCenter + FIB50_TOLERANCE_ATR * atr);
 
   const riskDist = Math.abs(entryPrice - stopLoss);
   const rewardDist = Math.abs(takeProfit1 - entryPrice);
