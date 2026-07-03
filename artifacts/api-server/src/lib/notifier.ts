@@ -234,6 +234,7 @@ interface OpenPhemexOrder {
   orderId:      string;
   phemexSymbol: string;
   posSide?:     "Long" | "Short";  // required in hedge mode
+  placedAt?:    number;    // Date.now() when the entry limit was first placed/detected
   // Split-TP tracking (set for every auto-traded order)
   fullQty?:     number;    // full position qty at entry
   entryPx?:     number;    // actual entry price (anchored for Market IOC)
@@ -243,6 +244,16 @@ interface OpenPhemexOrder {
   tp2OrderId?:  string;    // reduce-only limit at TP2 (half qty)
   tp1Filled?:   boolean;   // true once TP1 fills and SL has been moved to BE
 }
+
+// How long an unfilled entry limit may sit before it is considered stale and
+// cancelled so the next poll can re-enter at the current price.
+// Threshold = 2 × the candle period for the timeframe.
+const TF_STALE_MS: Record<string, number> = {
+  "1h":  2 *    60 * 60_000,   // 2 hours
+  "4h":  2 *   240 * 60_000,   // 8 hours
+  "1d":  2 *  1440 * 60_000,   // 2 days
+  "1w":  2 * 10080 * 60_000,   // 2 weeks
+};
 const openPhemexOrders = new Map<string, OpenPhemexOrder>();
 
 // Guards against two concurrent executePhemexTrade calls racing for the same
@@ -630,12 +641,34 @@ async function executePhemexTrade(
     return;
   }
   if (existingOrderId !== null) {
-    logger.info(
-      { symbol, timeframe, phemexSymbol, side, existingOrderId },
-      "phemex-trader: pending order already exists on Phemex — registering in tracker, skipping new order",
-    );
-    openPhemexOrders.set(k, { orderId: existingOrderId, phemexSymbol, posSide: posSideForCheck });
-    return;
+    const prevEntry   = openPhemexOrders.get(k);
+    // Carry forward placedAt from the first time we saw this order so the
+    // age clock starts from placement, not from each restart.
+    const placedAt    = prevEntry?.placedAt ?? Date.now();
+    const ageMs       = Date.now() - placedAt;
+    const staleMs     = TF_STALE_MS[timeframe] ?? TF_STALE_MS["1h"]!;
+
+    // If the entry limit is still unfilled AND has been sitting for more than
+    // 2 candle periods, cancel it and fall through so the next poll places a
+    // fresh order at the current signal entry price.
+    // Guard: if tp1OrderId is set the position is already filled and we're
+    // managing TPs — never cancel in that case.
+    if (prevEntry?.tp1OrderId == null && ageMs > staleMs) {
+      logger.info(
+        { symbol, timeframe, phemexSymbol, orderId: existingOrderId, ageMs, staleMs },
+        "phemex-trader: stale unfilled limit cancelled — will re-enter on next poll",
+      );
+      void cancelOrder(phemexSymbol, existingOrderId, posSideForCheck);
+      openPhemexOrders.delete(k);
+      // Fall through to fresh order placement below.
+    } else {
+      logger.info(
+        { symbol, timeframe, phemexSymbol, side, existingOrderId, ageMs },
+        "phemex-trader: pending order already exists on Phemex — registering in tracker, skipping new order",
+      );
+      openPhemexOrders.set(k, { ...(prevEntry ?? {}), orderId: existingOrderId, phemexSymbol, posSide: posSideForCheck, placedAt });
+      return;
+    }
   }
 
   // For Market IOC SELL (entry < minPriceRp), the fill happens at current BID,
@@ -712,6 +745,7 @@ async function executePhemexTrade(
       orderId,
       phemexSymbol,
       posSide,
+      placedAt:   Date.now(),
       fullQty:    rawQty,
       entryPx:    actualEntryPx,
       pxDecimals,
