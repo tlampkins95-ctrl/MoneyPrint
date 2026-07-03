@@ -1897,37 +1897,62 @@ export function computeLevels(
   }
 
   // ── DOUBLE_BOTTOM detection (crash-and-bounce long) ──────────────────────────
-  // Fires when FIB50_SWING is still WAIT and price is near a double-bottom
-  // support level. Standard detector (20-bar min separation) catches
-  // slower reversal setups on any symbol.
+  // Fires when FIB50_SWING is still WAIT and a double-bottom pattern is detected.
+  // No higher-TF trend gate — the double bottom IS the reversal signal; by
+  // definition it forms when the weekly/daily trend is still bearish.
   //
-  // No daily/weekly trend gate — the double bottom IS the reversal signal.
+  // Two modes depending on confirmation state:
   //
-  //   Entry:  avgBot (average of the two troughs = support)
-  //   SL:     avgBot − 0.5 × ATR (just below support)
-  //   TP1:    neckline (peak between the two troughs)
-  //   TP2:    neckline + (neckline − avgBot)  [measured move]
-  if (signal === "WAIT" && macdBuyOk && higherTfAllowsBuy) {
+  //   Forming (neckline not yet broken):
+  //     Price near the second trough (support). Entry at support, TP1 at
+  //     neckline, TP2 at measured move, SL just below support.
+  //
+  //   Confirmed (last completed bar closed above neckline):
+  //     Price has already broken out but is still within 2 ATR of the neckline
+  //     (recent breakout, not extended). Entry at neckline, TP1 at measured
+  //     move, SL just below support.
+  if (signal === "WAIT" && macdBuyOk) {
     const dbBars = candles.slice(0, candles.length - 1);
     const dbResult = detectDoubleBottom(dbBars);
-    if (dbResult?.upperBound != null && dbResult.necklinePrice != null && dbResult.confirmed) {
-      const support = dbResult.upperBound;
-      if (Math.abs(currentPrice - support) <= FIB50_TOLERANCE_ATR * atr) {
-        const ep  = round(support);
-        const sl  = round(support - atr * 0.5);
-        const tp1 = round(dbResult.necklinePrice);
-        const rawMeasured = dbResult.necklinePrice + (dbResult.necklinePrice - support);
-        const tp2 = round(floorTarget(ep, sl, rawMeasured, MIN_RR_TP2, "BUY"));
-        signal        = "BUY";
-        signalType    = "DOUBLE_BOTTOM";
-        entryPrice    = ep;
-        stopLoss      = sl;
-        takeProfit1   = tp1;
-        takeProfit2   = tp2;
-        dca1          = undefined;
-        patternResult = dbResult;
-        const stateTag = dbResult.confirmed ? " (neckline broken)" : " (forming)";
-        signalReason = `[${tfLabel}] DOUBLE BOTTOM BUY${stateTag}: Support ${fmt(support)}, Neckline ${fmt(dbResult.necklinePrice)}. Entry ${fmt(ep)}, SL ${fmt(sl)} (below troughs), TP1 ${fmt(tp1)} (neckline), TP2 ${fmt(tp2)} (measured move).`;
+    if (dbResult?.upperBound != null && dbResult.necklinePrice != null) {
+      const support  = dbResult.upperBound;
+      const neckline = dbResult.necklinePrice;
+      const sl       = round(support - atr * 0.5);
+
+      if (!dbResult.confirmed) {
+        // Forming: price must still be near the trough support
+        if (Math.abs(currentPrice - support) <= FIB50_TOLERANCE_ATR * atr) {
+          const ep          = round(support);
+          const tp1         = round(neckline);
+          const rawMeasured = neckline + (neckline - support);
+          const tp2         = round(floorTarget(ep, sl, rawMeasured, MIN_RR_TP2, "BUY"));
+          signal        = "BUY";
+          signalType    = "DOUBLE_BOTTOM";
+          entryPrice    = ep;
+          stopLoss      = sl;
+          takeProfit1   = tp1;
+          takeProfit2   = tp2;
+          dca1          = undefined;
+          patternResult = dbResult;
+          signalReason  = `[${tfLabel}] DOUBLE BOTTOM BUY (forming): Support ${fmt(support)}, Neckline ${fmt(neckline)}. Entry ${fmt(ep)}, SL ${fmt(sl)} (below troughs), TP1 ${fmt(tp1)} (neckline), TP2 ${fmt(tp2)} (measured move).`;
+        }
+      } else {
+        // Confirmed: neckline already broken — enter near neckline, TP = measured move
+        if (Math.abs(currentPrice - neckline) <= 2 * FIB50_TOLERANCE_ATR * atr) {
+          const ep          = round(neckline);
+          const rawMeasured = neckline + (neckline - support);
+          const tp1         = round(floorTarget(ep, sl, rawMeasured, MIN_RR_TP2, "BUY"));
+          const tp2         = tp1; // measured move is already TP in confirmed mode
+          signal        = "BUY";
+          signalType    = "DOUBLE_BOTTOM";
+          entryPrice    = ep;
+          stopLoss      = sl;
+          takeProfit1   = tp1;
+          takeProfit2   = tp2;
+          dca1          = undefined;
+          patternResult = dbResult;
+          signalReason  = `[${tfLabel}] DOUBLE BOTTOM BUY (neckline broken): Support ${fmt(support)}, Neckline ${fmt(neckline)}. Entry ${fmt(ep)}, SL ${fmt(sl)} (below troughs), TP1 ${fmt(tp1)} (measured move).`;
+        }
       }
     }
   }

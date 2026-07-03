@@ -318,7 +318,7 @@ export function detectDoubleBottom(candles: CandleRaw[]): PatternResult | null {
     const avgBot = (L1.price + L2.price) / 2;
     // Peak between them must be at least 4% above the troughs
     if ((peak.price - avgBot) / avgBot < 0.04) continue;
-    if (L2.idx < candles.length - 20) continue;
+    if (L2.idx < candles.length - 40) continue;
     // Volume confirmation: left trough vol/20MA ratio must exceed right trough.
     // Guard against data gaps that produce zero-volume candles.
     const ma1 = vol20MA(candles, L1.idx), ma2 = vol20MA(candles, L2.idx);
