@@ -261,6 +261,24 @@ export function SignalPanel({
                   ⊛ BB REJECTION
                 </span>
               );
+            if (st === "BB_BREAKOUT")
+              return (
+                <span className="mt-1 px-3 py-0.5 text-[10px] font-bold tracking-widest rounded-full bg-violet-500/20 text-violet-300 border border-violet-500/40">
+                  ⚡ BB BREAKOUT
+                </span>
+              );
+            if (st === "BB_WALK")
+              return (
+                <span className="mt-1 px-3 py-0.5 text-[10px] font-bold tracking-widest rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/40">
+                  ↗ BB WALK
+                </span>
+              );
+            if (st === "PATTERN_BREAKOUT")
+              return (
+                <span className="mt-1 px-3 py-0.5 text-[10px] font-bold tracking-widest rounded-full bg-fuchsia-500/20 text-fuchsia-300 border border-fuchsia-500/40">
+                  ⌖ PATTERN BRK
+                </span>
+              );
             // Default: FIB50_SWING
             return (
               <span className="mt-1 px-3 py-0.5 text-[10px] font-bold tracking-widest rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40">

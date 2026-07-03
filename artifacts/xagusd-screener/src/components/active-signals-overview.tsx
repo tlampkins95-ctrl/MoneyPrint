@@ -76,7 +76,7 @@ interface RowProps {
   symbol: string;
   timeframe: Timeframe;
   signal: "BUY" | "SELL";
-  signalType?: "FIB50_SWING" | "DOUBLE_TOP" | "DOUBLE_BOTTOM" | "BB_REJECTION" | "BB_WALK";
+  signalType?: "FIB50_SWING" | "DOUBLE_TOP" | "DOUBLE_BOTTOM" | "BB_REJECTION" | "BB_WALK" | "BB_BREAKOUT" | "PATTERN_BREAKOUT";
   signalReason: string;
   tradeState: LevelsDataTradeState;
   currentPrice: number;
@@ -229,6 +229,21 @@ function SignalRow(p: RowProps) {
         {p.signalType === "BB_REJECTION" && (
           <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold tracking-widest bg-sky-500/15 text-sky-300 border border-sky-500/30">
             ⊛ BB.REJ
+          </span>
+        )}
+        {p.signalType === "BB_BREAKOUT" && (
+          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold tracking-widest bg-violet-500/15 text-violet-300 border border-violet-500/30">
+            ⚡ BB.BRK
+          </span>
+        )}
+        {p.signalType === "BB_WALK" && (
+          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold tracking-widest bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
+            ↗ BB.WALK
+          </span>
+        )}
+        {p.signalType === "PATTERN_BREAKOUT" && (
+          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold tracking-widest bg-fuchsia-500/15 text-fuchsia-300 border border-fuchsia-500/30">
+            ⌖ PATTERN
           </span>
         )}
         {poorWinRate && btData && (
@@ -550,7 +565,7 @@ export function ActiveSignalsOverview({
                             symbol={s.symbol}
                             timeframe={s.timeframe as Timeframe}
                             signal={s.levels.signal as "BUY" | "SELL"}
-                            signalType={s.levels.signalType as "FIB50_SWING" | "DOUBLE_TOP" | "DOUBLE_BOTTOM" | "BB_REJECTION" | "BB_WALK" | undefined}
+                            signalType={s.levels.signalType as "FIB50_SWING" | "DOUBLE_TOP" | "DOUBLE_BOTTOM" | "BB_REJECTION" | "BB_WALK" | "BB_BREAKOUT" | "PATTERN_BREAKOUT" | undefined}
                             signalReason={s.levels.signalReason}
                             tradeState={s.levels.tradeState}
                             currentPrice={s.levels.currentPrice}

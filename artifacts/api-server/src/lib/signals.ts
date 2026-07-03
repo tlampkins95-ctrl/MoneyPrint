@@ -2433,7 +2433,6 @@ export function computeLevels(
   if (adxWarm && adx < 25 && (signal === "BUY" || signal === "SELL")) {
     signal = "WAIT";
     signalReason = `[${timeframe}] RANGING — ADX ${adx.toFixed(1)} below 25. No directional energy.`;
-    signalType = "FIB50_SWING";
   }
 
   // Default tradeState for a fresh (no active snapshot) result. WAIT signals
