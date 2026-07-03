@@ -359,9 +359,29 @@ export async function setSymbolLeverage(
 ): Promise<void> {
   const lev = leverage.toFixed(0);
   const hedgeMode = resolveHedgeMode();
-  // Phemex leverage endpoint uses query params (not body) — the HMAC signature
-  // is computed over the query string, so sending params as JSON body causes
-  // code 10500 signature verification failure.
+
+  // Step 1: switch to cross margin and set leverage in one call.
+  // Isolated margin blocks the regular /g-positions/leverage endpoint (code 39108),
+  // so we always switch to cross first. /g-positions/switch-isolated with
+  // isolated=false handles both margin-mode change + leverage in a single request.
+  // Phemex endpoint uses query params (not body) — body sends cause code 10500.
+  if (hedgeMode) {
+    const switchQuery: Record<string, string> = {
+      symbol: phemexSymbol,
+      isolated: "false",
+      longLeverageRq: lev,
+      shortLeverageRq: lev,
+    };
+    try {
+      await phemexRequest<unknown>("PUT", "/g-positions/switch-isolated", switchQuery);
+      logger.info({ phemexSymbol, leverage }, "phemex-trader: switched to cross + leverage set");
+      return;
+    } catch (switchErr) {
+      logger.warn({ err: switchErr, phemexSymbol, leverage }, "phemex-trader: switch-isolated failed, falling back to /g-positions/leverage");
+    }
+  }
+
+  // Step 2: fallback — direct leverage set (works for cross margin or one-way mode).
   const query: Record<string, string> = hedgeMode
     ? { symbol: phemexSymbol, longLeverageRq: lev, shortLeverageRq: lev }
     : { symbol: phemexSymbol, leverageRq: lev };
