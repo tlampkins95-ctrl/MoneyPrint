@@ -76,7 +76,7 @@ interface RowProps {
   symbol: string;
   timeframe: Timeframe;
   signal: "BUY" | "SELL";
-  signalType?: "FIB50_SWING" | "DOUBLE_TOP" | "DOUBLE_BOTTOM" | "BB_REJECTION";
+  signalType?: "FIB50_SWING" | "DOUBLE_TOP" | "DOUBLE_BOTTOM" | "BB_REJECTION" | "BB_WALK";
   signalReason: string;
   tradeState: LevelsDataTradeState;
   currentPrice: number;
@@ -550,7 +550,7 @@ export function ActiveSignalsOverview({
                             symbol={s.symbol}
                             timeframe={s.timeframe as Timeframe}
                             signal={s.levels.signal as "BUY" | "SELL"}
-                            signalType={s.levels.signalType as "FIB50_SWING" | "DOUBLE_TOP" | "DOUBLE_BOTTOM" | "BB_REJECTION" | undefined}
+                            signalType={s.levels.signalType as "FIB50_SWING" | "DOUBLE_TOP" | "DOUBLE_BOTTOM" | "BB_REJECTION" | "BB_WALK" | undefined}
                             signalReason={s.levels.signalReason}
                             tradeState={s.levels.tradeState}
                             currentPrice={s.levels.currentPrice}

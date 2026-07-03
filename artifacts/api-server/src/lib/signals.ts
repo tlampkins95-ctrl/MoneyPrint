@@ -1597,7 +1597,7 @@ export function computeLevels(
   const SWING_SL_BUFFER_ATR = 0.5;  // extra buffer below/above swing extreme for SL
 
   let signal: "BUY" | "SELL" | "WAIT" = "WAIT";
-  let signalType: "FIB50_SWING" | "DOUBLE_TOP" | "DOUBLE_BOTTOM" | "BB_REJECTION" | "PATTERN_BREAKOUT" = "FIB50_SWING";
+  let signalType: "FIB50_SWING" | "DOUBLE_TOP" | "DOUBLE_BOTTOM" | "BB_REJECTION" | "BB_WALK" | "PATTERN_BREAKOUT" = "FIB50_SWING";
   let signalReason = "";
   let patternResult: PatternResult | null = null;
   let entryPrice = currentPrice;
@@ -2091,6 +2091,88 @@ export function computeLevels(
     }
   }
 
+  // ── BB_WALK BUY: upper-band trend continuation in a confirmed bull market ─────
+  // Fires when price is riding (pressing) the upper Bollinger Band while both
+  // weekly AND daily MACD histograms are green. Unlike BB_REJECTION (which needs
+  // MACD fading = mean-reversion entry), BB_WALK treats upper-band walking as
+  // STRENGTH — price hugging the upper band is trend continuation in a macro
+  // uptrend, not exhaustion. Captures trending coins (DOGE, NEAR, HYPE, AERO
+  // etc.) that pump without pulling back to fib/lower-band levels.
+  //
+  // BUY only — no SELL equivalent. Crypto perps only (okxPerp/phemexPerp).
+  //
+  // Conditions (all required):
+  //   1. Weekly MACD histogram > 0 (macro bull market — same gate as BB_REJECTION SELL block)
+  //   2. higherTfAllowsBuy (daily MACD hist > 0, already computed above)
+  //   3. Price at or pressing upper BB30 (within 0.3×ATR below band)
+  //   4. Price > BB midline (structural strength — holding in upper half)
+  //   5. Last completed bar volume ≥ avg of prior 5 bars (expanding, not fading)
+  //
+  // Entry:  currentPrice (market-order momentum entry)
+  // TP1:    BB upper + 1.0×ATR (extension target above band)
+  // SL:     BB midline − 0.3×ATR (below mid = trend structure broken)
+  // TP2:    measured move (TP1 + reward distance), floored at MIN_RR_TP2
+  // Min R:R: 1.5 (tighter than other signals; momentum entries have less room)
+  if (signal === "WAIT" && higherTfAllowsBuy && macdWarm) {
+    // Only fire on crypto coins with a Phemex/OKX perp market.
+    // Metals (XAG, XAU) are mean-reverting — upper-band walking is exhaustion there.
+    const isCryptoPerp = Boolean(meta.okxPerp ?? meta.phemexPerp);
+    if (isCryptoPerp) {
+      const bbwCompleted = candles.slice(0, candles.length - 1);
+      const bb30w = calcBollingerBands(bbwCompleted.map((c) => c.close), 30, 2);
+      if (bb30w) {
+        // Gate 1: weekly MACD must be green (macro bull market confirmed).
+        let weeklyMacdBull = false;
+        {
+          const bbwWeeklyCandles =
+            timeframe === "1d" ? synthesizeWeeklyCandles(bbwCompleted) :
+            timeframe === "1w" ? bbwCompleted :
+            (dailyCandlesForWeekly ? synthesizeWeeklyCandles(dailyCandlesForWeekly) : []);
+          if (bbwWeeklyCandles.length >= 35) {
+            const wHist = calcMACDHist(bbwWeeklyCandles.map((c: { close: number }) => c.close));
+            const wLastHist = wHist[wHist.length - 2]; // last *completed* weekly bar
+            if (Number.isFinite(wLastHist) && wLastHist > 0) weeklyMacdBull = true;
+          }
+        }
+        if (weeklyMacdBull) {
+          // Gate 3: price at or pressing the upper band (within 0.3×ATR below).
+          const atUpperBand = currentPrice >= bb30w.upper - 0.3 * atr;
+          // Gate 4: price above BB midline (holding in upper half = structural strength).
+          const aboveMid = currentPrice > bb30w.middle;
+          // Gate 5: volume expanding — last completed bar ≥ avg volume of prior 5 bars.
+          const volPrior5   = bbwCompleted.slice(-6, -1);
+          const avgVol5     = volPrior5.length > 0
+            ? volPrior5.reduce((s, c) => s + c.volume, 0) / volPrior5.length
+            : 0;
+          const volExpanding = avgVol5 > 0 &&
+            bbwCompleted[bbwCompleted.length - 1].volume >= avgVol5;
+          if (atUpperBand && aboveMid && volExpanding) {
+            const ep  = round(currentPrice);
+            const tp1 = round(bb30w.upper + 1.0 * atr);
+            const sl  = round(bb30w.middle - 0.3 * atr);
+            if (tp1 > ep && ep > sl) {
+              const reward = tp1 - ep;
+              const risk   = ep - sl;
+              const rr     = reward / risk;
+              if (rr >= 1.5) {
+                const tp2 = round(floorTarget(ep, sl, tp1 + (tp1 - ep), MIN_RR_TP2, "BUY"));
+                signal      = "BUY";
+                signalType  = "BB_WALK";
+                entryPrice  = ep;
+                stopLoss    = sl;
+                takeProfit1 = tp1;
+                takeProfit2 = tp2;
+                dca1        = undefined;
+                patternResult = null;
+                signalReason = `[${tfLabel}] BB WALK BUY: Price ${fmt(ep)} riding upper BB30 ${fmt(bb30w.upper)}, weekly MACD green, volume expanding. TP1 ${fmt(tp1)} (BB upper + 1×ATR), SL ${fmt(sl)} (BB mid − 0.3×ATR), TP2 ${fmt(tp2)} (${rr.toFixed(1)}:1 R:R).`;
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
   // ── BB_OVEREXTENSION SELL: last completed candle closed above upper BB ────────
   // A coin that closes outside the Bollinger Band on elevated volume has almost
   // certainly overextended and will snap back toward the midline. Unlike the
@@ -2392,7 +2474,7 @@ type Levels = ReturnType<typeof computeLevels>;
 
 interface ActiveTrade {
   signal: "BUY" | "SELL";
-  signalType?: "FIB50_SWING" | "DOUBLE_TOP" | "DOUBLE_BOTTOM" | "BB_REJECTION" | "PATTERN_BREAKOUT";
+  signalType?: "FIB50_SWING" | "DOUBLE_TOP" | "DOUBLE_BOTTOM" | "BB_REJECTION" | "BB_WALK" | "PATTERN_BREAKOUT";
   signalReason: string;
   entryPrice: number;
   stopLoss: number;
@@ -2688,7 +2770,7 @@ async function syncFromDb(): Promise<void> {
       if (activeTrades.has(row.key)) continue; // local file wins for existing keys
       const v = row.data as Partial<ActiveTrade>;
       // Skip trades from previous strategies — they have wrong levels.
-      if (v.signalType !== "FIB50_SWING" && v.signalType !== "DOUBLE_TOP" && v.signalType !== "DOUBLE_BOTTOM" && v.signalType !== "BB_REJECTION" && v.signalType !== "PATTERN_BREAKOUT") continue;
+      if (v.signalType !== "FIB50_SWING" && v.signalType !== "DOUBLE_TOP" && v.signalType !== "DOUBLE_BOTTOM" && v.signalType !== "BB_REJECTION" && v.signalType !== "BB_WALK" && v.signalType !== "PATTERN_BREAKOUT") continue;
       activeTrades.set(row.key, {
         ...(v as ActiveTrade),
         signalType: v.signalType,
@@ -2729,7 +2811,7 @@ function loadActiveTradesFromDisk(): void {
     let didMigrate = false;
     for (const [k, v] of Object.entries(obj)) {
       // Skip trades from previous strategies — they have wrong levels.
-      if (v.signalType !== "FIB50_SWING" && v.signalType !== "DOUBLE_TOP" && v.signalType !== "DOUBLE_BOTTOM" && v.signalType !== "BB_REJECTION" && v.signalType !== "PATTERN_BREAKOUT") { didMigrate = true; continue; }
+      if (v.signalType !== "FIB50_SWING" && v.signalType !== "DOUBLE_TOP" && v.signalType !== "DOUBLE_BOTTOM" && v.signalType !== "BB_REJECTION" && v.signalType !== "BB_WALK" && v.signalType !== "PATTERN_BREAKOUT") { didMigrate = true; continue; }
       // Backward-compat for snapshots persisted before fill-tracking existed.
       // Default triggered=false; the next tick's candle scan since openedAt
       // will retroactively flip it to true if price actually did tag entry.

@@ -461,7 +461,9 @@ async function executePhemexTrade(
       }
       return;
     }
-    if (levels.signal === "BUY" && levels.takeProfit1 > candleRange.high) {
+    // BB_WALK is exempt: TP1 = BB upper + ATR intentionally projects above recent candle
+    // history (that's the whole point — buying into a breakout extension).
+    if (levels.signal === "BUY" && levels.takeProfit1 > candleRange.high && levels.signalType !== "BB_WALK") {
       logger.warn(
         { symbol, timeframe, tp1: levels.takeProfit1, candleHigh: candleRange.high },
         "phemex-trader: BUY TP1 above candle ceiling — unreachable target, skipping order",
@@ -475,10 +477,12 @@ async function executePhemexTrade(
 
   // If entry is >15% above EMA20 (BUY) or >15% below EMA20 (SELL), price is
   // overextended from the mean — we are chasing a move that is likely exhausted.
-  // Applies to ALL signal types: PATTERN_BREAKOUT, FIB50_SWING, etc.
+  // Applies to most signal types: PATTERN_BREAKOUT, FIB50_SWING, etc.
+  // BB_WALK is exempt: it intentionally enters when price is extended above EMA20
+  // (the whole point is to buy trend continuation at the upper BB).
   // If ema20 could not be computed (too few candles), skip the guard rather than
   // silently passing — treat it as a rejection to avoid blindly entering extended moves.
-  if (candleRange !== undefined) {
+  if (candleRange !== undefined && levels.signalType !== "BB_WALK") {
     if (candleRange.ema20 === undefined) {
       logger.warn(
         { symbol, timeframe, signal: levels.signal },
@@ -981,7 +985,7 @@ async function checkSymbol(
       // Filled trades bypass this: a fill notification is always actionable
       // regardless of what signal type originally opened the position.
       if (!isFilledTrade) {
-        const signalTypeAllowed = levels.signalType === "FIB50_SWING" || levels.signalType === "DOUBLE_TOP" || levels.signalType === "DOUBLE_BOTTOM" || levels.signalType === "BB_REJECTION";
+        const signalTypeAllowed = levels.signalType === "FIB50_SWING" || levels.signalType === "DOUBLE_TOP" || levels.signalType === "DOUBLE_BOTTOM" || levels.signalType === "BB_REJECTION" || levels.signalType === "BB_WALK";
         if (!signalTypeAllowed) {
           logger.info(
             { symbol, timeframe, signalType: levels.signalType },
@@ -1434,7 +1438,7 @@ async function checkTrendingSymbol(
       // what signal type originally opened the position.
       if (!isFilledTrade) {
         const isBbrSell = levels.signalType === "BB_REJECTION" && levels.signal === "SELL";
-        const trendingTypeAllowed = !isBbrSell && (levels.signalType === "FIB50_SWING" || levels.signalType === "DOUBLE_TOP" || levels.signalType === "DOUBLE_BOTTOM" || levels.signalType === "BB_REJECTION");
+        const trendingTypeAllowed = !isBbrSell && (levels.signalType === "FIB50_SWING" || levels.signalType === "DOUBLE_TOP" || levels.signalType === "DOUBLE_BOTTOM" || levels.signalType === "BB_REJECTION" || levels.signalType === "BB_WALK");
         if (!trendingTypeAllowed) {
           logger.info(
             { symbolKey, timeframe, signalType: levels.signalType, signal: levels.signal },

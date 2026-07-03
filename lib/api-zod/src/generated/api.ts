@@ -97,6 +97,7 @@ export const GetLevelsResponse = zod.object({
       "DOUBLE_TOP",
       "DOUBLE_BOTTOM",
       "BB_REJECTION",
+      "BB_WALK",
       "PATTERN_BREAKOUT",
     ])
     .describe(
@@ -620,6 +621,7 @@ export const GetActiveSignalsResponse = zod.object({
                 "DOUBLE_TOP",
                 "DOUBLE_BOTTOM",
                 "BB_REJECTION",
+                "BB_WALK",
                 "PATTERN_BREAKOUT",
               ])
               .describe(
@@ -1183,6 +1185,7 @@ export const GetTradeHistoryResponse = zod.object({
         "DOUBLE_TOP",
         "DOUBLE_BOTTOM",
         "BB_REJECTION",
+        "BB_WALK",
         "PATTERN_BREAKOUT",
       ]),
       entryPrice: zod.number(),
@@ -1259,6 +1262,7 @@ export const GetSignalLogResponse = zod.object({
         "DOUBLE_TOP",
         "DOUBLE_BOTTOM",
         "BB_REJECTION",
+        "BB_WALK",
         "PATTERN_BREAKOUT",
       ]),
       entryPrice: zod.number(),
