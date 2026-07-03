@@ -641,44 +641,18 @@ async function executePhemexTrade(
     return;
   }
   if (existingOrderId !== null) {
-    const prevEntry   = openPhemexOrders.get(k);
-    // Carry forward placedAt from the first time we saw this order so the
-    // age clock starts from placement, not from each restart.
-    const placedAt    = prevEntry?.placedAt ?? Date.now();
-    const ageMs       = Date.now() - placedAt;
-    const staleMs     = TF_STALE_MS[timeframe] ?? TF_STALE_MS["1h"]!;
-
-    // If the entry limit is still unfilled AND has been sitting for more than
-    // 2 candle periods, cancel it and fall through so the next poll places a
-    // fresh order at the current signal entry price.
-    // The presence of existingOrderId (from checkExistingOrder activeList) is
-    // the reliable "entry still unfilled" signal — tp1OrderId is NOT a valid
-    // guard because TPs are placed immediately after the entry limit, before fill.
-    if (ageMs > staleMs) {
-      logger.info(
-        { symbol, timeframe, phemexSymbol, orderId: existingOrderId, ageMs, staleMs },
-        "phemex-trader: stale unfilled limit cancelled — will re-enter on next poll",
-      );
-      // Cancel only the stale entry limit. TP1/TP2 reduce-only orders are
-      // intentionally left untouched — they will be cleaned up by the WAIT
-      // transition cancel path or replaced when the fresh entry fills.
-      // If entry cancellation fails, abort re-entry to avoid duplicate live orders.
-      try {
-        await cancelOrder(phemexSymbol, existingOrderId, posSideForCheck);
-      } catch (cancelErr) {
-        logger.warn({ cancelErr, phemexSymbol, orderId: existingOrderId }, "phemex-trader: stale entry cancel failed — skipping re-entry to avoid duplicate orders");
-        return;
-      }
-      openPhemexOrders.delete(k);
-      // Fall through to fresh order placement below.
-    } else {
-      logger.info(
-        { symbol, timeframe, phemexSymbol, side, existingOrderId, ageMs },
-        "phemex-trader: pending order already exists on Phemex — registering in tracker, skipping new order",
-      );
-      openPhemexOrders.set(k, { ...(prevEntry ?? {}), orderId: existingOrderId, phemexSymbol, posSide: posSideForCheck, placedAt });
-      return;
-    }
+    // Carry forward placedAt from the first time we saw this order so per-poll
+    // stale checks (in checkSymbol/checkTrendingSymbol) use the original
+    // placement time, not Date.now() on each restart. Stale-cancel is handled
+    // per-poll, not here, to avoid only running on catch-up triggers.
+    const prevEntry = openPhemexOrders.get(k);
+    const placedAt  = prevEntry?.placedAt ?? Date.now();
+    logger.info(
+      { symbol, timeframe, phemexSymbol, side, existingOrderId, ageMs: Date.now() - placedAt },
+      "phemex-trader: pending order already exists on Phemex — registering in tracker, skipping new order",
+    );
+    openPhemexOrders.set(k, { ...(prevEntry ?? {}), orderId: existingOrderId, phemexSymbol, posSide: posSideForCheck, placedAt });
+    return;
   }
 
   // For Market IOC SELL (entry < minPriceRp), the fill happens at current BID,
@@ -1289,6 +1263,38 @@ async function checkSymbol(
       }
     }
 
+    // Per-poll stale entry-limit check: runs every tick while an order is tracked,
+    // unlike the executePhemexTrade path which only runs on transitions/catch-up.
+    // If a real entry limit has been sitting unfilled for > 2× the candle period,
+    // cancel it so the catch-up block below can place a fresh order this same poll.
+    if (isPhemexTradingEnabled() && phemexAutoTraderEnabled) {
+      const staleCand = openPhemexOrders.get(k);
+      if (
+        staleCand?.placedAt != null &&
+        (levels.signal === "BUY" || levels.signal === "SELL")
+      ) {
+        const ageMs   = Date.now() - staleCand.placedAt;
+        const staleMs = TF_STALE_MS[timeframe] ?? TF_STALE_MS["1h"]!;
+        if (ageMs > staleMs) {
+          const stalePosSide = levels.signal === "BUY" ? "Long" : "Short";
+          try {
+            // Confirm order is still live before cancelling.
+            const liveOrderId = await checkExistingOrder(staleCand.phemexSymbol, stalePosSide);
+            if (liveOrderId !== null) {
+              logger.info(
+                { symbol, timeframe, phemexSymbol: staleCand.phemexSymbol, orderId: liveOrderId, ageMs, staleMs },
+                "phemex-trader: stale unfilled limit cancelled — placing fresh order",
+              );
+              await cancelOrder(staleCand.phemexSymbol, liveOrderId, stalePosSide);
+              openPhemexOrders.delete(k);
+            }
+          } catch (staleErr) {
+            logger.warn({ staleErr, symbol, timeframe }, "phemex-trader: stale-limit check failed — keeping existing tracker");
+          }
+        }
+      }
+    }
+
     // Catch-up auto-trade: if the auto-trader is on, signal is active, and no
     // Phemex order is currently tracked for this slot, place one now.
     // This handles the case where the trader was enabled (or the server restarted)
@@ -1704,6 +1710,34 @@ async function checkTrendingSymbol(
         openPhemexOrders.delete(k);
       }
     }
+    // Per-poll stale entry-limit check for trending coins — mirrors checkSymbol.
+    if (isPhemexTradingEnabled() && phemexAutoTraderEnabled) {
+      const staleCandT = openPhemexOrders.get(k);
+      if (
+        staleCandT?.placedAt != null &&
+        (levels.signal === "BUY" || levels.signal === "SELL")
+      ) {
+        const ageMsT   = Date.now() - staleCandT.placedAt;
+        const staleMsT = TF_STALE_MS[timeframe] ?? TF_STALE_MS["1h"]!;
+        if (ageMsT > staleMsT) {
+          const stalePosSideT = levels.signal === "BUY" ? "Long" : "Short";
+          try {
+            const liveOrderIdT = await checkExistingOrder(staleCandT.phemexSymbol, stalePosSideT);
+            if (liveOrderIdT !== null) {
+              logger.info(
+                { symbolKey, timeframe, phemexSymbol: staleCandT.phemexSymbol, orderId: liveOrderIdT, ageMs: ageMsT, staleMs: staleMsT },
+                "phemex-trader: trending stale unfilled limit cancelled — placing fresh order",
+              );
+              await cancelOrder(staleCandT.phemexSymbol, liveOrderIdT, stalePosSideT);
+              openPhemexOrders.delete(k);
+            }
+          } catch (staleErrT) {
+            logger.warn({ staleErrT, symbolKey, timeframe }, "phemex-trader: trending stale-limit check failed — keeping existing tracker");
+          }
+        }
+      }
+    }
+
     // DOUBLE_TOP, DOUBLE_BOTTOM, and PATTERN_BREAKOUT are excluded from fresh
     // catch-up re-entry: their entries are pinned to a specific price level at
     // signal time. If price has already moved away (e.g. TAO shorted at the
