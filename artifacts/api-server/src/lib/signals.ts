@@ -2113,21 +2113,23 @@ export function computeLevels(
   // SL:     BB midline − 0.3×ATR (below mid = trend structure broken)
   // TP2:    measured move (TP1 + reward distance), floored at MIN_RR_TP2
   // Min R:R: 1.5 (tighter than other signals; momentum entries have less room)
-  if (signal === "WAIT" && higherTfAllowsBuy && macdWarm) {
-    // Only fire on crypto coins with a Phemex/OKX perp market.
-    // Metals (XAG, XAU) are mean-reverting — upper-band walking is exhaustion there.
-    const isCryptoPerp = Boolean(meta.okxPerp ?? meta.phemexPerp);
-    if (isCryptoPerp) {
+  // BB_WALK is scoped to 1h only: the spec conditions reference "last completed 1h candle"
+  // and the signal targets trending coins on the 1h cycle. Daily/weekly runs are higher-TF
+  // trend checks already served by higherTfAllowsBuy; no value in a daily BB_WALK entry.
+  if (signal === "WAIT" && timeframe === "1h" && higherTfAllowsBuy && macdWarm) {
+    // Explicit crypto-only gate: metals (hasFuturesBasis) walk the upper band as exhaustion,
+    // not trend continuation. okxPerp/phemexPerp guards also screen out forex pairs.
+    const isCryptoPerpNonMetal = !meta.hasFuturesBasis && Boolean(meta.okxPerp ?? meta.phemexPerp);
+    if (isCryptoPerpNonMetal) {
       const bbwCompleted = candles.slice(0, candles.length - 1);
       const bb30w = calcBollingerBands(bbwCompleted.map((c) => c.close), 30, 2);
       if (bb30w) {
         // Gate 1: weekly MACD must be green (macro bull market confirmed).
+        // For 1h timeframe: synthesize weekly candles from dailyCandlesForWeekly.
         let weeklyMacdBull = false;
         {
           const bbwWeeklyCandles =
-            timeframe === "1d" ? synthesizeWeeklyCandles(bbwCompleted) :
-            timeframe === "1w" ? bbwCompleted :
-            (dailyCandlesForWeekly ? synthesizeWeeklyCandles(dailyCandlesForWeekly) : []);
+            dailyCandlesForWeekly ? synthesizeWeeklyCandles(dailyCandlesForWeekly) : [];
           if (bbwWeeklyCandles.length >= 35) {
             const wHist = calcMACDHist(bbwWeeklyCandles.map((c: { close: number }) => c.close));
             const wLastHist = wHist[wHist.length - 2]; // last *completed* weekly bar
@@ -2137,8 +2139,11 @@ export function computeLevels(
         if (weeklyMacdBull) {
           // Gate 3: price at or pressing the upper band (within 0.3×ATR below).
           const atUpperBand = currentPrice >= bb30w.upper - 0.3 * atr;
-          // Gate 4: price above BB midline (holding in upper half = structural strength).
-          const aboveMid = currentPrice > bb30w.middle;
+          // Gate 4: last COMPLETED 1h candle closed above the BB midline.
+          // Using the completed candle close (not live currentPrice) prevents
+          // intrabar spikes from triggering the signal prematurely.
+          const lastCompletedClose = bbwCompleted[bbwCompleted.length - 1].close;
+          const aboveMid = lastCompletedClose > bb30w.middle;
           // Gate 5: volume expanding — last completed bar ≥ avg volume of prior 5 bars.
           const volPrior5   = bbwCompleted.slice(-6, -1);
           const avgVol5     = volPrior5.length > 0
