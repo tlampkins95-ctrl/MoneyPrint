@@ -6,7 +6,7 @@ import {
   fetchCandlesForTimeframe,
   type Timeframe,
 } from "./yahoo-fetch";
-import { computeLevelsStable, fetchSpotPrice, getActiveTrade, markTradeTriggered, applyFuturesBasis, registerOnTradeClosedCallback, calcMACDHist, computePositionSizing, DEFAULT_ACCOUNT_SIZE, DEFAULT_RISK_PCT, DEFAULT_MIN_COLLATERAL, DEFAULT_MAX_LEVERAGE, DEFAULT_MT5_LOTS, type ClosedOutcome } from "./signals";
+import { computeLevelsStable, fetchSpotPrice, getActiveTrade, clearActiveTrade, markTradeTriggered, applyFuturesBasis, registerOnTradeClosedCallback, calcMACDHist, computePositionSizing, DEFAULT_ACCOUNT_SIZE, DEFAULT_RISK_PCT, DEFAULT_MIN_COLLATERAL, DEFAULT_MAX_LEVERAGE, DEFAULT_MT5_LOTS, type ClosedOutcome } from "./signals";
 import {
   buildAlertContext,
   sendTelegramAlert,
@@ -305,6 +305,24 @@ async function executePhemexTrade(
     logger.warn({ symbol, timeframe }, "phemex-trader: order already in-flight for slot — skipping duplicate");
     return;
   }
+
+  // Per-signal-type auto-trade gate. Set PHEMEX_AUTOTRADER_SIGNAL_TYPES to a
+  // comma-separated list of signal types allowed to place real orders
+  // (e.g. "FIB50_SWING,DUMP_RECOVERY"). Unset or empty = all types trade.
+  // Alerts still fire for gated types — only Phemex order placement is suppressed.
+  // Use this to validate a new signal type in alert-only mode before going live.
+  const allowedSignalTypes = process.env.PHEMEX_AUTOTRADER_SIGNAL_TYPES;
+  if (allowedSignalTypes && allowedSignalTypes.trim()) {
+    const allowed = allowedSignalTypes.split(",").map(s => s.trim()).filter(Boolean);
+    if (levels.signalType && !allowed.includes(levels.signalType)) {
+      logger.info(
+        { symbol, timeframe, signalType: levels.signalType, allowedSignalTypes },
+        "phemex-trader: auto-trade skipped — signal type not in PHEMEX_AUTOTRADER_SIGNAL_TYPES allowlist",
+      );
+      return;
+    }
+  }
+
   inFlightOrderSlots.add(k);
 
   try {
@@ -609,14 +627,30 @@ async function executePhemexTrade(
   if (isCatchUp && levels.tradeState === "FILLED_PROFIT") {
     const existingActiveTrade = getActiveTrade(symbol, timeframe);
     if (existingActiveTrade) {
-      logger.warn(
-        { symbol, timeframe, phemexSymbol, signal: levels.signal },
-        "phemex-trader: catch-up skipped — DB record exists but no Phemex position (externally closed or stale)",
-      );
-      if (!openPhemexOrders.has(k)) {
-        openPhemexOrders.set(k, { orderId: `externally-closed-${Date.now()}`, phemexSymbol, posSide: posSideForCheck });
+      // If the stored record is older than 3 candle periods for this timeframe the
+      // trade closed long ago and the current signal is an entirely new setup.
+      // Clear the stale record and fall through to place a fresh order.
+      // If the record is recent (< 3 candles old), treat as a genuine externally-
+      // closed position (user manually closed mid-trade) and suppress re-entry.
+      const recordAgeMs = Date.now() - (existingActiveTrade.openedAt ?? 0);
+      const isStaleRecord = recordAgeMs > 3 * CANDLE_PERIOD_MS[timeframe];
+      if (isStaleRecord) {
+        logger.info(
+          { symbol, timeframe, recordAgeDays: (recordAgeMs / 86_400_000).toFixed(1), openedAt: existingActiveTrade.openedAt },
+          "phemex-trader: stale FILLED_PROFIT record cleared — trade closed long ago, allowing fresh re-entry",
+        );
+        clearActiveTrade(symbol, timeframe);
+        // Fall through — order placement proceeds as a fresh entry.
+      } else {
+        logger.warn(
+          { symbol, timeframe, phemexSymbol, signal: levels.signal },
+          "phemex-trader: catch-up skipped — DB record exists but no Phemex position (externally closed or stale)",
+        );
+        if (!openPhemexOrders.has(k)) {
+          openPhemexOrders.set(k, { orderId: `externally-closed-${Date.now()}`, phemexSymbol, posSide: posSideForCheck });
+        }
+        return;
       }
-      return;
     }
   }
 
@@ -1965,6 +1999,10 @@ async function detectOrphanedPositions(): Promise<void> {
   if (!isPhemexTradingEnabled()) return;
   try {
     const { getTrendingSymbols } = await import("./trending-discovery");
+    // Ensure hedge mode is detected before any cancel/place calls.
+    // resolveHedgeMode() reads from a cached value set by getUSDTBalance().
+    // Without this, all order operations omit posSide → Phemex 10500/39999.
+    await getUSDTBalance();
     const positions = await getAllOpenPhemexPositions();
     if (!positions.length) return;
 
