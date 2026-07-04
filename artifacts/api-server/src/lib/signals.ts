@@ -2115,11 +2115,15 @@ export function computeLevels(
         if (range < MIN_SWING_ATR * atr) continue; // not a significant dump
         // Price must be consolidating near the low — within 1 ATR, not yet recovering.
         if (currentPrice > swingLow.price + atr) break; // too far above low; stop scanning
+        if (currentPrice < swingLow.price - 0.2 * atr) continue; // gapped far below — falling knife
         const ep  = round(currentPrice);
         const tp1 = round((swingHighPoint.price + swingLow.price) / 2); // 50% fib midpoint
         if (tp1 <= ep) continue; // TP1 must be above entry
         const tp2Raw = swingHighPoint.price - 0.214 * range;             // 78.6% fib
-        const sl  = round(ep - (tp1 - ep) / 2);                          // 2:1 R:R
+        const slFormula = ep - (tp1 - ep) / 2;                           // 2:1 R:R
+        // 1d candles have 3-4× ATR intraday wicks; enforce a 1.5 ATR minimum so a
+        // normal daily swing doesn't clip the SL before the recovery begins.
+        const sl  = round(timeframe === "1d" ? Math.min(slFormula, ep - 1.5 * atr) : slFormula);
         if (sl >= ep) continue;
         const tp2 = round(floorTarget(ep, sl, tp2Raw, MIN_RR_TP2, "BUY"));
         signal      = "BUY";
@@ -2150,11 +2154,14 @@ export function computeLevels(
         if (range < MIN_SWING_ATR * atr) continue; // not a significant pump
         // Price must be consolidating near the high — within 1 ATR, not yet retracing.
         if (currentPrice < swingHigh.price - atr) break; // too far below high; stop scanning
+        if (currentPrice > swingHigh.price + 0.2 * atr) continue; // gapped far above — parabolic, not a fade
         const ep  = round(currentPrice);
         const tp1 = round((swingHigh.price + swingLowPoint.price) / 2); // 50% fib midpoint
         if (tp1 >= ep) continue; // TP1 must be below entry
         const tp2Raw = swingLowPoint.price + 0.214 * range;              // 78.6% fib from top
-        const sl  = round(ep + (ep - tp1) / 2);                          // 2:1 R:R
+        const slFormula = ep + (ep - tp1) / 2;                           // 2:1 R:R
+        // 1d candles have 3-4× ATR intraday wicks; enforce a 1.5 ATR minimum buffer.
+        const sl  = round(timeframe === "1d" ? Math.max(slFormula, ep + 1.5 * atr) : slFormula);
         if (sl <= ep) continue;
         const tp2 = round(floorTarget(ep, sl, tp2Raw, MIN_RR_TP2, "SELL"));
         signal      = "SELL";
@@ -2409,115 +2416,6 @@ export function computeLevels(
             signalReason = `[${tfLabel}] BB BREAKOUT SELL: Price ${fmt(ep)} below lower BB30 ${fmt(bbkBands.lower)} (%B ${pctBk.toFixed(2)}), MACD negative+falling — 2-bar band walk confirmed. SL ${fmt(sl)} (above band), TP1 ${fmt(tp1)}, TP2 ${fmt(tp2)}.`;
           }
         }
-      }
-    }
-  }
-
-  // ── DUMP_RECOVERY: bottom/top consolidation reversal ────────────────────────
-  // Detects sharp unexplained moves where price consolidates at the extreme and
-  // MACD is turning in the reversal direction. Fires on 1h, 4h, and 1d.
-  //
-  // DUMP RECOVERY (BUY): significant swingHigh → swingLow (≥ 2.5 ATR) → price
-  //   consolidating within 1 ATR of the swingLow → MACD histogram rising.
-  //   Entry: currentPrice, TP1: 50% fib midpoint, TP2: 78.6% fib, SL: 2:1 R:R.
-  //
-  // PUMP FADE (SELL): significant swingLow → swingHigh (≥ 2.5 ATR) → price
-  //   consolidating within 1 ATR of the swingHigh → MACD histogram falling.
-  //   Entry: currentPrice, TP1: 50% fib midpoint, TP2: 21.4% fib, SL: 2:1 R:R.
-  //
-  // Unlike FIB50_SWING (which enters AT the 50% fib), DUMP_RECOVERY enters at
-  // the extreme (near the dump low or pump high) and TARGETS the 50% fib.
-  if (signal === "WAIT" && (timeframe === "1h" || timeframe === "4h" || timeframe === "1d")) {
-    const drCompleted  = candles.slice(0, candles.length - 1);
-    const drAtr        = calcATR(drCompleted, 14);
-    const drSwingAtr   = drAtr > 0 ? drAtr : atr;
-    const DR_LOOKBACK      = SWING_LOOKBACK_BY_TF[timeframe] ?? 40;
-    const DR_MIN_SWING_ATR = MIN_SWING_ATR;  // reuse the 2.5 ATR gate
-    const DR_CONSOL_ATR    = 1.0;            // price must be within 1 ATR of the extreme
-
-    // ── BUY: dump recovery ─────────────────────────────────────────────────
-    // Find a significant downswing (swingHigh → swingLow) and check that price
-    // is still consolidating near the swingLow with MACD turning bullish.
-    if (macdBuyOk && higherTfAllowsBuy) {
-      const drHighs = findSwingHighs(drCompleted, 3, DR_LOOKBACK);
-      const drLows  = findSwingLows(drCompleted,  3, DR_LOOKBACK);
-      drBuySearch: for (let j = drHighs.length - 1; j >= 0; j--) {
-        const { price: dumpHigh, idx: dumpHighIdx } = drHighs[j];
-        // Most-recent structural swing LOW after the dump high (the destination of the dump)
-        const validDumpLows = drLows.filter(s => s.idx > dumpHighIdx && s.idx <= drCompleted.length - 4);
-        if (validDumpLows.length === 0) continue;
-        const { price: dumpLow } = validDumpLows[validDumpLows.length - 1];
-        const dumpRange = dumpHigh - dumpLow;
-        // Gate 1: dump must be a significant move
-        if (dumpRange < DR_MIN_SWING_ATR * drSwingAtr) continue;
-        // Gate 2: price is consolidating within 1 ATR above the dump low
-        // (allow a small wick tolerance of 0.2 ATR below the exact swing low)
-        if (currentPrice > dumpLow + DR_CONSOL_ATR * drSwingAtr) continue;
-        if (currentPrice < dumpLow - 0.2 * drSwingAtr) continue;
-        // Valid setup found — compute levels
-        const ep  = round(currentPrice);
-        const tp1 = round(dumpLow + 0.5 * dumpRange);   // 50% fib midpoint
-        const tp2Raw = dumpLow + 0.786 * dumpRange;       // 78.6% fib
-        if (tp1 <= ep) continue drBuySearch; // TP1 must be above entry
-        const slFormula = ep - 0.5 * (tp1 - ep);  // 2:1 R:R
-        const sl  = round(timeframe === "1d"
-          ? Math.min(slFormula, ep - 1.5 * drSwingAtr)
-          : slFormula);
-        if (sl >= ep) continue drBuySearch; // sanity
-        const tp2 = round(floorTarget(ep, sl, tp2Raw, MIN_RR_TP2, "BUY"));
-        signal      = "BUY";
-        signalType  = "DUMP_RECOVERY";
-        entryPrice  = ep;
-        stopLoss    = sl;
-        takeProfit1 = tp1;
-        takeProfit2 = tp2;
-        dca1        = undefined;
-        patternResult = null;
-        signalReason = `[${tfLabel}] DUMP RECOVERY BUY: Dump ${fmt(dumpHigh)} → ${fmt(dumpLow)} (range ${fmt(dumpRange)}, ${(dumpRange / drSwingAtr).toFixed(1)}×ATR). Price consolidating at ${fmt(ep)}, MACD turning green. TP1 ${fmt(tp1)} (50% fib), TP2 ${fmt(tp2)} (78.6% fib), SL ${fmt(sl)} (2:1 R:R).`;
-        break drBuySearch;
-      }
-    }
-
-    // ── SELL: pump fade ─────────────────────────────────────────────────────
-    // Find a significant upswing (swingLow → swingHigh) and check that price
-    // is still consolidating near the swingHigh with MACD turning bearish.
-    if (signal === "WAIT" && !isLongOnly && macdSellOk && higherTfAllowsSell) {
-      const drLows2  = findSwingLows(drCompleted,  3, DR_LOOKBACK);
-      const drHighs2 = findSwingHighs(drCompleted, 3, DR_LOOKBACK);
-      drSellSearch: for (let j = drLows2.length - 1; j >= 0; j--) {
-        const { price: pumpLow, idx: pumpLowIdx } = drLows2[j];
-        // Most-recent structural swing HIGH after the pump low (the top of the pump)
-        const validPumpHighs = drHighs2.filter(s => s.idx > pumpLowIdx && s.idx <= drCompleted.length - 4);
-        if (validPumpHighs.length === 0) continue;
-        const { price: pumpHigh } = validPumpHighs[validPumpHighs.length - 1];
-        const pumpRange = pumpHigh - pumpLow;
-        // Gate 1: pump must be a significant move
-        if (pumpRange < DR_MIN_SWING_ATR * drSwingAtr) continue;
-        // Gate 2: price is consolidating within 1 ATR below the pump high
-        // (allow a small wick tolerance of 0.2 ATR above the exact swing high)
-        if (currentPrice < pumpHigh - DR_CONSOL_ATR * drSwingAtr) continue;
-        if (currentPrice > pumpHigh + 0.2 * drSwingAtr) continue;
-        // Valid setup found — compute levels
-        const ep  = round(currentPrice);
-        const tp1 = round(pumpLow + 0.5 * pumpRange);   // 50% fib midpoint
-        const tp2Raw = pumpLow + 0.214 * pumpRange;       // 21.4% (78.6% from top)
-        if (tp1 >= ep) continue drSellSearch; // TP1 must be below entry
-        const slFormula = ep + 0.5 * (ep - tp1);  // 2:1 R:R
-        const sl  = round(timeframe === "1d"
-          ? Math.max(slFormula, ep + 1.5 * drSwingAtr)
-          : slFormula);
-        if (sl <= ep) continue drSellSearch; // sanity
-        const tp2 = round(floorTarget(ep, sl, tp2Raw, MIN_RR_TP2, "SELL"));
-        signal      = "SELL";
-        signalType  = "DUMP_RECOVERY";
-        entryPrice  = ep;
-        stopLoss    = sl;
-        takeProfit1 = tp1;
-        takeProfit2 = tp2;
-        dca1        = undefined;
-        patternResult = null;
-        signalReason = `[${tfLabel}] PUMP FADE SELL: Pump ${fmt(pumpLow)} → ${fmt(pumpHigh)} (range ${fmt(pumpRange)}, ${(pumpRange / drSwingAtr).toFixed(1)}×ATR). Price consolidating at ${fmt(ep)}, MACD turning red. TP1 ${fmt(tp1)} (50% fib), TP2 ${fmt(tp2)} (21.4% fib), SL ${fmt(sl)} (2:1 R:R).`;
-        break drSellSearch;
       }
     }
   }
@@ -3527,7 +3425,11 @@ export function computeLevelsStable(
     // (created before this fix), force it triggered now rather than waiting for
     // a candle wick that may never arrive or arriving in the wrong direction.
     // FIB50_SWING is always a limit entry — price must reach the 50% fib level.
-    const isMarketEntryTrade = false;
+    const isMarketEntryTrade = (
+      preTriggerCheck.signalType === "BB_WALK" ||
+      preTriggerCheck.signalType === "BB_BREAKOUT" ||
+      preTriggerCheck.signalType === "DUMP_RECOVERY"
+    );
     if (isMarketEntryTrade) {
       preTriggerCheck.triggered = true;
       persistActiveTrades();
