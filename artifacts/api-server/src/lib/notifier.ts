@@ -634,10 +634,20 @@ async function executePhemexTrade(
       // closed position (user manually closed mid-trade) and suppress re-entry.
       const recordAgeMs = Date.now() - (existingActiveTrade.openedAt ?? 0);
       const isStaleRecord = recordAgeMs > 3 * CANDLE_PERIOD_MS[timeframe];
-      if (isStaleRecord) {
+
+      // Also treat as a new setup if the signal's entry price has moved more
+      // than 2% from the stored record. A coin up 10% on the day forms a new
+      // BB_BREAKOUT at a completely different price — blocking it because the
+      // previous attempt was 36 minutes ago is wrong.
+      const storedEntry  = existingActiveTrade.entryPrice ?? 0;
+      const currentEntry = levels.entryPrice ?? 0;
+      const entryMovedPct = storedEntry > 0 ? Math.abs(currentEntry - storedEntry) / storedEntry : 0;
+      const isNewSetup = entryMovedPct > 0.02; // >2% price move = new setup
+
+      if (isStaleRecord || isNewSetup) {
         logger.info(
-          { symbol, timeframe, recordAgeDays: (recordAgeMs / 86_400_000).toFixed(1), openedAt: existingActiveTrade.openedAt },
-          "phemex-trader: stale FILLED_PROFIT record cleared — trade closed long ago, allowing fresh re-entry",
+          { symbol, timeframe, recordAgeDays: (recordAgeMs / 86_400_000).toFixed(1), openedAt: existingActiveTrade.openedAt, entryMovedPct: entryMovedPct.toFixed(3) },
+          "phemex-trader: FILLED_PROFIT record cleared — stale or new price level, allowing fresh re-entry",
         );
         clearActiveTrade(symbol, timeframe);
         // Fall through — order placement proceeds as a fresh entry.
