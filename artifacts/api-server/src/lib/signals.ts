@@ -1442,23 +1442,30 @@ export function computeLevels(
   // ── Higher-TF MACD direction gates ────────────────────────────────────────
   // Strategy: BB + MACD only. No EMAs.
   //
-  // SELL gate: daily MACD histogram must be FALLING (curling down) for 1h signals.
+  // SELL gate: daily MACD histogram must be FALLING (curling down) for 1h AND 4h signals.
   //            weekly MACD histogram must be FALLING for 1d signals.
   //            "Falling" = last completed bar's histogram < previous completed bar's.
   //
-  // BUY gate:  daily MACD histogram must be RISING (curling up) for 1h signals.
+  // BUY gate:  daily MACD histogram must be RISING (curling up) for 1h AND 4h signals.
   //            weekly MACD histogram must be RISING for 1d signals.
   //            "Rising" = last completed bar's histogram > previous completed bar's.
   //
   // Falls back to allow (true) when history is too short for MACD to warm.
-  let higherTfAllowsSell = true;
-  if (timeframe === "1h" && dailyCandlesForWeekly && dailyCandlesForWeekly.length >= 35) {
+  const _checkDailyMacd = (): { lastHist: number; prevHist: number } | null => {
+    if (!dailyCandlesForWeekly || dailyCandlesForWeekly.length < 35) return null;
     const dCloses   = dailyCandlesForWeekly.map((c) => c.close);
     const dHist     = calcMACDHist(dCloses);
     const dLastHist = dHist[dHist.length - 2]; // last completed daily bar
     const dPrevHist = dHist[dHist.length - 3]; // bar before that
-    if (Number.isFinite(dLastHist) && Number.isFinite(dPrevHist) && dLastHist >= dPrevHist) {
-      higherTfAllowsSell = false; // daily MACD not curling down — no 1h shorts
+    if (!Number.isFinite(dLastHist) || !Number.isFinite(dPrevHist)) return null;
+    return { lastHist: dLastHist, prevHist: dPrevHist };
+  };
+
+  let higherTfAllowsSell = true;
+  if ((timeframe === "1h" || timeframe === "4h") && dailyCandlesForWeekly && dailyCandlesForWeekly.length >= 35) {
+    const d = _checkDailyMacd();
+    if (d && d.lastHist >= d.prevHist) {
+      higherTfAllowsSell = false; // daily MACD not curling down — no 1h/4h shorts
     }
   } else if (timeframe === "1d" && weeklyCandlesForDaily && weeklyCandlesForDaily.length >= 35) {
     const wCloses   = weeklyCandlesForDaily.map((c) => c.close);
@@ -1471,13 +1478,10 @@ export function computeLevels(
   }
 
   let higherTfAllowsBuy = true;
-  if (timeframe === "1h" && dailyCandlesForWeekly && dailyCandlesForWeekly.length >= 35) {
-    const dCloses   = dailyCandlesForWeekly.map((c) => c.close);
-    const dHist     = calcMACDHist(dCloses);
-    const dLastHist = dHist[dHist.length - 2]; // last completed daily bar
-    const dPrevHist = dHist[dHist.length - 3]; // bar before that
-    if (Number.isFinite(dLastHist) && Number.isFinite(dPrevHist) && dLastHist <= dPrevHist) {
-      higherTfAllowsBuy = false; // daily MACD not curling up — no 1h longs
+  if ((timeframe === "1h" || timeframe === "4h") && dailyCandlesForWeekly && dailyCandlesForWeekly.length >= 35) {
+    const d = _checkDailyMacd();
+    if (d && d.lastHist <= d.prevHist) {
+      higherTfAllowsBuy = false; // daily MACD not curling up — no 1h/4h longs
     }
   } else if (timeframe === "1d" && weeklyCandlesForDaily && weeklyCandlesForDaily.length >= 35) {
     const wCloses   = weeklyCandlesForDaily.map((c) => c.close);
@@ -1486,6 +1490,31 @@ export function computeLevels(
     const wPrevHist = wHist[wHist.length - 3];
     if (Number.isFinite(wLastHist) && Number.isFinite(wPrevHist) && wLastHist <= wPrevHist) {
       higherTfAllowsBuy = false; // weekly MACD not curling up — no 1d longs
+    }
+  }
+
+  // ── BB Bandwidth contraction gate for SELL signals ────────────────────────
+  // User rule: "Don't short trending coins when the market is pumping."
+  // Bandwidth = (upper - lower) / middle. When bandwidth is STILL EXPANDING
+  // (bw1 > bw2 > bw3), the pump has momentum — a short here fights the trend.
+  // Only allow SELL signals when bandwidth is contracting or flat.
+  // Falls open (true) when BB isn't warm enough.
+  let bwContractingForSell = true;
+  {
+    const bwCompleted = candles.slice(0, candles.length - 1);
+    if (bwCompleted.length >= 33) {
+      const bwB1 = calcBollingerBands(bwCompleted.map((c) => c.close), 30, 2);
+      const bwB2 = calcBollingerBands(bwCompleted.slice(0, -1).map((c) => c.close), 30, 2);
+      const bwB3 = calcBollingerBands(bwCompleted.slice(0, -2).map((c) => c.close), 30, 2);
+      if (bwB1 && bwB2 && bwB3 && bwB1.middle > 0 && bwB2.middle > 0 && bwB3.middle > 0) {
+        const bw1 = (bwB1.upper - bwB1.lower) / bwB1.middle;
+        const bw2 = (bwB2.upper - bwB2.lower) / bwB2.middle;
+        const bw3 = (bwB3.upper - bwB3.lower) / bwB3.middle;
+        // Bandwidth aggressively expanding: all 3 bars trending wider = pump accelerating
+        if (bw1 > bw2 && bw2 > bw3) {
+          bwContractingForSell = false;
+        }
+      }
     }
   }
 
@@ -1662,7 +1691,7 @@ export function computeLevels(
     // pctB30 > 1 guard: price is ABOVE the upper band — a momentum breakout, not
     // a mean-reversion fade. Block the fib SELL; BB_BREAKOUT BUY handles it.
     const fibSellBbOk = !bb || (currentPrice > bb.middle && pctB30 <= 1.0);
-    if (signal === "WAIT" && !isLongOnly && higherTfAllowsSell && (histPrev1 < histPrev2) && fibSellBbOk) {
+    if (signal === "WAIT" && !isLongOnly && higherTfAllowsSell && bwContractingForSell && (histPrev1 < histPrev2) && fibSellBbOk) {
       const swingHighs        = findSwingHighs(completed, 3, SWING_LOOKBACK);
       const swingLowsForSell  = findSwingLows(completed, 3, SWING_LOOKBACK);
       sellSearch: for (let j = swingHighs.length - 1; j >= 0; j--) {
@@ -1937,6 +1966,7 @@ export function computeLevels(
       if (
         !isLongOnly &&
         higherTfAllowsSell &&
+        bwContractingForSell &&
         weeklyAllowsBbrSell &&
         bbrSellMacd &&
         volFading &&
@@ -2098,7 +2128,7 @@ export function computeLevels(
     // MACD: histogram ticking down (histPrev1 < histPrev2) AND was positive
     // (histPrev2 > 0) — turning from bullish to bearish, exhaustion of the pump.
     const drSellMacd = histPrev1 < histPrev2 && histPrev2 > 0;
-    if (signal === "WAIT" && !isLongOnly && higherTfAllowsSell && drSellMacd) {
+    if (signal === "WAIT" && !isLongOnly && higherTfAllowsSell && bwContractingForSell && drSellMacd) {
       const highs = [...drSwingHighs].reverse();
       const lows  = [...drSwingLows].reverse();
       for (const swingHigh of highs) {
@@ -2229,7 +2259,7 @@ export function computeLevels(
   // TP1:    BB midline (mean reversion target)
   // SL:     above spike high + 0.5×ATR buffer (enforces minimum 2:1 R:R)
   // macdWarm ensures MACD values are reliable (needs 26+9 bars of history).
-  if (signal === "WAIT" && !isLongOnly && macdWarm && higherTfAllowsSell) {
+  if (signal === "WAIT" && !isLongOnly && macdWarm && higherTfAllowsSell && bwContractingForSell) {
     const overextCompleted = candles.slice(0, candles.length - 1);
     if (overextCompleted.length >= 32) { // need at least 30 for BB + 1 prior candle
       const lastCandle  = overextCompleted[overextCompleted.length - 1];
