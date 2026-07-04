@@ -1539,6 +1539,27 @@ async function checkTrendingSymbol(
         }
       }
 
+      // Overlap guard: suppress a 1h BUY when a daily BUY is already active for
+      // this coin at a lower entry price. The 1h signal fired above the daily
+      // structural level — buying a bounce on top of the daily setup, not the
+      // level itself. The user is already long at a better price; a second entry
+      // above it increases average cost, doubles margin, and adds nothing.
+      if (
+        !isFilledTrade &&
+        timeframe === "1h" &&
+        levels.signal === "BUY"
+      ) {
+        const dailyActiveTrade = getActiveTrade(symbolKey, "1d");
+        if (dailyActiveTrade?.signal === "BUY" && dailyActiveTrade.entryPrice < levels.entryPrice) {
+          logger.info(
+            { symbolKey, dailyEntry: dailyActiveTrade.entryPrice, hourlyEntry: levels.entryPrice },
+            "Trending 1h BUY suppressed — daily BUY already active at a lower entry (overlap guard)",
+          );
+          stateMap.set(k, { ...(prev ?? {}), signal: levels.signal, lastAlertAt: prev?.lastAlertAt ?? 0 });
+          return;
+        }
+      }
+
       // Gate: pending signals must be confirmed by the next higher TF before alerting.
       // 30m is gated by 1h; 1h is gated by 1d. Filled trades are exempt.
       if (
