@@ -877,7 +877,14 @@ async function checkSymbol(
         ? applyFuturesBasis(candles, spot, makeRounder(SYMBOLS[symbol].decimals))
         : candles;
 
-    const dailyForWeekly = rawDailyForWeekly.length > 0 ? rawDailyForWeekly : undefined;
+    // For 4h: higherCandles are already daily candles (HIGHER_TIMEFRAME["4h"] = "1d").
+    // Reuse them as dailyForWeekly so the 4h higher-TF MACD gate in computeLevels
+    // receives real daily data. Without this fix, dailyCandlesForWeekly is undefined
+    // for 4h → the `&& dailyCandlesForWeekly` guard in the gate never passes →
+    // higherTfAllowsBuy/Sell stays true → every 4h signal fires with no daily check.
+    const dailyForWeekly =
+      timeframe === "4h" && higherCandles.length > 0 ? higherCandles :
+      rawDailyForWeekly.length > 0 ? rawDailyForWeekly : undefined;
     // For 1D: pass weekly candles (already fetched as higherCandles) so the
     // 1d signal is gated by the weekly EMA21/50 trend before alerting.
     const weeklyCandlesForDaily = timeframe === "1d" && higherCandles.length >= 2
@@ -1405,9 +1412,13 @@ async function checkTrendingSymbol(
     ]);
     if (candles.length < 2) return;
 
-    const dailyForWeekly = (rawDailyForWeekly as typeof candles).length > 0
-      ? (rawDailyForWeekly as typeof candles)
-      : undefined;
+    // Same fix as checkSymbol: for 4h, higherCandles ARE daily candles — reuse them.
+    const dailyForWeekly =
+      timeframe === "4h" && (higherCandles as typeof candles).length > 0
+        ? (higherCandles as typeof candles)
+        : (rawDailyForWeekly as typeof candles).length > 0
+          ? (rawDailyForWeekly as typeof candles)
+          : undefined;
     // For 1D: pass weekly candles (already fetched as higherCandles) so the
     // 1d signal is gated by the weekly EMA21/50 trend.
     const weeklyCandlesForDailyT = timeframe === "1d" && (higherCandles as typeof candles).length >= 2

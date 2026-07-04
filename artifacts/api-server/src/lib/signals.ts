@@ -1604,10 +1604,14 @@ export function computeLevels(
     // BB midline gate: only buy from the LOWER half of the range.
     // Price above the midline = already in "sell zone" — a BUY here is
     // buying the top half. Fails open when BB isn't warm yet.
-    // pctB30 < 0 guard: price is BELOW the lower band — a momentum breakdown,
-    // not a mean-reversion bounce. Block the fib BUY; BB_BREAKOUT SELL handles it.
-    const fibBuyBbOk = !bb || (currentPrice < bb.middle && pctB30 >= 0);
-    if (higherTfAllowsBuy && macdBuyOk && fibBuyBbOk) {
+    // pctB30 > 0.15: reserve lower 15% of BB range for BB_REJECTION BUY — symmetric to
+    // the pctB30 < 0.85 cap on FIB50_SWING SELL. When the 50% fib ≈ lower BB, the
+    // BB_REJECTION signal should own that slot (it is excluded from catch-up re-entry
+    // because it is price-pinned). FIB50_SWING runs first in the cascade; allowing
+    // pctB30 >= 0 lets it steal the lower-band slot and mislabel the trade as
+    // FIB50_SWING, which permits catch-up re-entry after a restart at the wrong price.
+    const fibBuyBbOk = !bb || (currentPrice < bb.middle && pctB30 > 0.15);
+    if (signal === "WAIT" && higherTfAllowsBuy && macdBuyOk && fibBuyBbOk) {
       const swingLows        = findSwingLows(completed, 3, SWING_LOOKBACK);
       const swingHighsForBuy = findSwingHighs(completed, 3, SWING_LOOKBACK);
       buySearch: for (let j = swingLows.length - 1; j >= 0; j--) {
@@ -1663,6 +1667,7 @@ export function computeLevels(
               : slFormula);
             const tp2 = round(floorTarget(ep, sl, swingBHigh, MIN_RR_TP2, "BUY")); // swing high
             signal       = "BUY";
+            signalType   = "FIB50_SWING"; // explicit — do not rely on let-initializer default
             entryPrice   = ep;
             stopLoss     = sl;
             takeProfit1  = tp1;
@@ -1752,6 +1757,7 @@ export function computeLevels(
               : slFormula);
             const tp2 = round(floorTarget(ep, sl, swingBLow, MIN_RR_TP2, "SELL")); // swing low
             signal       = "SELL";
+            signalType   = "FIB50_SWING"; // explicit — do not rely on let-initializer default
             entryPrice   = ep;
             stopLoss     = sl;
             takeProfit1  = tp1;
@@ -3652,13 +3658,21 @@ export function computeLevelsStable(
       return fresh;
     }
 
-    // Market entries (DAGGER, PATTERN_BREAKOUT) fill immediately — no limit
-    // to wait for. Set triggered=true on creation so the dashboard shows
-    // the correct FILLED state from the first tick and `spotTagged` / candle
-    // wick checks are never incorrectly applied to these trades.
+    // Market entries fill immediately — no resting limit to wait for.
+    // Set triggered=true so the dashboard shows FILLED_PROFIT from the first
+    // tick and wick/spotTagged checks are never incorrectly applied.
     //
-    // FIB50_SWING always uses limit entry — triggered when price reaches the 50% fib.
-    const isMarketEntry = false;
+    // Market-entry signals: BB_WALK, BB_BREAKOUT, DUMP_RECOVERY (entry = currentPrice).
+    // Limit-entry signals:  FIB50_SWING, DOUBLE_TOP/BOTTOM, BB_REJECTION, BB_OVEREXTENSION.
+    //
+    // Former hardcoded `false` caused these market entries to show as PENDING (rounding
+    // luck determined triggered), which could cause the Phemex auto-trader to (re-)place
+    // a limit at currentPrice instead of recognising an already-filled market entry.
+    const isMarketEntry = (
+      fresh.signalType === "BB_WALK" ||
+      fresh.signalType === "BB_BREAKOUT" ||
+      fresh.signalType === "DUMP_RECOVERY"
+    );
     const triggered = isMarketEntry
       ? true
       : fresh.signal === "BUY"
