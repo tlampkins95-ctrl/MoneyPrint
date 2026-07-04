@@ -1,5 +1,6 @@
 - [OpenAPI enum completeness](openapi-enum-completeness.md) — ActiveSignalsEntry has a 4th enum location with different YAML structure; replace_all misses it; always verify all 4 after codegen.
 - [4h missing higher-TF gate](4h-no-htf-gate.md) — 4h fell through higherTfAllowsSell/Buy to true; now covered by same daily MACD check as 1h.
+- [FIB50_SWING steals BB_REJECTION slot](fib50swing-upper-band-steal.md) — when 50% fib ≈ upper BB, FIB50_SWING wins cascade; fix is pctB30 < 0.85 cap on FIB50_SWING SELL.
 - [BB bandwidth contraction sell gate](bw-contraction-sell-gate.md) — bwContractingForSell blocks all SELL paths when bw1>bw2>bw3 (pump still accelerating).
 - [BB_BREAKOUT signal](bb-breakout-signal.md) — money print: pctB>1.0+macdBuyOk→BUY; pctB<0+macdSellOk→SELL; FIB50_SWING is blocked when pctB is outside the bands so BB_BREAKOUT inherits those setups.
 - [Response parse hardening](response-parse-hardening.md) — use safeParse not parse for server-own-output validation; hard parse crashes the entire route on schema lag.

@@ -1690,7 +1690,12 @@ export function computeLevels(
     // BB isn't warm yet.
     // pctB30 > 1 guard: price is ABOVE the upper band — a momentum breakout, not
     // a mean-reversion fade. Block the fib SELL; BB_BREAKOUT BUY handles it.
-    const fibSellBbOk = !bb || (currentPrice > bb.middle && pctB30 <= 1.0);
+    // Price in the upper BB zone (pctB30 ≥ 0.85) is reserved for BB_REJECTION.
+    // FIB50_SWING SELL handles mid-range fib setups only — if we allow it to
+    // fire at the upper band it wins the cascade slot (runs first) and gets
+    // labelled FIB50_SWING, bypassing the catch-up guard that blocks
+    // BB_REJECTION re-entries.
+    const fibSellBbOk = !bb || (currentPrice > bb.middle && pctB30 < 0.85);
     if (signal === "WAIT" && !isLongOnly && higherTfAllowsSell && bwContractingForSell && (histPrev1 < histPrev2) && fibSellBbOk) {
       const swingHighs        = findSwingHighs(completed, 3, SWING_LOOKBACK);
       const swingLowsForSell  = findSwingLows(completed, 3, SWING_LOOKBACK);
