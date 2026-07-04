@@ -2372,6 +2372,115 @@ export function computeLevels(
     }
   }
 
+  // ── DUMP_RECOVERY: bottom/top consolidation reversal ────────────────────────
+  // Detects sharp unexplained moves where price consolidates at the extreme and
+  // MACD is turning in the reversal direction. Fires on 1h, 4h, and 1d.
+  //
+  // DUMP RECOVERY (BUY): significant swingHigh → swingLow (≥ 2.5 ATR) → price
+  //   consolidating within 1 ATR of the swingLow → MACD histogram rising.
+  //   Entry: currentPrice, TP1: 50% fib midpoint, TP2: 78.6% fib, SL: 2:1 R:R.
+  //
+  // PUMP FADE (SELL): significant swingLow → swingHigh (≥ 2.5 ATR) → price
+  //   consolidating within 1 ATR of the swingHigh → MACD histogram falling.
+  //   Entry: currentPrice, TP1: 50% fib midpoint, TP2: 21.4% fib, SL: 2:1 R:R.
+  //
+  // Unlike FIB50_SWING (which enters AT the 50% fib), DUMP_RECOVERY enters at
+  // the extreme (near the dump low or pump high) and TARGETS the 50% fib.
+  if (signal === "WAIT" && (timeframe === "1h" || timeframe === "4h" || timeframe === "1d")) {
+    const drCompleted  = candles.slice(0, candles.length - 1);
+    const drAtr        = calcATR(drCompleted, 14);
+    const drSwingAtr   = drAtr > 0 ? drAtr : atr;
+    const DR_LOOKBACK      = SWING_LOOKBACK_BY_TF[timeframe] ?? 40;
+    const DR_MIN_SWING_ATR = MIN_SWING_ATR;  // reuse the 2.5 ATR gate
+    const DR_CONSOL_ATR    = 1.0;            // price must be within 1 ATR of the extreme
+
+    // ── BUY: dump recovery ─────────────────────────────────────────────────
+    // Find a significant downswing (swingHigh → swingLow) and check that price
+    // is still consolidating near the swingLow with MACD turning bullish.
+    if (macdBuyOk && higherTfAllowsBuy) {
+      const drHighs = findSwingHighs(drCompleted, 3, DR_LOOKBACK);
+      const drLows  = findSwingLows(drCompleted,  3, DR_LOOKBACK);
+      drBuySearch: for (let j = drHighs.length - 1; j >= 0; j--) {
+        const { price: dumpHigh, idx: dumpHighIdx } = drHighs[j];
+        // Most-recent structural swing LOW after the dump high (the destination of the dump)
+        const validDumpLows = drLows.filter(s => s.idx > dumpHighIdx && s.idx <= drCompleted.length - 4);
+        if (validDumpLows.length === 0) continue;
+        const { price: dumpLow } = validDumpLows[validDumpLows.length - 1];
+        const dumpRange = dumpHigh - dumpLow;
+        // Gate 1: dump must be a significant move
+        if (dumpRange < DR_MIN_SWING_ATR * drSwingAtr) continue;
+        // Gate 2: price is consolidating within 1 ATR above the dump low
+        // (allow a small wick tolerance of 0.2 ATR below the exact swing low)
+        if (currentPrice > dumpLow + DR_CONSOL_ATR * drSwingAtr) continue;
+        if (currentPrice < dumpLow - 0.2 * drSwingAtr) continue;
+        // Valid setup found — compute levels
+        const ep  = round(currentPrice);
+        const tp1 = round(dumpLow + 0.5 * dumpRange);   // 50% fib midpoint
+        const tp2Raw = dumpLow + 0.786 * dumpRange;       // 78.6% fib
+        if (tp1 <= ep) continue drBuySearch; // TP1 must be above entry
+        const slFormula = ep - 0.5 * (tp1 - ep);  // 2:1 R:R
+        const sl  = round(timeframe === "1d"
+          ? Math.min(slFormula, ep - 1.5 * drSwingAtr)
+          : slFormula);
+        if (sl >= ep) continue drBuySearch; // sanity
+        const tp2 = round(floorTarget(ep, sl, tp2Raw, MIN_RR_TP2, "BUY"));
+        signal      = "BUY";
+        signalType  = "DUMP_RECOVERY";
+        entryPrice  = ep;
+        stopLoss    = sl;
+        takeProfit1 = tp1;
+        takeProfit2 = tp2;
+        dca1        = undefined;
+        patternResult = null;
+        signalReason = `[${tfLabel}] DUMP RECOVERY BUY: Dump ${fmt(dumpHigh)} → ${fmt(dumpLow)} (range ${fmt(dumpRange)}, ${(dumpRange / drSwingAtr).toFixed(1)}×ATR). Price consolidating at ${fmt(ep)}, MACD turning green. TP1 ${fmt(tp1)} (50% fib), TP2 ${fmt(tp2)} (78.6% fib), SL ${fmt(sl)} (2:1 R:R).`;
+        break drBuySearch;
+      }
+    }
+
+    // ── SELL: pump fade ─────────────────────────────────────────────────────
+    // Find a significant upswing (swingLow → swingHigh) and check that price
+    // is still consolidating near the swingHigh with MACD turning bearish.
+    if (signal === "WAIT" && !isLongOnly && macdSellOk && higherTfAllowsSell) {
+      const drLows2  = findSwingLows(drCompleted,  3, DR_LOOKBACK);
+      const drHighs2 = findSwingHighs(drCompleted, 3, DR_LOOKBACK);
+      drSellSearch: for (let j = drLows2.length - 1; j >= 0; j--) {
+        const { price: pumpLow, idx: pumpLowIdx } = drLows2[j];
+        // Most-recent structural swing HIGH after the pump low (the top of the pump)
+        const validPumpHighs = drHighs2.filter(s => s.idx > pumpLowIdx && s.idx <= drCompleted.length - 4);
+        if (validPumpHighs.length === 0) continue;
+        const { price: pumpHigh } = validPumpHighs[validPumpHighs.length - 1];
+        const pumpRange = pumpHigh - pumpLow;
+        // Gate 1: pump must be a significant move
+        if (pumpRange < DR_MIN_SWING_ATR * drSwingAtr) continue;
+        // Gate 2: price is consolidating within 1 ATR below the pump high
+        // (allow a small wick tolerance of 0.2 ATR above the exact swing high)
+        if (currentPrice < pumpHigh - DR_CONSOL_ATR * drSwingAtr) continue;
+        if (currentPrice > pumpHigh + 0.2 * drSwingAtr) continue;
+        // Valid setup found — compute levels
+        const ep  = round(currentPrice);
+        const tp1 = round(pumpLow + 0.5 * pumpRange);   // 50% fib midpoint
+        const tp2Raw = pumpLow + 0.214 * pumpRange;       // 21.4% (78.6% from top)
+        if (tp1 >= ep) continue drSellSearch; // TP1 must be below entry
+        const slFormula = ep + 0.5 * (ep - tp1);  // 2:1 R:R
+        const sl  = round(timeframe === "1d"
+          ? Math.max(slFormula, ep + 1.5 * drSwingAtr)
+          : slFormula);
+        if (sl <= ep) continue drSellSearch; // sanity
+        const tp2 = round(floorTarget(ep, sl, tp2Raw, MIN_RR_TP2, "SELL"));
+        signal      = "SELL";
+        signalType  = "DUMP_RECOVERY";
+        entryPrice  = ep;
+        stopLoss    = sl;
+        takeProfit1 = tp1;
+        takeProfit2 = tp2;
+        dca1        = undefined;
+        patternResult = null;
+        signalReason = `[${tfLabel}] PUMP FADE SELL: Pump ${fmt(pumpLow)} → ${fmt(pumpHigh)} (range ${fmt(pumpRange)}, ${(pumpRange / drSwingAtr).toFixed(1)}×ATR). Price consolidating at ${fmt(ep)}, MACD turning red. TP1 ${fmt(tp1)} (50% fib), TP2 ${fmt(tp2)} (21.4% fib), SL ${fmt(sl)} (2:1 R:R).`;
+        break drSellSearch;
+      }
+    }
+  }
+
   // ── PATTERN_BREAKOUT detection (confirmed chart pattern breakout) ────────────
   // Last in the cascade — fires only when all other signal types are WAIT.
   // Detects confirmed breakouts from triangles, wedges, flags, pennants, H&S/IHS.
@@ -2893,7 +3002,7 @@ async function syncFromDb(): Promise<void> {
       if (activeTrades.has(row.key)) continue; // local file wins for existing keys
       const v = row.data as Partial<ActiveTrade>;
       // Skip trades from previous strategies — they have wrong levels.
-      if (v.signalType !== "FIB50_SWING" && v.signalType !== "DOUBLE_TOP" && v.signalType !== "DOUBLE_BOTTOM" && v.signalType !== "BB_REJECTION" && v.signalType !== "BB_WALK" && v.signalType !== "BB_BREAKOUT" && v.signalType !== "PATTERN_BREAKOUT") continue;
+      if (v.signalType !== "FIB50_SWING" && v.signalType !== "DOUBLE_TOP" && v.signalType !== "DOUBLE_BOTTOM" && v.signalType !== "BB_REJECTION" && v.signalType !== "BB_WALK" && v.signalType !== "BB_BREAKOUT" && v.signalType !== "PATTERN_BREAKOUT" && v.signalType !== "DUMP_RECOVERY") continue;
       activeTrades.set(row.key, {
         ...(v as ActiveTrade),
         signalType: v.signalType,
@@ -2934,7 +3043,7 @@ function loadActiveTradesFromDisk(): void {
     let didMigrate = false;
     for (const [k, v] of Object.entries(obj)) {
       // Skip trades from previous strategies — they have wrong levels.
-      if (v.signalType !== "FIB50_SWING" && v.signalType !== "DOUBLE_TOP" && v.signalType !== "DOUBLE_BOTTOM" && v.signalType !== "BB_REJECTION" && v.signalType !== "BB_WALK" && v.signalType !== "BB_BREAKOUT" && v.signalType !== "PATTERN_BREAKOUT") { didMigrate = true; continue; }
+      if (v.signalType !== "FIB50_SWING" && v.signalType !== "DOUBLE_TOP" && v.signalType !== "DOUBLE_BOTTOM" && v.signalType !== "BB_REJECTION" && v.signalType !== "BB_WALK" && v.signalType !== "BB_BREAKOUT" && v.signalType !== "PATTERN_BREAKOUT" && v.signalType !== "DUMP_RECOVERY") { didMigrate = true; continue; }
       // Backward-compat for snapshots persisted before fill-tracking existed.
       // Default triggered=false; the next tick's candle scan since openedAt
       // will retroactively flip it to true if price actually did tag entry.

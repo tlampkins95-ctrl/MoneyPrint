@@ -103,7 +103,7 @@ export const GetLevelsResponse = zod.object({
       "DUMP_RECOVERY",
     ])
     .describe(
-      "Which signal mode generated this signal. FIB50_SWING = swing fibonacci retracement: enter at 50% fib of recent swing, TP1 at 78.6% fib, SL 2:1 R:R. DOUBLE_TOP = bearish reversal; entry at resistance, TP1 at neckline. DOUBLE_BOTTOM = bullish reversal; entry at support, TP1 at neckline. BB_REJECTION = Bollinger Band exhaustion reversal; entry at BB30 extreme, TP1 at 50% fib of recent swing, SL 2:1 R:R. BB_BREAKOUT = outside-band momentum continuation (money print): price above upper \/ below lower BB30 with MACD confirming — ride the breakout. DUMP_RECOVERY = enter at extreme of a sharp move (BUY at dump low, SELL at pump high), target 50% fib of the move.",
+      "Which signal mode generated this signal. FIB50_SWING = swing fibonacci retracement: enter at 50% fib of recent swing, TP1 at 78.6% fib, SL 2:1 R:R. DOUBLE_TOP = bearish reversal; entry at resistance, TP1 at neckline. DOUBLE_BOTTOM = bullish reversal; entry at support, TP1 at neckline. BB_REJECTION = Bollinger Band exhaustion reversal; entry at BB30 extreme, TP1 at 50% fib of recent swing, SL 2:1 R:R. BB_BREAKOUT = outside-band momentum continuation (money print): price above upper \/ below lower BB30 with MACD confirming — ride the breakout. DUMP_RECOVERY = bottom\/top consolidation reversal: enter near the extreme of a significant dump\/pump with MACD turning, TP1 at 50% fib midpoint.",
     ),
   signalReason: zod
     .string()
@@ -629,7 +629,7 @@ export const GetActiveSignalsResponse = zod.object({
                 "DUMP_RECOVERY",
               ])
               .describe(
-                "Which signal mode generated this signal. FIB50_SWING = swing fibonacci retracement: enter at 50% fib of recent swing, TP1 at 78.6% fib, SL 2:1 R:R. DOUBLE_TOP = bearish reversal; entry at resistance, TP1 at neckline. DOUBLE_BOTTOM = bullish reversal; entry at support, TP1 at neckline. BB_REJECTION = Bollinger Band exhaustion reversal; entry at BB30 extreme, TP1 at 50% fib of recent swing, SL 2:1 R:R. BB_BREAKOUT = outside-band momentum continuation (money print): price above upper \/ below lower BB30 with MACD confirming — ride the breakout. DUMP_RECOVERY = enter at extreme of a sharp move (BUY at dump low, SELL at pump high), target 50% fib of the move.",
+                "Which signal mode generated this signal. FIB50_SWING = swing fibonacci retracement: enter at 50% fib of recent swing, TP1 at 78.6% fib, SL 2:1 R:R. DOUBLE_TOP = bearish reversal; entry at resistance, TP1 at neckline. DOUBLE_BOTTOM = bullish reversal; entry at support, TP1 at neckline. BB_REJECTION = Bollinger Band exhaustion reversal; entry at BB30 extreme, TP1 at 50% fib of recent swing, SL 2:1 R:R. BB_BREAKOUT = outside-band momentum continuation (money print): price above upper \/ below lower BB30 with MACD confirming — ride the breakout. DUMP_RECOVERY = bottom\/top consolidation reversal: enter near the extreme of a significant dump\/pump with MACD turning, TP1 at 50% fib midpoint.",
               ),
             signalReason: zod
               .string()

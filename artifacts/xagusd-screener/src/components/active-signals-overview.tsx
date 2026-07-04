@@ -246,13 +246,14 @@ function SignalRow(p: RowProps) {
             ⌖ PATTERN
           </span>
         )}
-        {p.signalType === "DUMP_RECOVERY" && (
-          <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold tracking-widest border ${
-            p.signal === "BUY"
-              ? "bg-amber-500/15 text-amber-300 border-amber-500/30"
-              : "bg-rose-500/15 text-rose-300 border-rose-500/30"
-          }`}>
-            {p.signal === "BUY" ? "↩ DUMP REC" : "↗ PUMP FADE"}
+        {p.signalType === "DUMP_RECOVERY" && p.signal === "BUY" && (
+          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold tracking-widest bg-amber-500/15 text-amber-300 border border-amber-500/30">
+            ↩ DUMP REC
+          </span>
+        )}
+        {p.signalType === "DUMP_RECOVERY" && p.signal === "SELL" && (
+          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold tracking-widest bg-rose-500/15 text-rose-300 border border-rose-500/30">
+            ↗ PUMP FADE
           </span>
         )}
         {poorWinRate && btData && (
