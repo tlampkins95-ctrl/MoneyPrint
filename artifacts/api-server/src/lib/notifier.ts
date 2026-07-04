@@ -1070,6 +1070,25 @@ async function checkSymbol(
         }
       }
 
+      // 24h momentum gate (all symbols, fresh entries only).
+      // Don't long a coin that's red on the day, don't short one that's green.
+      // Only trade in the direction the market is already moving.
+      // Filled trades and direction flips are exempt — position management always wins.
+      if (!isFilledTrade && !isDirectionFlip && (levels.signal === "BUY" || levels.signal === "SELL")) {
+        const pct24h = levels.priceChangePct ?? 0;
+        const momentumOk =
+          (levels.signal === "BUY" && pct24h > 0) ||
+          (levels.signal === "SELL" && pct24h < 0);
+        if (!momentumOk) {
+          logger.info(
+            { symbol, timeframe, signal: levels.signal, priceChangePct: pct24h },
+            "Signal suppressed — 24h momentum opposes signal direction",
+          );
+          stateMap.set(k, { ...(prev ?? {}), signal: levels.signal, lastAlertAt: prev?.lastAlertAt ?? 0 });
+          return;
+        }
+      }
+
       // Gate: pending signals must be confirmed by the next higher TF before alerting.
       // 30m is gated by 1h; 1h is gated by 1d. Filled trades are exempt.
       // Direction flips (BUY→SELL or SELL→BUY) are also exempt: a lower-TF
@@ -1594,6 +1613,24 @@ async function checkTrendingSymbol(
         }
       }
 
+      // 24h momentum gate (trending coins, fresh entries only).
+      // Don't long a coin that's red on the day, don't short one that's green.
+      // Filled trades and direction flips are exempt.
+      if (!isFilledTrade && !isDirectionFlip && (levels.signal === "BUY" || levels.signal === "SELL")) {
+        const pct24h = levels.priceChangePct ?? 0;
+        const momentumOk =
+          (levels.signal === "BUY" && pct24h > 0) ||
+          (levels.signal === "SELL" && pct24h < 0);
+        if (!momentumOk) {
+          logger.info(
+            { symbolKey, timeframe, signal: levels.signal, priceChangePct: pct24h },
+            "Trending signal suppressed — 24h momentum opposes signal direction",
+          );
+          stateMap.set(k, { ...(prev ?? {}), signal: levels.signal, lastAlertAt: prev?.lastAlertAt ?? 0 });
+          return;
+        }
+      }
+
       // Gate: pending signals must be confirmed by the next higher TF before alerting.
       // 30m is gated by 1h; 1h is gated by 1d. Filled trades are exempt.
       if (
@@ -1603,7 +1640,7 @@ async function checkTrendingSymbol(
         (levels.signal === "BUY" || levels.signal === "SELL") &&
         higherCandles.length >= 2
       ) {
-        const higherResult = computeLevelsStable(higherCandles, spot, higherTf, symbolKey, tMeta);
+        const higherResult = computeLevelsStable(higherCandles as typeof candles, spot, higherTf, symbolKey, tMeta);
         // For trending coins, BUY signals require the daily to be actively BUY —
         // not just non-SELL. Trending coins are frequently discovered because search
         // interest spikes during a dump (red candles = people panic-searching). A 1h
