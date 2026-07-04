@@ -1512,7 +1512,7 @@ export function computeLevels(
   };
   const SWING_LOOKBACK = SWING_LOOKBACK_BY_TF[timeframe] ?? 40;
   const MIN_SWING_ATR       = 2.5;  // swing height must be ≥ 2.5 × ATR to be meaningful
-  const FIB50_TOLERANCE_ATR = 0.5;  // price must be within ±0.5 × ATR of the 50% fib
+  const FIB50_TOLERANCE_ATR = 0.1;  // price must be within ±0.1 × ATR of the 50% fib
   const FIB50_SL_DISTANCE   = 10;   // fixed $10 stop distance from entry
   const SWING_SL_BUFFER_ATR = 0.5;  // extra buffer below/above swing extreme for SL
 
