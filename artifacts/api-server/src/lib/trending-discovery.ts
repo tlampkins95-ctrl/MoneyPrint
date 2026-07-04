@@ -23,7 +23,9 @@ let _pool: Pool | null = null;
 
 export function getTrendingSymbols(): TrendingMeta[] {
   const now = Date.now();
-  return trendingCache.filter((t) => t.expiresAt > now);
+  // Always include pinned coins regardless of expiry so manual pins can never
+  // silently disappear from the API even if their expiresAt were somehow stale.
+  return trendingCache.filter((t) => t.pinned || t.expiresAt > now);
 }
 
 // Look up a trending coin by symbolKey. Checks the live in-memory cache first,
@@ -583,22 +585,36 @@ async function runDiscovery(pool: Pool): Promise<void> {
 
     // Merge into in-memory cache:
     // - Coins that appear in this discovery cycle get their rank/change/expiresAt
-    //   refreshed but their discoveredAt preserved.
+    //   refreshed but their discoveredAt and pinned state preserved.
     // - Coins that dropped out of the discovery set are kept in cache until their
     //   expiresAt (8h cooldown) so active trades on dropped coins aren't orphaned.
+    // - Pinned coins are NEVER overwritten with auto-discovery data and NEVER have
+    //   their far-future expiry rolled back to an 8h TTL.
     const existingMap = new Map(trendingCache.map((t) => [t.symbolKey, t]));
     const discoveredKeys = new Set(discovered.map((d) => d.symbolKey));
     for (const d of discovered) {
       const existing = existingMap.get(d.symbolKey);
-      existingMap.set(d.symbolKey, {
-        ...d,
-        discoveredAt: existing ? existing.discoveredAt : d.discoveredAt,
-      });
+      if (existing?.pinned) {
+        // Pinned coin — keep the pinned entry intact; only refresh market data.
+        existingMap.set(d.symbolKey, {
+          ...existing,
+          priceChange24h: d.priceChange24h,
+          rank: d.rank,
+        });
+      } else {
+        existingMap.set(d.symbolKey, {
+          ...d,
+          discoveredAt: existing ? existing.discoveredAt : d.discoveredAt,
+        });
+      }
     }
     const now = Date.now();
     trendingCache.length = 0;
     for (const [, meta] of existingMap) {
-      if (discoveredKeys.has(meta.symbolKey)) {
+      if (meta.pinned) {
+        // Pinned coins always stay in cache with their far-future expiry intact.
+        trendingCache.push(meta);
+      } else if (discoveredKeys.has(meta.symbolKey)) {
         // Re-discovered this cycle — already has a fresh expiresAt.
         trendingCache.push(meta);
       } else if (meta.expiresAt > now) {
