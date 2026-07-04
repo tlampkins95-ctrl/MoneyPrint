@@ -1549,13 +1549,19 @@ async function checkTrendingSymbol(
         higherCandles.length >= 2
       ) {
         const higherResult = computeLevelsStable(higherCandles, spot, higherTf, symbolKey, tMeta);
+        // For trending coins, BUY signals require the daily to be actively BUY —
+        // not just non-SELL. Trending coins are frequently discovered because search
+        // interest spikes during a dump (red candles = people panic-searching). A 1h
+        // recovery setup on a daily-WAIT coin is longing into a downtrend.
+        // SELL signals keep the weaker gate (block only when daily is actively BUY).
         const higherTfOpposedT =
           (higherResult.signal === "BUY" && levels.signal === "SELL") ||
-          (higherResult.signal === "SELL" && levels.signal === "BUY");
+          (higherResult.signal === "SELL" && levels.signal === "BUY") ||
+          (higherResult.signal !== "BUY" && levels.signal === "BUY");
         if (higherTfOpposedT) {
           logger.info(
             { symbolKey, timeframe, signal: levels.signal, higherTf, higherSignal: higherResult.signal },
-            "Trending signal alert suppressed (higher TF actively opposed)",
+            "Trending signal alert suppressed (higher TF not actively BUY for trending long, or actively opposed)",
           );
           stateMap.set(k, {
             ...(prev ?? {}),
