@@ -657,7 +657,27 @@ async function executePhemexTrade(
   // Prevent self-hedging: if an opposite-side position already exists for this
   // symbol (opened by a conflicting timeframe signal), skip rather than creating
   // a simultaneous Long+Short on the same asset.
+  //
+  // Check the in-memory tracker FIRST — it's instantaneous and catches races
+  // where two timeframe signals fire in the same poll cycle before either has
+  // landed on Phemex (so the API-based check would see nothing and let both through).
   const oppositeSideForCheck: "Long" | "Short" = posSideForCheck === "Long" ? "Short" : "Long";
+  const trackedOpposite = [...openPhemexOrders.values()].find(
+    o => o.phemexSymbol === phemexSymbol && o.posSide === oppositeSideForCheck,
+  );
+  if (trackedOpposite) {
+    logger.warn(
+      { symbol, timeframe, phemexSymbol, signal: levels.signal, oppositeSide: oppositeSideForCheck, trackedOrderId: trackedOpposite.orderId },
+      "phemex-trader: opposite-side tracked order exists in-memory — skipping to avoid self-hedge",
+    );
+    if (!openPhemexOrders.has(k)) {
+      openPhemexOrders.set(k, { orderId: `opposite-blocked-${Date.now()}`, phemexSymbol, posSide: posSideForCheck });
+    }
+    return;
+  }
+
+  // Also check Phemex directly — catches positions that survived a restart and
+  // weren't yet re-registered in openPhemexOrders (e.g. during catch-up window).
   let oppositePos: { size: number; stopLossRp: number } | null;
   try {
     oppositePos = await checkExistingPosition(phemexSymbol, oppositeSideForCheck);
@@ -668,11 +688,8 @@ async function executePhemexTrade(
   if (oppositePos !== null) {
     logger.warn(
       { symbol, timeframe, phemexSymbol, signal: levels.signal, oppositeSize: oppositePos.size, oppositeSide: oppositeSideForCheck },
-      "phemex-trader: opposite-side position already open — skipping to avoid self-hedge",
+      "phemex-trader: opposite-side position already open on Phemex — skipping to avoid self-hedge",
     );
-    // Register a sentinel so the catch-up block sees openPhemexOrders.has(k)
-    // as true and stops retrying every poll. Without this the loop fires every
-    // 20 seconds forever while the opposite position remains open.
     if (!openPhemexOrders.has(k)) {
       openPhemexOrders.set(k, { orderId: `opposite-blocked-${Date.now()}`, phemexSymbol, posSide: posSideForCheck });
     }

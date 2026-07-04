@@ -1385,8 +1385,8 @@ export function computeLevels(
   // Fail-CLOSED: if MACD is not warm (insufficient history), the gate rejects.
   // The old fail-open (!macdWarm || ...) silently let all signals through on symbols
   // without enough candle history — no momentum confirmation whatsoever.
-  const macdBuyOk  = macdWarm && histPrev1 > histPrev2; // histogram ticking up
-  const macdSellOk = macdWarm && histPrev1 < 0 && histPrev1 < histPrev2; // histogram negative AND ticking down
+  const macdBuyOk  = macdWarm && histPrev1 > 0 && histPrev1 > histPrev2; // histogram positive (green) AND ticking up
+  const macdSellOk = macdWarm && histPrev1 < 0 && histPrev1 < histPrev2; // histogram negative (red) AND ticking down
 
   // ─── Bollinger Bands (20, 2) ──────────────────────────────────────────────
   // Used as two gates:
