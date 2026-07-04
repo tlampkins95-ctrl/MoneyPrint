@@ -1440,6 +1440,29 @@ async function checkSymbol(
         openPhemexOrders.delete(k);
       }
     }
+    // If an externally-closed sentinel is blocking catch-up but the freshly-
+    // computed signal entry price has moved >2% from the DB record, the old
+    // trade is gone and a genuinely new setup has formed — clear the sentinel.
+    // This runs here (poll cycle) not inside executePhemexTrade because only
+    // here does `levels` reflect current market prices, not the stale stateMap.
+    {
+      const sentinel = openPhemexOrders.get(k);
+      if (sentinel?.orderId?.startsWith("externally-closed-")) {
+        const dbTrade = getActiveTrade(symbol, timeframe);
+        const storedEntry = dbTrade?.entryPrice ?? 0;
+        const movedPct = storedEntry > 0
+          ? Math.abs((levels.entryPrice ?? 0) - storedEntry) / storedEntry
+          : 0;
+        if (movedPct > 0.02) {
+          logger.info(
+            { symbol, timeframe, storedEntry, currentEntry: levels.entryPrice, movedPct: movedPct.toFixed(3) },
+            "phemex-trader: entry moved >2% since external close — clearing sentinel, allowing fresh re-entry",
+          );
+          openPhemexOrders.delete(k);
+          clearActiveTrade(symbol, timeframe);
+        }
+      }
+    }
     // All signal types reach executePhemexTrade for catch-up.
     // The re-entry type gate (FIB50_SWING only) lives inside executePhemexTrade:
     // if a position already exists it restores TPs for any signal type; if no
@@ -1934,6 +1957,26 @@ async function checkTrendingSymbol(
     // worse price with the same SL — near-zero reward or loss on entry.
     // EXCEPTION: FILLED_PROFIT means a position is already open. We only need
     // to restore TP orders — skip the type gate entirely in that case.
+    // Same externally-closed sentinel clear as static symbols: if fresh levels
+    // show entry moved >2% the old trade is gone and a new setup has formed.
+    {
+      const sentinelT = openPhemexOrders.get(k);
+      if (sentinelT?.orderId?.startsWith("externally-closed-")) {
+        const dbTradeT = getActiveTrade(symbolKey, timeframe);
+        const storedEntryT = dbTradeT?.entryPrice ?? 0;
+        const movedPctT = storedEntryT > 0
+          ? Math.abs((levels.entryPrice ?? 0) - storedEntryT) / storedEntryT
+          : 0;
+        if (movedPctT > 0.02) {
+          logger.info(
+            { symbolKey, timeframe, storedEntry: storedEntryT, currentEntry: levels.entryPrice, movedPct: movedPctT.toFixed(3) },
+            "phemex-trader: trending entry moved >2% since external close — clearing sentinel, allowing fresh re-entry",
+          );
+          openPhemexOrders.delete(k);
+          clearActiveTrade(symbolKey, timeframe);
+        }
+      }
+    }
     const trendingCatchUpTypeAllowed =
       levels.signalType === "FIB50_SWING" || levels.signalType === "DUMP_RECOVERY" || levels.tradeState === "FILLED_PROFIT";
     if (
