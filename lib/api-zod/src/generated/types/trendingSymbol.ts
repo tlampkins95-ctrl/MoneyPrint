@@ -7,7 +7,7 @@
  */
 
 /**
- * A dynamically-discovered trending coin with an OKX USDT SWAP instrument.
+ * A dynamically-discovered or manually-pinned coin with an OKX USDT SWAP instrument.
  */
 export interface TrendingSymbol {
   /** Internal symbol key (e.g. TONUSDT) */
@@ -25,4 +25,6 @@ export interface TrendingSymbol {
   rank: number;
   discoveredAt: string;
   expiresAt: string;
+  /** True when manually pinned by the user. Pinned coins are never auto-purged and always appear first in the list. */
+  pinned: boolean;
 }

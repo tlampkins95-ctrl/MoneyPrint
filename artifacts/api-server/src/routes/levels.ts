@@ -19,6 +19,8 @@ import {
   findTrendingSymbolByKey,
   fetchCandlesForDynamic,
   fetchSpotForDynamic,
+  addPinnedSymbol,
+  removePinnedSymbol,
 } from "../lib/trending-discovery";
 
 // ──── Category & Confluence helpers ─────────────────────────────────────────
@@ -633,12 +635,16 @@ router.get("/active-signals", async (req: Request, res: Response) => {
   }
 });
 
-// GET /api/trending-symbols — list of dynamically-discovered trending coins.
+// GET /api/trending-symbols — list of dynamically-discovered + manually-pinned coins.
 router.get("/trending-symbols", (_req: Request, res: Response) => {
-  const symbols = getTrendingSymbols().slice().sort((a, b) => (b.priceChange24h ?? 0) - (a.priceChange24h ?? 0));
-  const now = Date.now();
+  // Pinned coins first, then auto-discovered sorted by 24h gain descending.
+  const all = getTrendingSymbols().slice();
+  all.sort((a, b) => {
+    if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+    return (b.priceChange24h ?? 0) - (a.priceChange24h ?? 0);
+  });
   res.json({
-    symbols: symbols.map((t) => ({
+    symbols: all.map((t) => ({
       symbolKey: t.symbolKey,
       baseAsset: t.baseAsset,
       okxSymbol: t.okxPerp!,
@@ -648,9 +654,41 @@ router.get("/trending-symbols", (_req: Request, res: Response) => {
       rank: t.rank,
       discoveredAt: new Date(t.discoveredAt).toISOString(),
       expiresAt: new Date(t.expiresAt).toISOString(),
+      pinned: t.pinned,
     })),
     lastUpdated: new Date().toISOString(),
   });
+});
+
+// POST /api/watchlist — manually pin a coin by ticker (e.g. "LAB" or "LABUSDT").
+router.post("/watchlist", async (req: Request, res: Response) => {
+  const body = req.body as Record<string, unknown>;
+  const ticker = typeof body?.ticker === "string" ? body.ticker.trim() : "";
+  if (!ticker) {
+    res.status(400).json({ ok: false, error: "ticker is required" });
+    return;
+  }
+  const result = await addPinnedSymbol(ticker);
+  if (!result.ok) {
+    res.status(400).json(result);
+    return;
+  }
+  res.json(result);
+});
+
+// DELETE /api/watchlist/:symbolKey — unpin a manually-pinned coin.
+router.delete("/watchlist/:symbolKey", async (req: Request, res: Response) => {
+  const symbolKey = String(req.params["symbolKey"] ?? "");
+  if (!symbolKey) {
+    res.status(400).json({ ok: false, error: "symbolKey is required" });
+    return;
+  }
+  const result = await removePinnedSymbol(symbolKey);
+  if (!result.ok) {
+    res.status(400).json(result);
+    return;
+  }
+  res.json(result);
 });
 
 // GET /api/symbol-changes — 24h % change for watchlist symbols via CMC quotes.

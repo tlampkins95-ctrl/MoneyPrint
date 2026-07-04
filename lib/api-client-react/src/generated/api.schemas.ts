@@ -374,8 +374,19 @@ export interface LevelsData {
   positionSizing?: PositionSizing;
 }
 
+export interface WatchlistAddRequest {
+  /** Coin ticker to pin (e.g. 'LAB' or 'LABUSDT'). The USDT suffix is optional. */
+  ticker: string;
+}
+
+export interface WatchlistMutateResponse {
+  ok: boolean;
+  /** Human-readable error message when ok=false */
+  error?: string;
+}
+
 /**
- * A dynamically-discovered trending coin with an OKX USDT SWAP instrument.
+ * A dynamically-discovered or manually-pinned coin with an OKX USDT SWAP instrument.
  */
 export interface TrendingSymbol {
   /** Internal symbol key (e.g. TONUSDT) */
@@ -393,6 +404,8 @@ export interface TrendingSymbol {
   rank: number;
   discoveredAt: string;
   expiresAt: string;
+  /** True when manually pinned by the user. Pinned coins are never auto-purged and always appear first in the list. */
+  pinned: boolean;
 }
 
 export interface TrendingSymbolsResponse {

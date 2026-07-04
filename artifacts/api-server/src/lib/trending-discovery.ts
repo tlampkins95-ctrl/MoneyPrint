@@ -13,6 +13,7 @@ export interface TrendingMeta extends SymbolMeta {
   rank: number;
   expiresAt: number;
   discoveredAt: number; // true first-seen timestamp
+  pinned: boolean;      // true = manually pinned, never auto-purged
 }
 
 // In-memory cache of currently-trending coins (loaded from DB on boot, refreshed every 4h).
@@ -46,6 +47,7 @@ export async function findTrendingSymbolByKey(symbolKey: string): Promise<Trendi
       rank: number;
       discovered_at: Date;
       expires_at: Date;
+      pinned: boolean;
     }>("SELECT * FROM trending_symbols WHERE symbol_key = $1 LIMIT 1", [symbolKey]);
     if (res.rows.length === 0) return null;
     const row = res.rows[0];
@@ -61,6 +63,7 @@ export async function findTrendingSymbolByKey(symbolKey: string): Promise<Trendi
       row.rank,
       new Date(row.expires_at).getTime(),
       new Date(row.discovered_at).getTime(),
+      row.pinned,
     );
   } catch {
     return null;
@@ -132,7 +135,7 @@ export async function fetchSpotForDynamic(
 // ─── Discovery job ─────────────────────────────────────────────────────────────
 
 // Decimals inferred from price magnitude.
-function inferDecimals(price: number): number {
+export function inferDecimals(price: number): number {
   if (price >= 1000) return 1;
   if (price >= 100) return 2;
   if (price >= 1) return 4;
@@ -153,6 +156,7 @@ export function buildDynamicMeta(
   rank: number,
   expiresAt: number,
   discoveredAt: number,
+  pinned = false,
 ): TrendingMeta {
   return {
     symbolKey,
@@ -161,6 +165,7 @@ export function buildDynamicMeta(
     rank,
     expiresAt,
     discoveredAt,
+    pinned,
     // SymbolMeta fields
     yahoo: "",
     tvSymbol: `OKX:${phemexSymbol}.P`,
@@ -294,7 +299,7 @@ async function fetchCmcTrending(): Promise<TrendingCoin[]> {
   }
 }
 
-async function fetchOkxSwapInstruments(): Promise<Map<string, OkxInstrument>> {
+export async function fetchOkxSwapInstruments(): Promise<Map<string, OkxInstrument>> {
   try {
     const res = await fetch(
       "https://www.okx.com/api/v5/public/instruments?instType=SWAP",
@@ -320,7 +325,7 @@ async function fetchOkxSwapInstruments(): Promise<Map<string, OkxInstrument>> {
 
 // Fetch Phemex USDT-margined perpetual products and return a map of
 // symbol (e.g. "BTCUSDT") → sizing params.
-async function fetchPhemexPerpProducts(): Promise<
+export async function fetchPhemexPerpProducts(): Promise<
   Map<string, { minQty: number; qtyStep: number }>
 > {
   try {
@@ -372,12 +377,20 @@ const CREATE_TABLE_SQL = `
     price_change_24h double precision NOT NULL DEFAULT 0,
     rank integer NOT NULL DEFAULT 999,
     discovered_at timestamptz NOT NULL DEFAULT NOW(),
-    expires_at timestamptz NOT NULL
+    expires_at timestamptz NOT NULL,
+    pinned boolean NOT NULL DEFAULT false
   )
 `;
 
+// Far-future timestamp used for pinned coins (avoids PostgreSQL 'infinity' edge cases).
+const PINNED_EXPIRES_AT = new Date("2099-01-01T00:00:00Z");
+
 async function ensureTable(pool: Pool): Promise<void> {
   await pool.query(CREATE_TABLE_SQL);
+  // Idempotent column migration for existing deployments that predate the pinned column.
+  await pool.query(
+    "ALTER TABLE trending_symbols ADD COLUMN IF NOT EXISTS pinned boolean NOT NULL DEFAULT false",
+  );
 }
 
 async function persistTrendingToDb(
@@ -393,6 +406,8 @@ async function persistTrendingToDb(
       await pool.query(
         // discovered_at: set only on first insert; never overwrite on conflict
         // so we preserve the true first-seen timestamp.
+        // WHERE NOT trending_symbols.pinned: skip update entirely for pinned coins
+        // so auto-discovery never overwrites a user-pinned coin's expiry or metadata.
         `INSERT INTO trending_symbols
            (symbol_key, base_asset, okx_symbol, phemex_symbol, decimals, min_qty, qty_step, price_change_24h, rank, discovered_at, expires_at)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW(),$10)
@@ -405,7 +420,8 @@ async function persistTrendingToDb(
            qty_step = EXCLUDED.qty_step,
            price_change_24h = EXCLUDED.price_change_24h,
            rank = EXCLUDED.rank,
-           expires_at = EXCLUDED.expires_at`,
+           expires_at = EXCLUDED.expires_at
+         WHERE NOT trending_symbols.pinned`,
         // NOTE: discovered_at is intentionally excluded from the DO UPDATE set
         [
           r.symbolKey,
@@ -422,8 +438,8 @@ async function persistTrendingToDb(
       );
     }
 
-    // Purge rows whose TTL has elapsed.
-    await pool.query("DELETE FROM trending_symbols WHERE expires_at < NOW()");
+    // Purge rows whose TTL has elapsed — never delete pinned coins.
+    await pool.query("DELETE FROM trending_symbols WHERE expires_at < NOW() AND NOT pinned");
   } catch (err) {
     logger.warn({ err }, "Failed to persist trending symbols to DB");
   }
@@ -444,7 +460,12 @@ async function loadTrendingFromDb(pool: Pool): Promise<void> {
       rank: number;
       discovered_at: Date;
       expires_at: Date;
-    }>("SELECT * FROM trending_symbols WHERE expires_at > NOW() ORDER BY price_change_24h DESC");
+      pinned: boolean;
+    }>(
+      // Load active auto-discovered coins + ALL pinned coins (pinned have far-future expires_at
+      // but we guard explicitly so pinned coins always appear even if expires_at were stale).
+      "SELECT * FROM trending_symbols WHERE expires_at > NOW() OR pinned = true ORDER BY price_change_24h DESC",
+    );
 
     trendingCache.length = 0;
     for (const row of res.rows) {
@@ -461,6 +482,7 @@ async function loadTrendingFromDb(pool: Pool): Promise<void> {
           row.rank,
           new Date(row.expires_at).getTime(),
           new Date(row.discovered_at).getTime(),
+          row.pinned,
         ),
       );
     }
@@ -619,4 +641,115 @@ export function startTrendingDiscovery(): void {
   setInterval(() => {
     void runDiscovery(pool);
   }, DISCOVERY_INTERVAL_MS);
+}
+
+// ─── Manual watchlist: pin / unpin ───────────────────────────────────────────
+
+/**
+ * Pin a coin by ticker (e.g. "LAB", "LABUSDT").
+ * Resolves Phemex + OKX metadata, inserts into DB with pinned=true and a
+ * far-future expires_at, and updates the in-memory cache immediately.
+ */
+export async function addPinnedSymbol(
+  ticker: string,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!_pool) return { ok: false, error: "Database not configured" };
+
+  // Normalise: strip trailing USDT if the user typed the full key.
+  const base = ticker.toUpperCase().replace(/USDT$/, "");
+  const phemexKey = `${base}USDT`;
+  const okxKey = `${base}-USDT-SWAP`;
+
+  try {
+    const [okxMap, phemexMap] = await Promise.all([
+      fetchOkxSwapInstruments(),
+      fetchPhemexPerpProducts(),
+    ]);
+
+    if (!phemexMap.has(phemexKey)) {
+      return { ok: false, error: `${phemexKey} is not listed as a Phemex USDT-perp` };
+    }
+    if (!okxMap.has(okxKey)) {
+      return { ok: false, error: `${okxKey} is not listed as an OKX SWAP instrument` };
+    }
+
+    const inst = phemexMap.get(phemexKey)!;
+
+    // Best-effort: infer decimals from live price.
+    let price = 1;
+    try {
+      const p = await fetchOkxPerpPrice(okxKey);
+      if (p !== null) price = p;
+    } catch { /* use fallback */ }
+    const decimals = inferDecimals(price);
+
+    await ensureTable(_pool);
+    await _pool.query(
+      `INSERT INTO trending_symbols
+         (symbol_key, base_asset, okx_symbol, phemex_symbol, decimals, min_qty, qty_step,
+          price_change_24h, rank, discovered_at, expires_at, pinned)
+       VALUES ($1,$2,$3,$4,$5,$6,$7, 0, 999, NOW(), $8, true)
+       ON CONFLICT (symbol_key) DO UPDATE SET
+         pinned    = true,
+         expires_at = $8`,
+      [phemexKey, base, okxKey, phemexKey, decimals, inst.minQty, inst.qtyStep, PINNED_EXPIRES_AT.toISOString()],
+    );
+
+    // Sync in-memory cache.
+    const meta = buildDynamicMeta(
+      phemexKey, base, okxKey, phemexKey,
+      decimals, inst.minQty, inst.qtyStep,
+      0, 999,
+      PINNED_EXPIRES_AT.getTime(), Date.now(),
+      true,
+    );
+    const idx = trendingCache.findIndex((t) => t.symbolKey === phemexKey);
+    if (idx >= 0) {
+      trendingCache[idx] = meta;
+    } else {
+      trendingCache.push(meta);
+    }
+
+    logger.info({ symbolKey: phemexKey }, "Pinned coin added to watchlist");
+    return { ok: true };
+  } catch (err) {
+    logger.warn({ err, ticker }, "addPinnedSymbol failed");
+    return { ok: false, error: "Internal error resolving coin metadata" };
+  }
+}
+
+/**
+ * Unpin a coin by symbolKey (e.g. "LABUSDT").
+ * Only pinned coins can be removed; auto-discovered coins expire naturally.
+ */
+export async function removePinnedSymbol(
+  symbolKey: string,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!_pool) return { ok: false, error: "Database not configured" };
+
+  try {
+    await ensureTable(_pool);
+    const check = await _pool.query<{ pinned: boolean }>(
+      "SELECT pinned FROM trending_symbols WHERE symbol_key = $1",
+      [symbolKey],
+    );
+    if (check.rows.length === 0) {
+      return { ok: false, error: `${symbolKey} not found in watchlist` };
+    }
+    if (!check.rows[0].pinned) {
+      return { ok: false, error: "Only manually-pinned coins can be removed; auto-discovered coins expire on their own" };
+    }
+
+    await _pool.query("DELETE FROM trending_symbols WHERE symbol_key = $1 AND pinned = true", [symbolKey]);
+
+    // Remove from in-memory cache.
+    const idx = trendingCache.findIndex((t) => t.symbolKey === symbolKey);
+    if (idx >= 0) trendingCache.splice(idx, 1);
+
+    logger.info({ symbolKey }, "Pinned coin removed from watchlist");
+    return { ok: true };
+  } catch (err) {
+    logger.warn({ err, symbolKey }, "removePinnedSymbol failed");
+    return { ok: false, error: "Internal error removing coin from watchlist" };
+  }
 }

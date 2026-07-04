@@ -71,3 +71,5 @@ export * from "./tradeZone";
 export * from "./trendingSymbol";
 export * from "./trendingSymbolsResponse";
 export * from "./vapidPublicKey";
+export * from "./watchlistAddRequest";
+export * from "./watchlistMutateResponse";

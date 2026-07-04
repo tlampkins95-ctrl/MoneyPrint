@@ -7,6 +7,7 @@ import { LearnTab } from "@/components/learn/learn-tab";
 import { NewsPanel } from "@/components/news-panel";
 import { PnlTab } from "@/components/pnl-tab";
 import { GainersStrip } from "@/components/gainers-strip";
+import { WatchlistPanel } from "@/components/watchlist-panel";
 import {
   TimeframeSelector,
   type Timeframe,
@@ -162,6 +163,15 @@ export default function Dashboard() {
       <main className="flex-1 p-2 md:p-3 flex flex-col gap-2 md:gap-3">
         {tab === "signals" && (
           <>
+            {/* Watchlist — pinned coins + auto-discovered trending coins */}
+            <WatchlistPanel
+              selectedSymbol={symbol}
+              onSelect={(s, t) => {
+                setSymbol(s);
+                setTimeframe(t as Timeframe);
+              }}
+            />
+
             {/* Top gainers — clickable to navigate to that coin's signals */}
             <GainersStrip
               selectedSymbol={symbol}

@@ -1074,8 +1074,8 @@ export const GetActiveSignalsResponse = zod.object({
 });
 
 /**
- * Returns the top trending coins validated against CoinGecko gainers, OKX USDT SWAP instruments (for candle data), and Phemex USDT-perp listing (for trading). Updated every 4 hours. Coins expire after 8 hours (cooldown window preserves active-trade context after a coin drops out of the gainers list).
- * @summary Get currently-trending coins discovered from CoinGecko gainers + OKX
+ * Returns the top trending coins validated against CoinGecko gainers, OKX USDT SWAP instruments (for candle data), and Phemex USDT-perp listing (for trading). Updated every 4 hours. Coins expire after 8 hours (cooldown window preserves active-trade context after a coin drops out of the gainers list). Manually-pinned coins (pinned=true) appear first and never auto-expire.
+ * @summary Get currently-trending coins discovered from CoinGecko gainers + OKX, including manually-pinned coins
  */
 export const GetTrendingSymbolsResponse = zod.object({
   symbols: zod.array(
@@ -1096,12 +1096,53 @@ export const GetTrendingSymbolsResponse = zod.object({
           .describe("Rank among current trending coins (1 = top gainer)"),
         discoveredAt: zod.string(),
         expiresAt: zod.string(),
+        pinned: zod
+          .boolean()
+          .describe(
+            "True when manually pinned by the user. Pinned coins are never auto-purged and always appear first in the list.",
+          ),
       })
       .describe(
-        "A dynamically-discovered trending coin with an OKX USDT SWAP instrument.",
+        "A dynamically-discovered or manually-pinned coin with an OKX USDT SWAP instrument.",
       ),
   ),
   lastUpdated: zod.string(),
+});
+
+/**
+ * Resolves the ticker against Phemex USDT-perp and OKX SWAP listings to obtain sizing metadata, then inserts it with pinned=true. Pinned coins never auto-expire and are tracked by the signal notifier alongside auto-discovered trending coins. Returns an error if the coin is not listed on both exchanges.
+ * @summary Manually pin a coin to the watchlist
+ */
+export const AddToWatchlistBody = zod.object({
+  ticker: zod
+    .string()
+    .describe(
+      "Coin ticker to pin (e.g. 'LAB' or 'LABUSDT'). The USDT suffix is optional.",
+    ),
+});
+
+export const AddToWatchlistResponse = zod.object({
+  ok: zod.boolean(),
+  error: zod
+    .string()
+    .optional()
+    .describe("Human-readable error message when ok=false"),
+});
+
+/**
+ * Removes a coin that was manually pinned via POST /watchlist. Auto-discovered coins cannot be removed this way — they expire on their own TTL.
+ * @summary Unpin a manually-pinned coin from the watchlist
+ */
+export const RemoveFromWatchlistParams = zod.object({
+  symbolKey: zod.coerce.string().describe("Internal symbol key (e.g. LABUSDT)"),
+});
+
+export const RemoveFromWatchlistResponse = zod.object({
+  ok: zod.boolean(),
+  error: zod
+    .string()
+    .optional()
+    .describe("Human-readable error message when ok=false"),
 });
 
 /**

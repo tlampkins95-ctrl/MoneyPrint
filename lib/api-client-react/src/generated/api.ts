@@ -36,6 +36,8 @@ import type {
   TradeHistoryResponse,
   TrendingSymbolsResponse,
   VapidPublicKey,
+  WatchlistAddRequest,
+  WatchlistMutateResponse,
 } from "./api.schemas";
 
 import { customFetch } from "../custom-fetch";
@@ -411,8 +413,8 @@ export function useGetActiveSignals<
 }
 
 /**
- * Returns the top trending coins validated against CoinGecko gainers, OKX USDT SWAP instruments (for candle data), and Phemex USDT-perp listing (for trading). Updated every 4 hours. Coins expire after 8 hours (cooldown window preserves active-trade context after a coin drops out of the gainers list).
- * @summary Get currently-trending coins discovered from CoinGecko gainers + OKX
+ * Returns the top trending coins validated against CoinGecko gainers, OKX USDT SWAP instruments (for candle data), and Phemex USDT-perp listing (for trading). Updated every 4 hours. Coins expire after 8 hours (cooldown window preserves active-trade context after a coin drops out of the gainers list). Manually-pinned coins (pinned=true) appear first and never auto-expire.
+ * @summary Get currently-trending coins discovered from CoinGecko gainers + OKX, including manually-pinned coins
  */
 export const getGetTrendingSymbolsUrl = () => {
   return `/api/trending-symbols`;
@@ -463,7 +465,7 @@ export type GetTrendingSymbolsQueryResult = NonNullable<
 export type GetTrendingSymbolsQueryError = ErrorType<unknown>;
 
 /**
- * @summary Get currently-trending coins discovered from CoinGecko gainers + OKX
+ * @summary Get currently-trending coins discovered from CoinGecko gainers + OKX, including manually-pinned coins
  */
 
 export function useGetTrendingSymbols<
@@ -485,6 +487,182 @@ export function useGetTrendingSymbols<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * Resolves the ticker against Phemex USDT-perp and OKX SWAP listings to obtain sizing metadata, then inserts it with pinned=true. Pinned coins never auto-expire and are tracked by the signal notifier alongside auto-discovered trending coins. Returns an error if the coin is not listed on both exchanges.
+ * @summary Manually pin a coin to the watchlist
+ */
+export const getAddToWatchlistUrl = () => {
+  return `/api/watchlist`;
+};
+
+export const addToWatchlist = async (
+  watchlistAddRequest: WatchlistAddRequest,
+  options?: RequestInit,
+): Promise<WatchlistMutateResponse> => {
+  return customFetch<WatchlistMutateResponse>(getAddToWatchlistUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(watchlistAddRequest),
+  });
+};
+
+export const getAddToWatchlistMutationOptions = <
+  TError = ErrorType<WatchlistMutateResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof addToWatchlist>>,
+    TError,
+    { data: BodyType<WatchlistAddRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof addToWatchlist>>,
+  TError,
+  { data: BodyType<WatchlistAddRequest> },
+  TContext
+> => {
+  const mutationKey = ["addToWatchlist"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof addToWatchlist>>,
+    { data: BodyType<WatchlistAddRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return addToWatchlist(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type AddToWatchlistMutationResult = NonNullable<
+  Awaited<ReturnType<typeof addToWatchlist>>
+>;
+export type AddToWatchlistMutationBody = BodyType<WatchlistAddRequest>;
+export type AddToWatchlistMutationError = ErrorType<WatchlistMutateResponse>;
+
+/**
+ * @summary Manually pin a coin to the watchlist
+ */
+export const useAddToWatchlist = <
+  TError = ErrorType<WatchlistMutateResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof addToWatchlist>>,
+    TError,
+    { data: BodyType<WatchlistAddRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof addToWatchlist>>,
+  TError,
+  { data: BodyType<WatchlistAddRequest> },
+  TContext
+> => {
+  return useMutation(getAddToWatchlistMutationOptions(options));
+};
+
+/**
+ * Removes a coin that was manually pinned via POST /watchlist. Auto-discovered coins cannot be removed this way — they expire on their own TTL.
+ * @summary Unpin a manually-pinned coin from the watchlist
+ */
+export const getRemoveFromWatchlistUrl = (symbolKey: string) => {
+  return `/api/watchlist/${symbolKey}`;
+};
+
+export const removeFromWatchlist = async (
+  symbolKey: string,
+  options?: RequestInit,
+): Promise<WatchlistMutateResponse> => {
+  return customFetch<WatchlistMutateResponse>(
+    getRemoveFromWatchlistUrl(symbolKey),
+    {
+      ...options,
+      method: "DELETE",
+    },
+  );
+};
+
+export const getRemoveFromWatchlistMutationOptions = <
+  TError = ErrorType<WatchlistMutateResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof removeFromWatchlist>>,
+    TError,
+    { symbolKey: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof removeFromWatchlist>>,
+  TError,
+  { symbolKey: string },
+  TContext
+> => {
+  const mutationKey = ["removeFromWatchlist"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof removeFromWatchlist>>,
+    { symbolKey: string }
+  > = (props) => {
+    const { symbolKey } = props ?? {};
+
+    return removeFromWatchlist(symbolKey, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RemoveFromWatchlistMutationResult = NonNullable<
+  Awaited<ReturnType<typeof removeFromWatchlist>>
+>;
+
+export type RemoveFromWatchlistMutationError =
+  ErrorType<WatchlistMutateResponse>;
+
+/**
+ * @summary Unpin a manually-pinned coin from the watchlist
+ */
+export const useRemoveFromWatchlist = <
+  TError = ErrorType<WatchlistMutateResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof removeFromWatchlist>>,
+    TError,
+    { symbolKey: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof removeFromWatchlist>>,
+  TError,
+  { symbolKey: string },
+  TContext
+> => {
+  return useMutation(getRemoveFromWatchlistMutationOptions(options));
+};
 
 /**
  * Returns the public half of the VAPID keypair used to sign Web Push payloads. The browser passes this to PushManager.subscribe() before posting the resulting subscription back via /push/subscribe.

@@ -187,8 +187,8 @@ paths:
     get:
       operationId: getTrendingSymbols
       tags: [signals]
-      summary: Get currently-trending coins discovered from CoinGecko gainers + OKX
-      description: Returns the top trending coins validated against CoinGecko gainers, OKX USDT SWAP instruments (for candle data), and Phemex USDT-perp listing (for trading). Updated every 4 hours. Coins expire after 8 hours (cooldown window preserves active-trade context after a coin drops out of the gainers list).
+      summary: Get currently-trending coins discovered from CoinGecko gainers + OKX, including manually-pinned coins
+      description: Returns the top trending coins validated against CoinGecko gainers, OKX USDT SWAP instruments (for candle data), and Phemex USDT-perp listing (for trading). Updated every 4 hours. Coins expire after 8 hours (cooldown window preserves active-trade context after a coin drops out of the gainers list). Manually-pinned coins (pinned=true) appear first and never auto-expire.
       responses:
         "200":
           description: Trending symbols
@@ -196,6 +196,59 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/TrendingSymbolsResponse"
+
+  /watchlist:
+    post:
+      operationId: addToWatchlist
+      tags: [signals]
+      summary: Manually pin a coin to the watchlist
+      description: Resolves the ticker against Phemex USDT-perp and OKX SWAP listings to obtain sizing metadata, then inserts it with pinned=true. Pinned coins never auto-expire and are tracked by the signal notifier alongside auto-discovered trending coins. Returns an error if the coin is not listed on both exchanges.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WatchlistAddRequest"
+      responses:
+        "200":
+          description: Coin pinned successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WatchlistMutateResponse"
+        "400":
+          description: Ticker not found on Phemex/OKX or bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WatchlistMutateResponse"
+
+  /watchlist/{symbolKey}:
+    delete:
+      operationId: removeFromWatchlist
+      tags: [signals]
+      summary: Unpin a manually-pinned coin from the watchlist
+      description: Removes a coin that was manually pinned via POST /watchlist. Auto-discovered coins cannot be removed this way — they expire on their own TTL.
+      parameters:
+        - in: path
+          name: symbolKey
+          required: true
+          schema:
+            type: string
+          description: Internal symbol key (e.g. LABUSDT)
+      responses:
+        "200":
+          description: Coin unpinned successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WatchlistMutateResponse"
+        "400":
+          description: Symbol not found or is auto-discovered (not pinned)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WatchlistMutateResponse"
 
   /push/vapid-public-key:
     get:
@@ -831,9 +884,27 @@ components:
         - pnlAtTP2
         - belowMinimum
 
+    WatchlistAddRequest:
+      type: object
+      properties:
+        ticker:
+          type: string
+          description: "Coin ticker to pin (e.g. 'LAB' or 'LABUSDT'). The USDT suffix is optional."
+      required: [ticker]
+
+    WatchlistMutateResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        error:
+          type: string
+          description: Human-readable error message when ok=false
+      required: [ok]
+
     TrendingSymbol:
       type: object
-      description: A dynamically-discovered trending coin with an OKX USDT SWAP instrument.
+      description: A dynamically-discovered or manually-pinned coin with an OKX USDT SWAP instrument.
       properties:
         symbolKey:
           type: string
@@ -859,7 +930,10 @@ components:
           type: string
         expiresAt:
           type: string
-      required: [symbolKey, baseAsset, okxSymbol, phemexSymbol, decimals, priceChange24h, rank, discoveredAt, expiresAt]
+        pinned:
+          type: boolean
+          description: True when manually pinned by the user. Pinned coins are never auto-purged and always appear first in the list.
+      required: [symbolKey, baseAsset, okxSymbol, phemexSymbol, decimals, priceChange24h, rank, discoveredAt, expiresAt, pinned]
 
     TrendingSymbolsResponse:
       type: object
