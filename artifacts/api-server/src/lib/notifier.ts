@@ -1071,18 +1071,26 @@ async function checkSymbol(
       }
 
       // 24h momentum gate (all symbols, fresh entries only).
-      // Don't long a coin that's red on the day, don't short one that's green.
-      // Only trade in the direction the market is already moving.
-      // Filled trades and direction flips are exempt — position management always wins.
-      if (!isFilledTrade && !isDirectionFlip && (levels.signal === "BUY" || levels.signal === "SELL")) {
+      // Trend-following signals must trade with the daily flow: don't long red
+      // coins or short green ones. Counter-trend signals are explicitly exempt —
+      // BB_OVEREXTENSION, BB_REJECTION, DOUBLE_TOP, and DOUBLE_BOTTOM fire
+      // BECAUSE the coin made a large move; a big 24h change is a requirement
+      // for those setups, not a reason to block them.
+      // Filled trades and direction flips are always exempt.
+      const isTrendFollowing =
+        levels.signalType === "FIB50_SWING" ||
+        levels.signalType === "DUMP_RECOVERY" ||
+        levels.signalType === "BB_BREAKOUT" ||
+        levels.signalType === "BB_WALK";
+      if (!isFilledTrade && !isDirectionFlip && isTrendFollowing && (levels.signal === "BUY" || levels.signal === "SELL")) {
         const pct24h = levels.priceChangePct ?? 0;
         const momentumOk =
           (levels.signal === "BUY" && pct24h > 0) ||
           (levels.signal === "SELL" && pct24h < 0);
         if (!momentumOk) {
           logger.info(
-            { symbol, timeframe, signal: levels.signal, priceChangePct: pct24h },
-            "Signal suppressed — 24h momentum opposes signal direction",
+            { symbol, timeframe, signal: levels.signal, signalType: levels.signalType, priceChangePct: pct24h },
+            "Signal suppressed — 24h momentum opposes trend-following signal direction",
           );
           stateMap.set(k, { ...(prev ?? {}), signal: levels.signal, lastAlertAt: prev?.lastAlertAt ?? 0 });
           return;
@@ -1614,17 +1622,24 @@ async function checkTrendingSymbol(
       }
 
       // 24h momentum gate (trending coins, fresh entries only).
-      // Don't long a coin that's red on the day, don't short one that's green.
-      // Filled trades and direction flips are exempt.
-      if (!isFilledTrade && !isDirectionFlip && (levels.signal === "BUY" || levels.signal === "SELL")) {
+      // Trend-following signals must trade with the daily flow. Counter-trend
+      // signals (BB_OVEREXTENSION, BB_REJECTION, DOUBLE_TOP, DOUBLE_BOTTOM)
+      // are exempt — a big 24h move is a precondition for those setups.
+      // Filled trades and direction flips are always exempt.
+      const isTrendFollowingT =
+        levels.signalType === "FIB50_SWING" ||
+        levels.signalType === "DUMP_RECOVERY" ||
+        levels.signalType === "BB_BREAKOUT" ||
+        levels.signalType === "BB_WALK";
+      if (!isFilledTrade && !isDirectionFlip && isTrendFollowingT && (levels.signal === "BUY" || levels.signal === "SELL")) {
         const pct24h = levels.priceChangePct ?? 0;
         const momentumOk =
           (levels.signal === "BUY" && pct24h > 0) ||
           (levels.signal === "SELL" && pct24h < 0);
         if (!momentumOk) {
           logger.info(
-            { symbolKey, timeframe, signal: levels.signal, priceChangePct: pct24h },
-            "Trending signal suppressed — 24h momentum opposes signal direction",
+            { symbolKey, timeframe, signal: levels.signal, signalType: levels.signalType, priceChangePct: pct24h },
+            "Trending signal suppressed — 24h momentum opposes trend-following signal direction",
           );
           stateMap.set(k, { ...(prev ?? {}), signal: levels.signal, lastAlertAt: prev?.lastAlertAt ?? 0 });
           return;

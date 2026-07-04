@@ -46,5 +46,5 @@
 - [4h daily MACD gate wiring](4h-daily-gate-wire.md) — `dailyCandlesForWeekly` was undefined for 4h; fix is reuse `higherCandles` (already daily) as `dailyForWeekly`.
 - [FIB50_SWING BUY lower-band steal](fib50swing-upper-band-steal.md) — symmetric to SELL fix: pctB30 > 0.15 reserves lower 15% of BB range for BB_REJECTION BUY.
 - [Market entry triggered flag](market-entry-triggered.md) — isMarketEntry was hardcoded false; BB_WALK/BB_BREAKOUT/DUMP_RECOVERY all need isMarketEntry=true or triggered is random.
-- [24h momentum gate](24h-momentum-gate.md) — checkSymbol + checkTrendingSymbol both gate fresh entries: BUY requires priceChangePct>0, SELL requires <0; filled trades and direction flips exempt.
+- [24h momentum gate](24h-momentum-gate.md) — only applies to trend-following types (FIB50_SWING, DUMP_RECOVERY, BB_BREAKOUT, BB_WALK); counter-trend types (BB_OVEREXTENSION, BB_REJECTION, DOUBLE_TOP, DOUBLE_BOTTOM) are exempt — large 24h move is a precondition, not a blocker.
 - [Phemex manual order endpoint](phemex-manual-order.md) — POST /g-orders (not /g-orders/create); positions endpoint returns all symbols including zero-size ones, filter by avgEntryPriceRp > 0 to find open positions.
