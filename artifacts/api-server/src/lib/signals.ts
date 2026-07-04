@@ -3712,6 +3712,17 @@ export function getActiveTrade(symbolKey: string, timeframe: Timeframe): ActiveT
   return activeTrades.get(tradeKey(symbolKey, timeframe));
 }
 
+// Called by the catch-up path in notifier.ts when it detects a real open
+// Phemex position for a signal slot. Marks the trade as triggered so that
+// classifyTradeState returns the correct FILLED_* state instead of PENDING.
+export function markTradeTriggered(symbolKey: string, timeframe: Timeframe): void {
+  const k = tradeKey(symbolKey, timeframe);
+  const trade = activeTrades.get(k);
+  if (!trade || trade.triggered) return;
+  trade.triggered = true;
+  persistActiveTrades();
+}
+
 export function clearActiveTrade(symbolKey: string, timeframe: Timeframe): void {
   activeTrades.delete(tradeKey(symbolKey, timeframe));
   persistActiveTrades();

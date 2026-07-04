@@ -6,7 +6,7 @@ import {
   fetchCandlesForTimeframe,
   type Timeframe,
 } from "./yahoo-fetch";
-import { computeLevelsStable, fetchSpotPrice, getActiveTrade, applyFuturesBasis, registerOnTradeClosedCallback, calcMACDHist, computePositionSizing, DEFAULT_ACCOUNT_SIZE, DEFAULT_RISK_PCT, DEFAULT_MIN_COLLATERAL, DEFAULT_MAX_LEVERAGE, DEFAULT_MT5_LOTS, type ClosedOutcome } from "./signals";
+import { computeLevelsStable, fetchSpotPrice, getActiveTrade, markTradeTriggered, applyFuturesBasis, registerOnTradeClosedCallback, calcMACDHist, computePositionSizing, DEFAULT_ACCOUNT_SIZE, DEFAULT_RISK_PCT, DEFAULT_MIN_COLLATERAL, DEFAULT_MAX_LEVERAGE, DEFAULT_MT5_LOTS, type ClosedOutcome } from "./signals";
 import {
   buildAlertContext,
   sendTelegramAlert,
@@ -431,6 +431,11 @@ async function executePhemexTrade(
         tp1: levels.takeProfit1, tp2: levels.takeProfit2, tp1OrderId, tp2OrderId },
       "phemex-trader: existing position — split-TP orders restored",
     );
+    // Mark the trade as triggered so classifyTradeState returns a FILLED_*
+    // state instead of PENDING. Without this, a position that predates
+    // triggered=true (or whose flag was wiped) would stay invisible in the
+    // "filled positions" UI column after every restart.
+    markTradeTriggered(symbol, timeframe);
     return;
   }
 
