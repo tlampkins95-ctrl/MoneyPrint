@@ -3057,7 +3057,7 @@ function loadActiveTradesFromDisk(): void {
       if (needsMigration) didMigrate = true;
       const migrated: ActiveTrade = {
         ...(v as ActiveTrade),
-        signalType: "FIB50_SWING",
+        signalType: v.signalType ?? "FIB50_SWING",
         triggered: typeof v.triggered === "boolean" ? v.triggered : false,
         openedPrice:
           typeof v.openedPrice === "number" ? v.openedPrice : (v.entryPrice ?? 0),
