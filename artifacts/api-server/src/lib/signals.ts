@@ -1546,7 +1546,7 @@ export function computeLevels(
   const SWING_SL_BUFFER_ATR = 0.5;  // extra buffer below/above swing extreme for SL
 
   let signal: "BUY" | "SELL" | "WAIT" = "WAIT";
-  let signalType: "FIB50_SWING" | "DOUBLE_TOP" | "DOUBLE_BOTTOM" | "BB_REJECTION" | "BB_WALK" | "BB_BREAKOUT" | "BB_OVEREXTENSION" | "PATTERN_BREAKOUT" | "DUMP_RECOVERY" = "FIB50_SWING";
+  let signalType: "FIB50_SWING" | "DOUBLE_TOP" | "DOUBLE_BOTTOM" | "BB_REJECTION" | "BB_WALK" | "BB_BREAKOUT" | "BB_OVEREXTENSION" | "PATTERN_BREAKOUT" | "DUMP_RECOVERY" | "SWING_BREAK" = "FIB50_SWING";
   let signalReason = "";
   let patternResult: PatternResult | null = null;
   let entryPrice = currentPrice;
@@ -2420,6 +2420,76 @@ export function computeLevels(
     }
   }
 
+  // ── SWING_BREAK detection: resistance / support breakout ─────────────────────
+  // The earliest-entry signal in the cascade. Fires when price closes above the
+  // most recent swing high (BUY) or below the most recent swing low (SELL) with
+  // MACD green/red and the daily trend confirming. Catches the START of moves,
+  // not the confirmation after the band has fully extended.
+  //
+  // Entry:  current price (market entry on breakout bar)
+  // SL:     broken swing high/low ± 0.3×ATR (broken resistance becomes support)
+  // TP1/2:  1.5× / 2.5× risk
+  // Fresh-break gate: at least one of the last 3 completed candles must have
+  //   closed on the "old" side of the level — prevents firing mid-range when
+  //   price has been above the swing high for many bars already.
+  if (signal === "WAIT") {
+    const sbCompleted = candles.slice(0, candles.length - 1);
+
+    if (macdBuyOk && higherTfAllowsBuy) {
+      const swingHighs = findSwingHighs(sbCompleted, 2, 60);
+      const recentHigh = swingHighs.length > 0 ? swingHighs[swingHighs.length - 1] : null;
+      if (recentHigh && currentPrice > recentHigh.price) {
+        const last3 = sbCompleted.slice(-3);
+        const freshBreak = last3.some((c) => c.close <= recentHigh.price);
+        if (freshBreak) {
+          const ep   = round(currentPrice);
+          const sl   = round(recentHigh.price - 0.3 * atr);
+          const risk = ep - sl;
+          if (risk > 0) {
+            const tp1 = round(ep + 1.5 * risk);
+            const tp2 = round(ep + 2.5 * risk);
+            signal      = "BUY";
+            signalType  = "SWING_BREAK";
+            entryPrice  = ep;
+            stopLoss    = sl;
+            takeProfit1 = tp1;
+            takeProfit2 = tp2;
+            dca1        = undefined;
+            patternResult = null;
+            signalReason = `[${tfLabel}] SWING BREAK BUY: Price ${fmt(ep)} broke above swing high resistance ${fmt(recentHigh.price)}, MACD green+rising. SL ${fmt(sl)} (below broken resistance), TP1 ${fmt(tp1)}, TP2 ${fmt(tp2)}.`;
+          }
+        }
+      }
+    }
+
+    if (signal === "WAIT" && macdSellOk && higherTfAllowsSell && !isLongOnly) {
+      const swingLows = findSwingLows(sbCompleted, 2, 60);
+      const recentLow = swingLows.length > 0 ? swingLows[swingLows.length - 1] : null;
+      if (recentLow && currentPrice < recentLow.price) {
+        const last3 = sbCompleted.slice(-3);
+        const freshBreak = last3.some((c) => c.close >= recentLow.price);
+        if (freshBreak) {
+          const ep   = round(currentPrice);
+          const sl   = round(recentLow.price + 0.3 * atr);
+          const risk = sl - ep;
+          if (risk > 0) {
+            const tp1 = round(ep - 1.5 * risk);
+            const tp2 = round(ep - 2.5 * risk);
+            signal      = "SELL";
+            signalType  = "SWING_BREAK";
+            entryPrice  = ep;
+            stopLoss    = sl;
+            takeProfit1 = tp1;
+            takeProfit2 = tp2;
+            dca1        = undefined;
+            patternResult = null;
+            signalReason = `[${tfLabel}] SWING BREAK SELL: Price ${fmt(ep)} broke below swing low support ${fmt(recentLow.price)}, MACD red+falling. SL ${fmt(sl)} (above broken support), TP1 ${fmt(tp1)}, TP2 ${fmt(tp2)}.`;
+          }
+        }
+      }
+    }
+  }
+
   // ── PATTERN_BREAKOUT detection (confirmed chart pattern breakout) ────────────
   // Last in the cascade — fires only when all other signal types are WAIT.
   // Detects confirmed breakouts from triangles, wedges, flags, pennants, H&S/IHS.
@@ -2645,7 +2715,7 @@ type Levels = ReturnType<typeof computeLevels>;
 
 interface ActiveTrade {
   signal: "BUY" | "SELL";
-  signalType?: "FIB50_SWING" | "DOUBLE_TOP" | "DOUBLE_BOTTOM" | "BB_REJECTION" | "BB_WALK" | "BB_BREAKOUT" | "BB_OVEREXTENSION" | "PATTERN_BREAKOUT" | "DUMP_RECOVERY";
+  signalType?: "FIB50_SWING" | "DOUBLE_TOP" | "DOUBLE_BOTTOM" | "BB_REJECTION" | "BB_WALK" | "BB_BREAKOUT" | "BB_OVEREXTENSION" | "PATTERN_BREAKOUT" | "DUMP_RECOVERY" | "SWING_BREAK";
   signalReason: string;
   entryPrice: number;
   stopLoss: number;
@@ -2941,7 +3011,7 @@ async function syncFromDb(): Promise<void> {
       if (activeTrades.has(row.key)) continue; // local file wins for existing keys
       const v = row.data as Partial<ActiveTrade>;
       // Skip trades from previous strategies — they have wrong levels.
-      if (v.signalType !== "FIB50_SWING" && v.signalType !== "DOUBLE_TOP" && v.signalType !== "DOUBLE_BOTTOM" && v.signalType !== "BB_REJECTION" && v.signalType !== "BB_WALK" && v.signalType !== "BB_BREAKOUT" && v.signalType !== "BB_OVEREXTENSION" && v.signalType !== "PATTERN_BREAKOUT" && v.signalType !== "DUMP_RECOVERY") continue;
+      if (v.signalType !== "FIB50_SWING" && v.signalType !== "DOUBLE_TOP" && v.signalType !== "DOUBLE_BOTTOM" && v.signalType !== "BB_REJECTION" && v.signalType !== "BB_WALK" && v.signalType !== "BB_BREAKOUT" && v.signalType !== "BB_OVEREXTENSION" && v.signalType !== "PATTERN_BREAKOUT" && v.signalType !== "DUMP_RECOVERY" && v.signalType !== "SWING_BREAK") continue;
       activeTrades.set(row.key, {
         ...(v as ActiveTrade),
         signalType: v.signalType,
@@ -2982,7 +3052,7 @@ function loadActiveTradesFromDisk(): void {
     let didMigrate = false;
     for (const [k, v] of Object.entries(obj)) {
       // Skip trades from previous strategies — they have wrong levels.
-      if (v.signalType !== "FIB50_SWING" && v.signalType !== "DOUBLE_TOP" && v.signalType !== "DOUBLE_BOTTOM" && v.signalType !== "BB_REJECTION" && v.signalType !== "BB_WALK" && v.signalType !== "BB_BREAKOUT" && v.signalType !== "BB_OVEREXTENSION" && v.signalType !== "PATTERN_BREAKOUT" && v.signalType !== "DUMP_RECOVERY") { didMigrate = true; continue; }
+      if (v.signalType !== "FIB50_SWING" && v.signalType !== "DOUBLE_TOP" && v.signalType !== "DOUBLE_BOTTOM" && v.signalType !== "BB_REJECTION" && v.signalType !== "BB_WALK" && v.signalType !== "BB_BREAKOUT" && v.signalType !== "BB_OVEREXTENSION" && v.signalType !== "PATTERN_BREAKOUT" && v.signalType !== "DUMP_RECOVERY" && v.signalType !== "SWING_BREAK") { didMigrate = true; continue; }
       // Backward-compat for snapshots persisted before fill-tracking existed.
       // Default triggered=false; the next tick's candle scan since openedAt
       // will retroactively flip it to true if price actually did tag entry.
