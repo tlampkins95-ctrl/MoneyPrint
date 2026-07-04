@@ -561,15 +561,16 @@ async function executePhemexTrade(
     return;
   }
 
-  // Non-FIB50_SWING catch-up guard: no position exists and the signal is
-  // price-pinned (DOUBLE_TOP, DOUBLE_BOTTOM, BB_REJECTION, PATTERN_BREAKOUT).
-  // Re-entering at current price with the original SL is dangerous — skip and
-  // register a sentinel so the catch-up block stops retrying.
-  // FIB50_SWING uses a zone-based entry that tolerates catch-up re-entry.
+  // Non-zone catch-up guard: no position exists and the signal is price-pinned
+  // (DOUBLE_TOP, DOUBLE_BOTTOM, BB_REJECTION, PATTERN_BREAKOUT). Re-entering at
+  // current price with the original SL is dangerous — skip and register a sentinel
+  // so the catch-up block stops retrying.
+  // FIB50_SWING and DUMP_RECOVERY use zone/consolidation-based entries that
+  // tolerate catch-up re-entry — currentPrice is the entry by definition.
   // EXCEPTION: FILLED_PROFIT means the entry already happened — TP1 was hit and
   // the position is still open. We only need to restore the TP2 order, not place
   // a new entry. Let it fall through to checkExistingPosition in that case.
-  if (isCatchUp && levels.signalType !== "FIB50_SWING" && levels.tradeState !== "FILLED_PROFIT") {
+  if (isCatchUp && levels.signalType !== "FIB50_SWING" && levels.signalType !== "DUMP_RECOVERY" && levels.tradeState !== "FILLED_PROFIT") {
     logger.info(
       { symbol, timeframe, signalType: levels.signalType },
       "phemex-trader: catch-up skipped — no position to restore for non-FIB50_SWING signal",
@@ -997,13 +998,13 @@ async function checkSymbol(
         return;
       }
 
-      // Hard type filter. Only FIB50_SWING, DOUBLE_TOP, DOUBLE_BOTTOM, and BB_REJECTION
-      // signals trigger notifications and Phemex auto-trades. PATTERN_BREAKOUT is
-      // excluded — entries are time-sensitive and degrade rapidly after the breakout bar.
-      // Filled trades bypass this: a fill notification is always actionable
-      // regardless of what signal type originally opened the position.
+      // Hard type filter. Only FIB50_SWING, DUMP_RECOVERY, DOUBLE_TOP, DOUBLE_BOTTOM,
+      // BB_REJECTION, and BB_WALK signals trigger notifications and Phemex auto-trades.
+      // PATTERN_BREAKOUT is excluded — entries are time-sensitive and degrade rapidly
+      // after the breakout bar. Filled trades bypass this: a fill notification is
+      // always actionable regardless of what signal type originally opened the position.
       if (!isFilledTrade) {
-        const signalTypeAllowed = levels.signalType === "FIB50_SWING" || levels.signalType === "DOUBLE_TOP" || levels.signalType === "DOUBLE_BOTTOM" || levels.signalType === "BB_REJECTION" || levels.signalType === "BB_WALK";
+        const signalTypeAllowed = levels.signalType === "FIB50_SWING" || levels.signalType === "DUMP_RECOVERY" || levels.signalType === "DOUBLE_TOP" || levels.signalType === "DOUBLE_BOTTOM" || levels.signalType === "BB_REJECTION" || levels.signalType === "BB_WALK";
         if (!signalTypeAllowed) {
           logger.info(
             { symbol, timeframe, signalType: levels.signalType },

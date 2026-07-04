@@ -279,6 +279,16 @@ export function SignalPanel({
                   ⌖ PATTERN BRK
                 </span>
               );
+            if (st === "DUMP_RECOVERY")
+              return data.signal === "BUY" ? (
+                <span className="mt-1 px-3 py-0.5 text-[10px] font-bold tracking-widest rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                  ↩ DUMP RECOVERY
+                </span>
+              ) : (
+                <span className="mt-1 px-3 py-0.5 text-[10px] font-bold tracking-widest rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/40">
+                  ↗ PUMP FADE
+                </span>
+              );
             // Default: FIB50_SWING
             return (
               <span className="mt-1 px-3 py-0.5 text-[10px] font-bold tracking-widest rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40">

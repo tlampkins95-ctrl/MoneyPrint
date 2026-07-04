@@ -1517,7 +1517,7 @@ export function computeLevels(
   const SWING_SL_BUFFER_ATR = 0.5;  // extra buffer below/above swing extreme for SL
 
   let signal: "BUY" | "SELL" | "WAIT" = "WAIT";
-  let signalType: "FIB50_SWING" | "DOUBLE_TOP" | "DOUBLE_BOTTOM" | "BB_REJECTION" | "BB_WALK" | "BB_BREAKOUT" | "PATTERN_BREAKOUT" = "FIB50_SWING";
+  let signalType: "FIB50_SWING" | "DOUBLE_TOP" | "DOUBLE_BOTTOM" | "BB_REJECTION" | "BB_WALK" | "BB_BREAKOUT" | "PATTERN_BREAKOUT" | "DUMP_RECOVERY" = "FIB50_SWING";
   let signalReason = "";
   let patternResult: PatternResult | null = null;
   let entryPrice = currentPrice;
@@ -2033,6 +2033,103 @@ export function computeLevels(
     }
   }
 
+  // ── DUMP_RECOVERY: consolidation at extreme after a sharp move ────────────────
+  // BUY (dump recovery): sharp drop (swingHigh → swingLow ≥ 2.5 ATR) followed by
+  //   price consolidating within 1 ATR of the swingLow. MACD histogram rising from
+  //   negative (turning bullish) confirms the exhaustion of selling pressure.
+  //   Entry at currentPrice. TP1 = 50% fib midpoint. TP2 = 78.6% fib. SL = 2:1 R:R.
+  //
+  // SELL (pump fade): sharp pump (swingLow → swingHigh ≥ 2.5 ATR) followed by
+  //   price consolidating within 1 ATR of the swingHigh. MACD histogram falling from
+  //   positive (turning bearish) confirms exhaustion of buying pressure.
+  //   Entry at currentPrice. TP1 = 50% fib midpoint. TP2 = 78.6% fib. SL = 2:1 R:R.
+  //
+  // Distinction from FIB50_SWING: FIB50_SWING enters AT the 50% fib level.
+  // DUMP_RECOVERY enters AT the extreme (low for BUY, high for SELL) and TARGETS
+  // the 50% fib — capturing the full mean-reversion leg from the exhaustion point.
+  //
+  // Fires on 1h, 4h, 1d only (no weekly — too slow; 30m gets too noisy).
+  if (
+    signal === "WAIT" &&
+    macdWarm &&
+    (timeframe === "1h" || timeframe === "4h" || timeframe === "1d")
+  ) {
+    const drCompleted = candles.slice(0, candles.length - 1);
+    const DR_LOOKBACK = SWING_LOOKBACK_BY_TF[timeframe] ?? 40;
+    const drSwingHighs = findSwingHighs(drCompleted, 3, DR_LOOKBACK);
+    const drSwingLows  = findSwingLows(drCompleted,  3, DR_LOOKBACK);
+
+    // ── BUY: dump recovery ─────────────────────────────────────────────────────
+    // MACD: histogram ticking up (histPrev1 > histPrev2) AND was negative
+    // (histPrev2 < 0) — turning from bearish to bullish, the hallmark of exhaustion.
+    const drBuyMacd = histPrev1 > histPrev2 && histPrev2 < 0;
+    if (signal === "WAIT" && higherTfAllowsBuy && drBuyMacd) {
+      const lows  = [...drSwingLows].reverse();
+      const highs = [...drSwingHighs].reverse();
+      for (const swingLow of lows) {
+        // Find the nearest structural swingHigh BEFORE (older than) this swingLow
+        const swingHighPoint = highs.find((sh) => sh.idx < swingLow.idx);
+        if (!swingHighPoint) continue;
+        const range = swingHighPoint.price - swingLow.price;
+        if (range < MIN_SWING_ATR * atr) continue; // not a significant dump
+        // Price must be consolidating near the low — within 1 ATR, not yet recovering.
+        if (currentPrice > swingLow.price + atr) break; // too far above low; stop scanning
+        const ep  = round(currentPrice);
+        const tp1 = round((swingHighPoint.price + swingLow.price) / 2); // 50% fib midpoint
+        if (tp1 <= ep) continue; // TP1 must be above entry
+        const tp2Raw = swingHighPoint.price - 0.214 * range;             // 78.6% fib
+        const sl  = round(ep - (tp1 - ep) / 2);                          // 2:1 R:R
+        if (sl >= ep) continue;
+        const tp2 = round(floorTarget(ep, sl, tp2Raw, MIN_RR_TP2, "BUY"));
+        signal      = "BUY";
+        signalType  = "DUMP_RECOVERY";
+        entryPrice  = ep;
+        stopLoss    = sl;
+        takeProfit1 = tp1;
+        takeProfit2 = tp2;
+        dca1        = undefined;
+        patternResult = null;
+        signalReason = `[${tfLabel}] DUMP RECOVERY BUY: Dump ${fmt(swingHighPoint.price)}→${fmt(swingLow.price)} (${(range / atr).toFixed(1)}× ATR). Price ${fmt(ep)} consolidating near lows. MACD turning (${histPrev2.toFixed(4)}→${histPrev1.toFixed(4)}). Entry ${fmt(ep)}, TP1 ${fmt(tp1)} (50% fib), TP2 ${fmt(tp2)} (78.6% fib), SL ${fmt(sl)} (2:1 R:R).`;
+        break;
+      }
+    }
+
+    // ── SELL: pump fade ────────────────────────────────────────────────────────
+    // MACD: histogram ticking down (histPrev1 < histPrev2) AND was positive
+    // (histPrev2 > 0) — turning from bullish to bearish, exhaustion of the pump.
+    const drSellMacd = histPrev1 < histPrev2 && histPrev2 > 0;
+    if (signal === "WAIT" && !isLongOnly && higherTfAllowsSell && drSellMacd) {
+      const highs = [...drSwingHighs].reverse();
+      const lows  = [...drSwingLows].reverse();
+      for (const swingHigh of highs) {
+        // Find the nearest structural swingLow BEFORE (older than) this swingHigh
+        const swingLowPoint = lows.find((sl) => sl.idx < swingHigh.idx);
+        if (!swingLowPoint) continue;
+        const range = swingHigh.price - swingLowPoint.price;
+        if (range < MIN_SWING_ATR * atr) continue; // not a significant pump
+        // Price must be consolidating near the high — within 1 ATR, not yet retracing.
+        if (currentPrice < swingHigh.price - atr) break; // too far below high; stop scanning
+        const ep  = round(currentPrice);
+        const tp1 = round((swingHigh.price + swingLowPoint.price) / 2); // 50% fib midpoint
+        if (tp1 >= ep) continue; // TP1 must be below entry
+        const tp2Raw = swingLowPoint.price + 0.214 * range;              // 78.6% fib from top
+        const sl  = round(ep + (ep - tp1) / 2);                          // 2:1 R:R
+        if (sl <= ep) continue;
+        const tp2 = round(floorTarget(ep, sl, tp2Raw, MIN_RR_TP2, "SELL"));
+        signal      = "SELL";
+        signalType  = "DUMP_RECOVERY";
+        entryPrice  = ep;
+        stopLoss    = sl;
+        takeProfit1 = tp1;
+        takeProfit2 = tp2;
+        dca1        = undefined;
+        patternResult = null;
+        signalReason = `[${tfLabel}] PUMP FADE SELL: Pump ${fmt(swingLowPoint.price)}→${fmt(swingHigh.price)} (${(range / atr).toFixed(1)}× ATR). Price ${fmt(ep)} consolidating near highs. MACD turning (${histPrev2.toFixed(4)}→${histPrev1.toFixed(4)}). Entry ${fmt(ep)}, TP1 ${fmt(tp1)} (50% fib), TP2 ${fmt(tp2)} (78.6% fib), SL ${fmt(sl)} (2:1 R:R).`;
+        break;
+      }
+    }
+  }
+
   // ── BB_WALK BUY: upper-band trend continuation in a confirmed bull market ─────
   // Fires when price is riding (pressing) the upper Bollinger Band while both
   // weekly AND daily MACD histograms are green. Unlike BB_REJECTION (which needs
@@ -2500,7 +2597,7 @@ type Levels = ReturnType<typeof computeLevels>;
 
 interface ActiveTrade {
   signal: "BUY" | "SELL";
-  signalType?: "FIB50_SWING" | "DOUBLE_TOP" | "DOUBLE_BOTTOM" | "BB_REJECTION" | "BB_WALK" | "BB_BREAKOUT" | "PATTERN_BREAKOUT";
+  signalType?: "FIB50_SWING" | "DOUBLE_TOP" | "DOUBLE_BOTTOM" | "BB_REJECTION" | "BB_WALK" | "BB_BREAKOUT" | "PATTERN_BREAKOUT" | "DUMP_RECOVERY";
   signalReason: string;
   entryPrice: number;
   stopLoss: number;

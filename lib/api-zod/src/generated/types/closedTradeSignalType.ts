@@ -17,4 +17,5 @@ export const ClosedTradeSignalType = {
   BB_WALK: "BB_WALK",
   BB_BREAKOUT: "BB_BREAKOUT",
   PATTERN_BREAKOUT: "PATTERN_BREAKOUT",
+  DUMP_RECOVERY: "DUMP_RECOVERY",
 } as const;

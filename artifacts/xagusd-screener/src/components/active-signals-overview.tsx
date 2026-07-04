@@ -76,7 +76,7 @@ interface RowProps {
   symbol: string;
   timeframe: Timeframe;
   signal: "BUY" | "SELL";
-  signalType?: "FIB50_SWING" | "DOUBLE_TOP" | "DOUBLE_BOTTOM" | "BB_REJECTION" | "BB_WALK" | "BB_BREAKOUT" | "PATTERN_BREAKOUT";
+  signalType?: "FIB50_SWING" | "DOUBLE_TOP" | "DOUBLE_BOTTOM" | "BB_REJECTION" | "BB_WALK" | "BB_BREAKOUT" | "PATTERN_BREAKOUT" | "DUMP_RECOVERY";
   signalReason: string;
   tradeState: LevelsDataTradeState;
   currentPrice: number;
@@ -244,6 +244,15 @@ function SignalRow(p: RowProps) {
         {p.signalType === "PATTERN_BREAKOUT" && (
           <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold tracking-widest bg-fuchsia-500/15 text-fuchsia-300 border border-fuchsia-500/30">
             ⌖ PATTERN
+          </span>
+        )}
+        {p.signalType === "DUMP_RECOVERY" && (
+          <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold tracking-widest border ${
+            p.signal === "BUY"
+              ? "bg-amber-500/15 text-amber-300 border-amber-500/30"
+              : "bg-rose-500/15 text-rose-300 border-rose-500/30"
+          }`}>
+            {p.signal === "BUY" ? "↩ DUMP REC" : "↗ PUMP FADE"}
           </span>
         )}
         {poorWinRate && btData && (
@@ -565,7 +574,7 @@ export function ActiveSignalsOverview({
                             symbol={s.symbol}
                             timeframe={s.timeframe as Timeframe}
                             signal={s.levels.signal as "BUY" | "SELL"}
-                            signalType={s.levels.signalType as "FIB50_SWING" | "DOUBLE_TOP" | "DOUBLE_BOTTOM" | "BB_REJECTION" | "BB_WALK" | "BB_BREAKOUT" | "PATTERN_BREAKOUT" | undefined}
+                            signalType={s.levels.signalType as "FIB50_SWING" | "DOUBLE_TOP" | "DOUBLE_BOTTOM" | "BB_REJECTION" | "BB_WALK" | "BB_BREAKOUT" | "PATTERN_BREAKOUT" | "DUMP_RECOVERY" | undefined}
                             signalReason={s.levels.signalReason}
                             tradeState={s.levels.tradeState}
                             currentPrice={s.levels.currentPrice}
