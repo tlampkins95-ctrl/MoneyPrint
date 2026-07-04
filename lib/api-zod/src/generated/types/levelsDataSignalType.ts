@@ -7,7 +7,7 @@
  */
 
 /**
- * Which signal mode generated this signal. FIB50_SWING = swing fibonacci retracement: enter at 50% fib of recent swing, TP1 at 78.6% fib, SL 2:1 R:R. DOUBLE_TOP = bearish reversal; entry at resistance, TP1 at neckline. DOUBLE_BOTTOM = bullish reversal; entry at support, TP1 at neckline. BB_REJECTION = Bollinger Band exhaustion reversal; entry at BB30 extreme, TP1 at 50% fib of recent swing, SL 2:1 R:R. BB_BREAKOUT = outside-band momentum continuation (money print): price above upper / below lower BB30 with MACD confirming — ride the breakout. DUMP_RECOVERY = bottom/top consolidation reversal: enter near the extreme of a significant dump/pump with MACD turning, TP1 at 50% fib midpoint.
+ * Which signal mode generated this signal. FIB50_SWING = swing fibonacci retracement: enter at 50% fib of recent swing, TP1 at 78.6% fib, SL 2:1 R:R. DOUBLE_TOP = bearish reversal; entry at resistance, TP1 at neckline. DOUBLE_BOTTOM = bullish reversal; entry at support, TP1 at neckline. BB_REJECTION = Bollinger Band exhaustion reversal; entry at BB30 extreme, TP1 at 50% fib of recent swing, SL 2:1 R:R. BB_BREAKOUT = outside-band momentum continuation (money print): price above upper / below lower BB30 with MACD confirming — ride the breakout. BB_OVEREXTENSION = pump-fade SELL: last completed candle closed above upper BB with volume spike and RSI overbought — enter short on first red candle confirmation, TP1 at BB midline. DUMP_RECOVERY = bottom/top consolidation reversal: enter near the extreme of a significant dump/pump with MACD turning, TP1 at 50% fib midpoint.
  */
 export type LevelsDataSignalType =
   (typeof LevelsDataSignalType)[keyof typeof LevelsDataSignalType];
@@ -19,6 +19,7 @@ export const LevelsDataSignalType = {
   BB_REJECTION: "BB_REJECTION",
   BB_WALK: "BB_WALK",
   BB_BREAKOUT: "BB_BREAKOUT",
+  BB_OVEREXTENSION: "BB_OVEREXTENSION",
   PATTERN_BREAKOUT: "PATTERN_BREAKOUT",
   DUMP_RECOVERY: "DUMP_RECOVERY",
 } as const;

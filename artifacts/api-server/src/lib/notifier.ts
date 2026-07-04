@@ -1025,7 +1025,7 @@ async function checkSymbol(
       // after the breakout bar. Filled trades bypass this: a fill notification is
       // always actionable regardless of what signal type originally opened the position.
       if (!isFilledTrade) {
-        const signalTypeAllowed = levels.signalType === "FIB50_SWING" || levels.signalType === "DOUBLE_TOP" || levels.signalType === "DOUBLE_BOTTOM" || levels.signalType === "BB_REJECTION" || levels.signalType === "BB_WALK" || levels.signalType === "DUMP_RECOVERY" || levels.signalType === "BB_BREAKOUT";
+        const signalTypeAllowed = levels.signalType === "FIB50_SWING" || levels.signalType === "DOUBLE_TOP" || levels.signalType === "DOUBLE_BOTTOM" || levels.signalType === "BB_REJECTION" || levels.signalType === "BB_WALK" || levels.signalType === "DUMP_RECOVERY" || levels.signalType === "BB_BREAKOUT" || levels.signalType === "BB_OVEREXTENSION";
         if (!signalTypeAllowed) {
           logger.info(
             { symbol, timeframe, signalType: levels.signalType },
@@ -1528,7 +1528,7 @@ async function checkTrendingSymbol(
       // what signal type originally opened the position.
       if (!isFilledTrade) {
         const isBbrSell = levels.signalType === "BB_REJECTION" && levels.signal === "SELL";
-        const trendingTypeAllowed = !isBbrSell && (levels.signalType === "FIB50_SWING" || levels.signalType === "DOUBLE_TOP" || levels.signalType === "DOUBLE_BOTTOM" || levels.signalType === "BB_REJECTION" || levels.signalType === "BB_WALK" || levels.signalType === "DUMP_RECOVERY");
+        const trendingTypeAllowed = !isBbrSell && (levels.signalType === "FIB50_SWING" || levels.signalType === "DOUBLE_TOP" || levels.signalType === "DOUBLE_BOTTOM" || levels.signalType === "BB_REJECTION" || levels.signalType === "BB_WALK" || levels.signalType === "DUMP_RECOVERY" || levels.signalType === "BB_BREAKOUT" || levels.signalType === "BB_OVEREXTENSION");
         if (!trendingTypeAllowed) {
           logger.info(
             { symbolKey, timeframe, signalType: levels.signalType, signal: levels.signal },
