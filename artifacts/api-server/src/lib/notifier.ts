@@ -594,11 +594,19 @@ async function executePhemexTrade(
   // catch-up block stops firing, and let the next genuine WAIT→BUY/SELL
   // transition handle re-entry if the setup re-forms.
   //
+  // IMPORTANT: only apply this guard when tradeState is FILLED_PROFIT. That
+  // state means a position actually existed (TP1 hit) and was subsequently
+  // closed — which is a genuine externally-closed scenario. For PENDING state
+  // the entry limit was never filled (stale-cancelled or missed) — blocking
+  // catch-up there prevents the system from ever placing any order after a
+  // restart, which is the wrong behaviour. Let PENDING fall through so the
+  // limit order is re-placed.
+  //
   // Fresh transitions (isCatchUp=false) are NOT blocked here: a stale DB record
   // from a previous deployment must not prevent a newly-formed signal from
   // firing. The alreadyInSameDirection guard in checkSymbol handles the case
   // where the signal hasn't changed direction.
-  if (isCatchUp) {
+  if (isCatchUp && levels.tradeState === "FILLED_PROFIT") {
     const existingActiveTrade = getActiveTrade(symbol, timeframe);
     if (existingActiveTrade) {
       logger.warn(
