@@ -32,6 +32,7 @@ import {
   checkExistingPosition,
   checkExistingOrder,
   getAllOpenPhemexPositions,
+  placeMarketClose,
 } from "./phemex-trader";
 
 type SignalKind = "BUY" | "SELL" | "WAIT";
@@ -679,30 +680,37 @@ async function executePhemexTrade(
     }
   }
 
-  // Prevent self-hedging: if an opposite-side position already exists for this
-  // symbol (opened by a conflicting timeframe signal), skip rather than creating
-  // a simultaneous Long+Short on the same asset.
+  // Opposite-side position handling: reversal vs self-hedge.
   //
-  // Check the in-memory tracker FIRST — it's instantaneous and catches races
-  // where two timeframe signals fire in the same poll cycle before either has
-  // landed on Phemex (so the API-based check would see nothing and let both through).
+  // Same symbol + timeframe (this key `k`): this is a direction flip on OUR OWN
+  // open position — REVERSE it: cancel all orders, market-close, then open the
+  // new side below.
+  //
+  // Different timeframe, same phemexSymbol: two independent TF signals disagree —
+  // BLOCK (self-hedge) as before.
   const oppositeSideForCheck: "Long" | "Short" = posSideForCheck === "Long" ? "Short" : "Long";
-  const trackedOpposite = [...openPhemexOrders.values()].find(
-    o => o.phemexSymbol === phemexSymbol && o.posSide === oppositeSideForCheck,
-  );
-  if (trackedOpposite) {
-    logger.warn(
-      { symbol, timeframe, phemexSymbol, signal: levels.signal, oppositeSide: oppositeSideForCheck, trackedOrderId: trackedOpposite.orderId },
-      "phemex-trader: opposite-side tracked order exists in-memory — skipping to avoid self-hedge",
+  const ownTrackedEntry  = openPhemexOrders.get(k);
+  const isSameTfReversal = ownTrackedEntry?.posSide === oppositeSideForCheck;
+
+  // Cross-TF in-memory check: a DIFFERENT key on the same phemexSymbol already
+  // holds an opposite-side order — block to avoid self-hedging.
+  if (!isSameTfReversal) {
+    const crossTfTracked = [...openPhemexOrders.values()].find(
+      o => o.phemexSymbol === phemexSymbol && o.posSide === oppositeSideForCheck,
     );
-    if (!openPhemexOrders.has(k)) {
-      openPhemexOrders.set(k, { orderId: `opposite-blocked-${Date.now()}`, phemexSymbol, posSide: posSideForCheck });
+    if (crossTfTracked) {
+      logger.warn(
+        { symbol, timeframe, phemexSymbol, signal: levels.signal, oppositeSide: oppositeSideForCheck, trackedOrderId: crossTfTracked.orderId },
+        "phemex-trader: cross-TF opposite-side tracked order exists — skipping to avoid self-hedge",
+      );
+      if (!openPhemexOrders.has(k)) {
+        openPhemexOrders.set(k, { orderId: `opposite-blocked-${Date.now()}`, phemexSymbol, posSide: posSideForCheck });
+      }
+      return;
     }
-    return;
   }
 
-  // Also check Phemex directly — catches positions that survived a restart and
-  // weren't yet re-registered in openPhemexOrders (e.g. during catch-up window).
+  // Check Phemex directly for a live opposite-side position.
   let oppositePos: { size: number; stopLossRp: number } | null;
   try {
     oppositePos = await checkExistingPosition(phemexSymbol, oppositeSideForCheck);
@@ -710,15 +718,33 @@ async function executePhemexTrade(
     logger.warn({ symbol, timeframe, phemexSymbol }, "phemex-trader: checkExistingPosition (opposite side) threw — skipping order (safe default)");
     return;
   }
+
   if (oppositePos !== null) {
-    logger.warn(
-      { symbol, timeframe, phemexSymbol, signal: levels.signal, oppositeSize: oppositePos.size, oppositeSide: oppositeSideForCheck },
-      "phemex-trader: opposite-side position already open on Phemex — skipping to avoid self-hedge",
-    );
-    if (!openPhemexOrders.has(k)) {
-      openPhemexOrders.set(k, { orderId: `opposite-blocked-${Date.now()}`, phemexSymbol, posSide: posSideForCheck });
+    if (isSameTfReversal) {
+      // Direction flip on our own position for this symbol+timeframe: REVERSE.
+      // Cancel all protective orders, market-close, then fall through to open
+      // the new side below.
+      logger.info(
+        { symbol, timeframe, phemexSymbol, signal: levels.signal, closingSide: oppositeSideForCheck, size: oppositePos.size },
+        "phemex-trader: direction flip — reversing existing position",
+      );
+      await cancelExistingStopOrders(phemexSymbol, oppositeSideForCheck);
+      await cancelExistingTpOrders(phemexSymbol, oppositeSideForCheck);
+      await placeMarketClose({ phemexSymbol, posSide: oppositeSideForCheck, qtyRq: String(oppositePos.size) });
+      clearActiveTrade(symbol, timeframe);
+      openPhemexOrders.delete(k);
+      // Fall through to open the new side.
+    } else {
+      // Cross-TF conflict: block to avoid self-hedging.
+      logger.warn(
+        { symbol, timeframe, phemexSymbol, signal: levels.signal, oppositeSize: oppositePos.size, oppositeSide: oppositeSideForCheck },
+        "phemex-trader: cross-TF opposite-side position on Phemex — skipping to avoid self-hedge",
+      );
+      if (!openPhemexOrders.has(k)) {
+        openPhemexOrders.set(k, { orderId: `opposite-blocked-${Date.now()}`, phemexSymbol, posSide: posSideForCheck });
+      }
+      return;
     }
-    return;
   }
 
   // Also check for an unfilled pending limit order that survived the restart.

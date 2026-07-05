@@ -648,6 +648,41 @@ export async function placeLimitClose(params: {
 }
 
 /**
+ * Immediately closes an open position at market price (reduceOnly Market IOC).
+ * Used for position reversal when the signal flips direction on an open trade.
+ */
+export async function placeMarketClose(params: {
+  phemexSymbol: string;
+  posSide:      "Long" | "Short";
+  qtyRq:        string;
+}): Promise<string | null> {
+  const hedgeMode = resolveHedgeMode();
+  const side: "Buy" | "Sell" = params.posSide === "Long" ? "Sell" : "Buy";
+  const clOrdID = `phx-rev-${params.phemexSymbol}-${Date.now()}`;
+  const body: Record<string, string | boolean> = {
+    symbol:      params.phemexSymbol,
+    clOrdID,
+    side,
+    ordType:     "Market",
+    timeInForce: "ImmediateOrCancel",
+    orderQtyRq:  params.qtyRq,
+    reduceOnly:  true,
+  };
+  if (hedgeMode) {
+    body["posSide"] = params.posSide;
+  }
+  logger.info({ ...body }, "phemex-trader: placing market-close for position reversal");
+  try {
+    const data = await phemexRequest<OrderResponseData>("POST", "/g-orders", {}, body);
+    logger.info({ orderID: data.orderID, clOrdID }, "phemex-trader: market-close placed");
+    return data.orderID;
+  } catch (err) {
+    logger.warn({ err, params }, "phemex-trader: placeMarketClose failed");
+    return null;
+  }
+}
+
+/**
  * Cancels a specific open order by its exchange orderID.
  * In hedge mode, posSide must be supplied or Phemex rejects the cancel.
  * Ignores errors (order may already be filled/cancelled).
