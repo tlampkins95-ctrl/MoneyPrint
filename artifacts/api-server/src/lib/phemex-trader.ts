@@ -144,13 +144,14 @@ interface AccountData {
     userMode?: number;  // 0 = one-way, 1 = hedge (two-way)
   };
   positions?: Array<{
-    symbol:           string;
-    posSide?:         string;
-    side?:            string;
-    size?:            string;
-    qty?:             string;
-    avgEntryPriceRp?: string;
-    stopLossRp?:      string;  // "0" when no SL is attached
+    symbol:              string;
+    posSide?:            string;
+    side?:               string;
+    size?:               string;
+    qty?:                string;
+    avgEntryPriceRp?:    string;
+    stopLossRp?:         string;  // "0" when no SL is attached
+    unrealisedPnlRv?:    string;  // per-position unrealized PnL in USDT
   }>;
 }
 
@@ -290,11 +291,12 @@ export async function checkExistingPosition(
 }
 
 export interface OpenPhemexPosition {
-  phemexSymbol: string;
-  posSide:      "Long" | "Short";
-  size:         number;
-  entryPrice:   number;
-  stopLossRp:   number;
+  phemexSymbol:   string;
+  posSide:        "Long" | "Short";
+  size:           number;
+  entryPrice:     number;
+  stopLossRp:     number;
+  unrealisedPnl:  number;
 }
 
 /**
@@ -316,17 +318,50 @@ export async function getAllOpenPhemexPositions(): Promise<OpenPhemexPosition[]>
       const rawPosSide = p.posSide ?? p.side ?? "";
       if (rawPosSide !== "Long" && rawPosSide !== "Short") continue;
       result.push({
-        phemexSymbol: p.symbol,
-        posSide:      rawPosSide as "Long" | "Short",
+        phemexSymbol:  p.symbol,
+        posSide:       rawPosSide as "Long" | "Short",
         size,
-        entryPrice:   parseFloat(p.avgEntryPriceRp ?? "0"),
-        stopLossRp:   parseFloat(p.stopLossRp ?? "0"),
+        entryPrice:    parseFloat(p.avgEntryPriceRp ?? "0"),
+        stopLossRp:    parseFloat(p.stopLossRp ?? "0"),
+        unrealisedPnl: parseFloat(p.unrealisedPnlRv ?? "0"),
       });
     }
     return result;
   } catch (err) {
     logger.warn({ err }, "phemex-trader: getAllOpenPhemexPositions failed");
     return [];
+  }
+}
+
+/**
+ * Market-closes a position immediately (reduce-only Market IOC).
+ * Used by the profit-lock mechanism to exit when unrealized PnL hits the target.
+ */
+export async function marketClosePosition(params: {
+  phemexSymbol: string;
+  posSide:      "Long" | "Short";
+  qtyRq:        string;
+}): Promise<string | null> {
+  const hedgeMode = resolveHedgeMode();
+  const closeSide = params.posSide === "Long" ? "Sell" : "Buy";
+  const clOrdID   = `phx-plock-${Date.now()}`;
+  const body: Record<string, string | boolean> = {
+    symbol:      params.phemexSymbol,
+    clOrdID,
+    side:        closeSide,
+    ordType:     "Market",
+    timeInForce: "ImmediateOrCancel",
+    orderQtyRq:  params.qtyRq,
+    reduceOnly:  true,
+  };
+  if (hedgeMode) body["posSide"] = params.posSide;
+  try {
+    logger.info({ ...params, clOrdID }, "phemex-trader: profit-lock market close");
+    const result = await phemexRequest<{ data: { orderID?: string } }>("POST", "/g-orders", undefined, body);
+    return result?.data?.orderID ?? clOrdID;
+  } catch (err) {
+    logger.warn({ err, ...params }, "phemex-trader: profit-lock market close failed");
+    return null;
   }
 }
 

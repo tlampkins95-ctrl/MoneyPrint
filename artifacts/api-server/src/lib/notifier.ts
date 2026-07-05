@@ -32,6 +32,7 @@ import {
   checkExistingPosition,
   checkExistingOrder,
   getAllOpenPhemexPositions,
+  marketClosePosition,
 } from "./phemex-trader";
 
 type SignalKind = "BUY" | "SELL" | "WAIT";
@@ -2070,7 +2071,49 @@ async function checkTrendingSymbol(
   }
 }
 
+/**
+ * Profit-lock: scans every open Phemex position each poll cycle.
+ * If unrealized PnL >= PROFIT_LOCK_USD, cancel all pending TP/SL orders
+ * and market-close the position immediately to bank the profit.
+ *
+ * Threshold defaults to $30, overrideable via PROFIT_LOCK_USD env var.
+ */
+const PROFIT_LOCK_USD = parseFloat(process.env["PROFIT_LOCK_USD"] ?? "30");
+
+async function lockProfits(): Promise<void> {
+  if (!isPhemexTradingEnabled()) return;
+  try {
+    const positions = await getAllOpenPhemexPositions();
+    for (const pos of positions) {
+      if (!isFinite(pos.unrealisedPnl) || pos.unrealisedPnl < PROFIT_LOCK_USD) continue;
+      logger.info(
+        { symbol: pos.phemexSymbol, posSide: pos.posSide, unrealisedPnl: pos.unrealisedPnl, threshold: PROFIT_LOCK_USD },
+        "phemex-trader: profit-lock triggered — closing position",
+      );
+      // Cancel TPs and SL so they don't interfere with the market close
+      await Promise.allSettled([
+        cancelExistingTpOrders(pos.phemexSymbol, pos.posSide),
+        cancelExistingStopOrders(pos.phemexSymbol, pos.posSide),
+      ]);
+      const spec = getMinPriceRp(pos.phemexSymbol);
+      const tickSize = spec > 0 ? spec : 0.01;
+      const pxDecimals = Math.max(0, -Math.floor(Math.log10(tickSize)));
+      await marketClosePosition({
+        phemexSymbol: pos.phemexSymbol,
+        posSide:      pos.posSide,
+        qtyRq:        pos.size.toFixed(pxDecimals),
+      });
+    }
+  } catch (err) {
+    logger.warn({ err }, "phemex-trader: lockProfits scan failed (non-fatal)");
+  }
+}
+
 async function tick(): Promise<void> {
+  // Profit-lock runs first — if any position is up ≥ $30, close it before
+  // the signal checks can interfere.
+  await lockProfits();
+
   const tasks: Promise<void>[] = [];
   for (const symbol of ALL_SYMBOLS) {
     for (const tf of TRACKED_TIMEFRAMES) {
