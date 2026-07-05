@@ -2736,6 +2736,11 @@ interface ActiveTrade {
   // bounces away before tagging entry. Without this flag the dashboard would
   // claim "+1R in profit" when no trade actually occurred.
   triggered: boolean;
+  // Set to true after the auto-trader successfully places a Phemex entry order
+  // for this signal slot. Records without this flag (pure signal tracking, or
+  // pre-flag legacy entries) were never placed on Phemex, so the externally-
+  // closed guard must NOT fire for them on restart.
+  phemexOrderPlaced?: boolean;
   // Price at the moment the snapshot was first created. Used only for context
   // in the description; not used for trade math.
   openedPrice: number;
@@ -3770,4 +3775,31 @@ export function seedActiveTrades(raw: Record<string, unknown>): number {
   }
   if (count > 0) persistActiveTrades();
   return count;
+}
+
+// Stamps phemexOrderPlaced=true on the active trade record after the auto-trader
+// successfully places a Phemex entry order. Records without this flag (pure
+// signal tracking or legacy entries loaded from disk) were never placed on
+// Phemex, so the externally-closed guard in notifier.ts must not fire for them.
+export function setPhemexOrderPlaced(symbolKey: string, timeframe: Timeframe): void {
+  const k = tradeKey(symbolKey, timeframe);
+  const trade = activeTrades.get(k);
+  if (!trade || trade.phemexOrderPlaced) return;
+  trade.phemexOrderPlaced = true;
+  persistActiveTrades();
+}
+
+// Returns all symbol/timeframe pairs that have an active BUY or SELL trade record.
+// Used by the notifier tick() to ensure orphaned coins (those that fell out of the
+// trending discovery list but still have open signal records) are still polled.
+export function getAllActiveTradeSymbols(): Array<{ symbolKey: string; timeframe: Timeframe }> {
+  const result: Array<{ symbolKey: string; timeframe: Timeframe }> = [];
+  for (const [k, trade] of activeTrades) {
+    if (trade.signal !== "BUY" && trade.signal !== "SELL") continue;
+    const parts = k.split("::");
+    if (parts.length === 3) {
+      result.push({ symbolKey: parts[1], timeframe: parts[2] as Timeframe });
+    }
+  }
+  return result;
 }

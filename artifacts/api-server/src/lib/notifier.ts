@@ -6,7 +6,7 @@ import {
   fetchCandlesForTimeframe,
   type Timeframe,
 } from "./yahoo-fetch";
-import { computeLevelsStable, fetchSpotPrice, getActiveTrade, clearActiveTrade, markTradeTriggered, applyFuturesBasis, registerOnTradeClosedCallback, calcMACDHist, computePositionSizing, DEFAULT_ACCOUNT_SIZE, DEFAULT_RISK_PCT, DEFAULT_MIN_COLLATERAL, DEFAULT_MAX_LEVERAGE, DEFAULT_MT5_LOTS, type ClosedOutcome } from "./signals";
+import { computeLevelsStable, fetchSpotPrice, getActiveTrade, clearActiveTrade, markTradeTriggered, applyFuturesBasis, registerOnTradeClosedCallback, calcMACDHist, computePositionSizing, DEFAULT_ACCOUNT_SIZE, DEFAULT_RISK_PCT, DEFAULT_MIN_COLLATERAL, DEFAULT_MAX_LEVERAGE, DEFAULT_MT5_LOTS, setPhemexOrderPlaced, type ClosedOutcome } from "./signals";
 import {
   buildAlertContext,
   sendTelegramAlert,
@@ -627,6 +627,20 @@ async function executePhemexTrade(
   if (isCatchUp && levels.tradeState === "FILLED_PROFIT") {
     const existingActiveTrade = getActiveTrade(symbol, timeframe);
     if (existingActiveTrade) {
+      // Only treat as potentially externally-closed if the auto-trader actually
+      // placed an order for this record (phemexOrderPlaced=true). Records without
+      // this flag are pure signal-tracking entries that were never on Phemex
+      // (e.g. loaded from the JSON file before auto-trading was enabled, or from
+      // a prior session where the signal fired but no order was placed). For those,
+      // clear the record and fall through to place a fresh order.
+      if (!existingActiveTrade.phemexOrderPlaced) {
+        logger.info(
+          { symbol, timeframe, signal: levels.signal, signalType: levels.signalType },
+          "phemex-trader: FILLED_PROFIT record never on Phemex (no phemexOrderPlaced flag) — clearing for fresh entry",
+        );
+        clearActiveTrade(symbol, timeframe);
+        // Fall through — order placement proceeds as a fresh entry.
+      } else {
       // If the stored record is older than 3 candle periods for this timeframe the
       // trade closed long ago and the current signal is an entirely new setup.
       // Clear the stale record and fall through to place a fresh order.
@@ -661,6 +675,7 @@ async function executePhemexTrade(
         }
         return;
       }
+      } // end else (phemexOrderPlaced === true)
     }
   }
 
@@ -814,6 +829,9 @@ async function executePhemexTrade(
       tp2OrderId: tp2OrderId ?? undefined,
       tp1Filled:  false,
     });
+    // Stamp the flag so subsequent restarts know a real Phemex order existed
+    // for this slot — enabling the externally-closed guard to work correctly.
+    setPhemexOrderPlaced(symbol, timeframe);
     logger.info(
       { symbol, timeframe, side, qty: rawQty, halfQtyRq, entry: actualEntryPx,
         sl: effectiveSL, tp1: effectiveTP, tp2: effectiveTP2,
@@ -1086,7 +1104,7 @@ async function checkSymbol(
       // after the breakout bar. Filled trades bypass this: a fill notification is
       // always actionable regardless of what signal type originally opened the position.
       if (!isFilledTrade) {
-        const signalTypeAllowed = levels.signalType === "FIB50_SWING" || levels.signalType === "DOUBLE_TOP" || levels.signalType === "DOUBLE_BOTTOM" || levels.signalType === "BB_REJECTION" || levels.signalType === "BB_WALK" || levels.signalType === "DUMP_RECOVERY" || levels.signalType === "BB_BREAKOUT" || levels.signalType === "BB_OVEREXTENSION";
+        const signalTypeAllowed = levels.signalType === "FIB50_SWING" || levels.signalType === "DOUBLE_TOP" || levels.signalType === "DOUBLE_BOTTOM" || levels.signalType === "BB_REJECTION" || levels.signalType === "BB_WALK" || levels.signalType === "DUMP_RECOVERY" || levels.signalType === "BB_BREAKOUT" || levels.signalType === "BB_OVEREXTENSION" || levels.signalType === "SWING_BREAK";
         if (!signalTypeAllowed) {
           logger.info(
             { symbol, timeframe, signalType: levels.signalType },
@@ -1639,7 +1657,7 @@ async function checkTrendingSymbol(
       // what signal type originally opened the position.
       if (!isFilledTrade) {
         const isBbrSell = levels.signalType === "BB_REJECTION" && levels.signal === "SELL";
-        const trendingTypeAllowed = !isBbrSell && (levels.signalType === "FIB50_SWING" || levels.signalType === "DOUBLE_TOP" || levels.signalType === "DOUBLE_BOTTOM" || levels.signalType === "BB_REJECTION" || levels.signalType === "BB_WALK" || levels.signalType === "DUMP_RECOVERY" || levels.signalType === "BB_BREAKOUT" || levels.signalType === "BB_OVEREXTENSION");
+        const trendingTypeAllowed = !isBbrSell && (levels.signalType === "FIB50_SWING" || levels.signalType === "DOUBLE_TOP" || levels.signalType === "DOUBLE_BOTTOM" || levels.signalType === "BB_REJECTION" || levels.signalType === "BB_WALK" || levels.signalType === "DUMP_RECOVERY" || levels.signalType === "BB_BREAKOUT" || levels.signalType === "BB_OVEREXTENSION" || levels.signalType === "SWING_BREAK");
         if (!trendingTypeAllowed) {
           logger.info(
             { symbolKey, timeframe, signalType: levels.signalType, signal: levels.signal },
@@ -2012,12 +2030,30 @@ async function tick(): Promise<void> {
   // (the guard inside checkTrendingSymbol enforces this). PIVOT_BOUNCE and
   // BREAKOUT on trending coins produced 0% WR in production; DAGGER is
   // signal-type agnostic and can fire on any instrument with the right structure.
+  const trendingSymbolKeys = new Set<string>();
   try {
-    const { getTrendingSymbols } = await import("./trending-discovery");
+    const { getTrendingSymbols, findTrendingSymbolByKey } = await import("./trending-discovery");
+    const { getAllActiveTradeSymbols } = await import("./signals");
+
     for (const t of getTrendingSymbols()) {
+      trendingSymbolKeys.add(t.symbolKey);
       for (const tf of TRACKED_TIMEFRAMES) {
         tasks.push(checkTrendingSymbol(t.symbolKey, tf));
       }
+    }
+
+    // Also poll coins that have active trade records but fell out of the trending
+    // discovery list. Without this, their "filled" signals persist in the UI
+    // indefinitely but are never re-evaluated or auto-traded.
+    const staticKeys = new Set(ALL_SYMBOLS.map(String));
+    for (const { symbolKey, timeframe } of getAllActiveTradeSymbols()) {
+      if (trendingSymbolKeys.has(symbolKey) || staticKeys.has(symbolKey)) continue;
+      // Attempt to find metadata via DB fallback (findTrendingSymbolByKey queries
+      // recently-expired rows, not just live cache). If found, run the check.
+      // If not found, skip — checkTrendingSymbol will return early if tMeta is null.
+      void findTrendingSymbolByKey(symbolKey).then((meta) => {
+        if (meta) tasks.push(checkTrendingSymbol(symbolKey, timeframe));
+      });
     }
   } catch {
     // trending-discovery not yet loaded — skip
