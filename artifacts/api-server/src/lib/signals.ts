@@ -1974,11 +1974,16 @@ export function computeLevels(
         }
       }
 
+      // BB_REJECTION is a COUNTER-TREND signal — it fires precisely when the
+      // higher timeframe is still bullish (pump not over) but the 1h/4h is
+      // showing 3-bar declining MACD from positive. Requiring higherTfAllowsSell
+      // or weeklyAllowsBbrSell kills every short on pumping coins in bull markets,
+      // which is exactly when BB_REJECTION has edge (HYPE, PENGU, DYDX type shorts).
+      // The bbrSellMacd gate (3 bars of declining positive histogram) is the real
+      // filter — a BB-walking coin won't have 3 bars of declining MACD.
       if (
         !isLongOnly &&
-        higherTfAllowsSell &&
         bwContractingForSell &&
-        weeklyAllowsBbrSell &&
         bbrSellMacd &&
         volFading &&
         Math.abs(currentPrice - bb30r.upper) <= BBR_TOL_ATR * atr

@@ -262,7 +262,7 @@ async function fetchTopGainers(): Promise<TrendingCoin[]> {
       .filter(
         (c) =>
           (c.price_change_percentage_24h ?? 0) > 3 &&
-          (c.total_volume ?? 0) > 500_000,
+          (c.total_volume ?? 0) > 5_000_000,
       )
       .map((c, idx) => ({
         symbol: c.symbol.toUpperCase(),
