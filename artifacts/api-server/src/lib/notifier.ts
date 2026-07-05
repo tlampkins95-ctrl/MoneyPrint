@@ -778,15 +778,32 @@ async function executePhemexTrade(
       "phemex-trader: Market IOC SELL — SL/TP re-anchored to current price",
     );
   } else if (isMarketIocBuy) {
+    // Only re-anchor to market if the coin is actually pumping:
+    //  1. currentPrice > signalEntry — price broke above the fib/band entry
+    //  2. priceChangePct > 0        — coin is positive on the day
+    // If either fails, the fib entry hasn't been reached from above, or the
+    // coin is declining — a market fill at a higher price makes no sense.
+    const ref        = levels.currentPrice ?? 0;
+    const pct24h     = levels.priceChangePct ?? 0;
+    const isPumping  = ref > levels.entryPrice && pct24h > 0;
+    if (!isPumping) {
+      logger.warn(
+        { symbol, phemexSymbol, signalEntry: levels.entryPrice, currentPrice: ref, priceChangePct: pct24h },
+        "phemex-trader: Market IOC BUY skipped — coin not pumping (price not above fib entry or negative 24h)",
+      );
+      if (!openPhemexOrders.has(k)) {
+        openPhemexOrders.set(k, { orderId: `market-ioc-skip-${Date.now()}`, phemexSymbol, posSide: posSideForCheck });
+      }
+      return;
+    }
     const reward  = levels.takeProfit1 - levels.entryPrice;
     const reward2 = levels.takeProfit2 - levels.entryPrice;
     const risk    = levels.entryPrice  - levels.stopLoss;
-    const ref     = levels.currentPrice;
     effectiveTP   = ref + reward;
     effectiveTP2  = ref + reward2;
     effectiveSL   = ref - risk;
     logger.info(
-      { symbol, phemexSymbol, signalEntry: levels.entryPrice, currentPrice: ref,
+      { symbol, phemexSymbol, signalEntry: levels.entryPrice, currentPrice: ref, priceChangePct: pct24h,
         origSL: levels.stopLoss, origTP: levels.takeProfit1,
         newSL: effectiveSL, newTP: effectiveTP, newTP2: effectiveTP2 },
       "phemex-trader: Market IOC BUY — SL/TP re-anchored to current price",
