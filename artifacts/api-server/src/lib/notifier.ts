@@ -584,6 +584,21 @@ async function executePhemexTrade(
     return;
   }
 
+  // SWING_BREAK is ALWAYS excluded from catch-up regardless of tradeState.
+  // Its entry is pinned to a specific breakout price level — if the server
+  // restarts after that candle has closed, re-entering at the old level is
+  // stale and wrong. Let the next genuine signal transition handle re-entry.
+  if (isCatchUp && levels.signalType === "SWING_BREAK") {
+    logger.info(
+      { symbol, timeframe, signalType: levels.signalType, tradeState: levels.tradeState },
+      "phemex-trader: catch-up skipped — SWING_BREAK entries are breakout-level-pinned, not zone-based",
+    );
+    if (!openPhemexOrders.has(k)) {
+      openPhemexOrders.set(k, { orderId: `no-catchup-${Date.now()}`, phemexSymbol, posSide: posSideForCheck });
+    }
+    return;
+  }
+
   // Non-zone-based catch-up guard: no position exists and the signal is
   // price-pinned (DOUBLE_TOP, DOUBLE_BOTTOM, BB_REJECTION, PATTERN_BREAKOUT).
   // Re-entering at current price with the original SL is dangerous — skip and

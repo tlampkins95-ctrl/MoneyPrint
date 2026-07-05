@@ -1546,7 +1546,7 @@ export function computeLevels(
   const SWING_SL_BUFFER_ATR = 0.5;  // extra buffer below/above swing extreme for SL
 
   let signal: "BUY" | "SELL" | "WAIT" = "WAIT";
-  let signalType: "FIB50_SWING" | "DOUBLE_TOP" | "DOUBLE_BOTTOM" | "BB_REJECTION" | "BB_WALK" | "BB_BREAKOUT" | "BB_OVEREXTENSION" | "PATTERN_BREAKOUT" | "DUMP_RECOVERY" = "FIB50_SWING";
+  let signalType: "FIB50_SWING" | "DOUBLE_TOP" | "DOUBLE_BOTTOM" | "BB_REJECTION" | "BB_WALK" | "BB_BREAKOUT" | "BB_OVEREXTENSION" | "PATTERN_BREAKOUT" | "DUMP_RECOVERY" | "SWING_BREAK" = "FIB50_SWING";
   let signalReason = "";
   let patternResult: PatternResult | null = null;
   let entryPrice = currentPrice;
@@ -2441,13 +2441,18 @@ export function computeLevels(
       if (recentHigh && currentPrice > recentHigh.price) {
         const last3 = sbCompleted.slice(-3);
         const freshBreak = last3.some((c) => c.close <= recentHigh.price);
-        if (freshBreak) {
-          const ep   = round(currentPrice);
+        // Chase gate: if price is already >3% above the breakout level, the
+        // entry window has passed — don't chase. Entry belongs at the level.
+        const chasePct = (currentPrice - recentHigh.price) / recentHigh.price;
+        if (freshBreak && chasePct <= 0.03) {
+          // Enter at the breakout level (limit order), not at current price.
+          // The broken resistance becomes the support — that's where the edge is.
+          const ep   = round(recentHigh.price);
           const sl   = round(recentHigh.price - 0.3 * atr);
           const risk = ep - sl;
           if (risk > 0) {
-            const tp1 = round(ep + 1.5 * risk);
-            const tp2 = round(ep + 2.5 * risk);
+            const tp1 = round(ep + 1.0 * risk);
+            const tp2 = round(ep + 1.5 * risk);
             signal      = "BUY";
             signalType  = "SWING_BREAK";
             entryPrice  = ep;
@@ -2456,7 +2461,7 @@ export function computeLevels(
             takeProfit2 = tp2;
             dca1        = undefined;
             patternResult = null;
-            signalReason = `[${tfLabel}] SWING BREAK BUY: Price ${fmt(ep)} broke above swing high resistance ${fmt(recentHigh.price)}, MACD green+rising. SL ${fmt(sl)} (below broken resistance), TP1 ${fmt(tp1)}, TP2 ${fmt(tp2)}.`;
+            signalReason = `[${tfLabel}] SWING BREAK BUY: Price ${fmt(currentPrice)} broke above resistance ${fmt(recentHigh.price)} — limit entry at level. SL ${fmt(sl)}, TP1 ${fmt(tp1)}, TP2 ${fmt(tp2)}.`;
           }
         }
       }
@@ -2468,13 +2473,16 @@ export function computeLevels(
       if (recentLow && currentPrice < recentLow.price) {
         const last3 = sbCompleted.slice(-3);
         const freshBreak = last3.some((c) => c.close >= recentLow.price);
-        if (freshBreak) {
-          const ep   = round(currentPrice);
+        // Chase gate: if price is already >3% below the breakout level, skip.
+        const chasePct = (recentLow.price - currentPrice) / recentLow.price;
+        if (freshBreak && chasePct <= 0.03) {
+          // Enter at the breakout level (limit), not at current price.
+          const ep   = round(recentLow.price);
           const sl   = round(recentLow.price + 0.3 * atr);
           const risk = sl - ep;
           if (risk > 0) {
-            const tp1 = round(ep - 1.5 * risk);
-            const tp2 = round(ep - 2.5 * risk);
+            const tp1 = round(ep - 1.0 * risk);
+            const tp2 = round(ep - 1.5 * risk);
             signal      = "SELL";
             signalType  = "SWING_BREAK";
             entryPrice  = ep;
@@ -2483,7 +2491,7 @@ export function computeLevels(
             takeProfit2 = tp2;
             dca1        = undefined;
             patternResult = null;
-            signalReason = `[${tfLabel}] SWING BREAK SELL: Price ${fmt(ep)} broke below swing low support ${fmt(recentLow.price)}, MACD red+falling. SL ${fmt(sl)} (above broken support), TP1 ${fmt(tp1)}, TP2 ${fmt(tp2)}.`;
+            signalReason = `[${tfLabel}] SWING BREAK SELL: Price ${fmt(currentPrice)} broke below support ${fmt(recentLow.price)} — limit entry at level. SL ${fmt(sl)}, TP1 ${fmt(tp1)}, TP2 ${fmt(tp2)}.`;
           }
         }
       }
