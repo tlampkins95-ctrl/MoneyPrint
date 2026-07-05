@@ -746,15 +746,20 @@ async function executePhemexTrade(
     return;
   }
 
-  // For Market IOC SELL (entry < minPriceRp), the fill happens at current BID,
-  // not at signal entry. Anchor SL/TP to currentPrice so the designed R:R
-  // (2:1) is preserved at the actual fill price rather than signal entry.
-  //   reward = entryPrice - tp1  (positive for SELL)
-  //   risk   = sl - entryPrice   (positive for SELL)
-  //   new_tp = currentPrice - reward
-  //   new_sl = currentPrice + risk
+  // When a signal's entry price is below Phemex's minPriceRp floor, the limit
+  // order is clamped to minPriceRp and fills immediately at market (current
+  // ask for BUY, current bid for SELL). The signal's SL/TP are calculated
+  // relative to the original fib/band entry, so they are completely wrong at
+  // the actual fill price. Re-anchor SL and TPs to currentPrice, preserving
+  // the designed R:R (risk/reward distances in $ terms).
+  //
+  //  BUY re-anchor:  new_SL  = currentPrice - (entryPrice - stopLoss)
+  //                  new_TP  = currentPrice + (takeProfit1 - entryPrice)
+  //  SELL re-anchor: new_SL  = currentPrice + (stopLoss - entryPrice)
+  //                  new_TP  = currentPrice - (entryPrice - takeProfit1)
   const minPx = getMinPriceRp(phemexSymbol);
   const isMarketIocSell = side === "Sell" && minPx > 0 && levels.entryPrice < minPx;
+  const isMarketIocBuy  = side === "Buy"  && minPx > 0 && levels.entryPrice < minPx;
   let effectiveSL  = levels.stopLoss;
   let effectiveTP  = levels.takeProfit1;
   let effectiveTP2 = levels.takeProfit2;
@@ -771,6 +776,20 @@ async function executePhemexTrade(
         origSL: levels.stopLoss, origTP: levels.takeProfit1,
         newSL: effectiveSL, newTP: effectiveTP, newTP2: effectiveTP2 },
       "phemex-trader: Market IOC SELL — SL/TP re-anchored to current price",
+    );
+  } else if (isMarketIocBuy) {
+    const reward  = levels.takeProfit1 - levels.entryPrice;
+    const reward2 = levels.takeProfit2 - levels.entryPrice;
+    const risk    = levels.entryPrice  - levels.stopLoss;
+    const ref     = levels.currentPrice;
+    effectiveTP   = ref + reward;
+    effectiveTP2  = ref + reward2;
+    effectiveSL   = ref - risk;
+    logger.info(
+      { symbol, phemexSymbol, signalEntry: levels.entryPrice, currentPrice: ref,
+        origSL: levels.stopLoss, origTP: levels.takeProfit1,
+        newSL: effectiveSL, newTP: effectiveTP, newTP2: effectiveTP2 },
+      "phemex-trader: Market IOC BUY — SL/TP re-anchored to current price",
     );
   }
 
