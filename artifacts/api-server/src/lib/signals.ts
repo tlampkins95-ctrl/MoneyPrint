@@ -2447,8 +2447,10 @@ export function computeLevels(
         if (freshBreak && chasePct <= 0.03) {
           // Enter at the breakout level (limit order), not at current price.
           // The broken resistance becomes the support — that's where the edge is.
+          // SL is 1×ATR below the level — gives room for normal noise without
+          // getting stopped by a single wick.
           const ep   = round(recentHigh.price);
-          const sl   = round(recentHigh.price - 0.3 * atr);
+          const sl   = round(recentHigh.price - 1.0 * atr);
           const risk = ep - sl;
           if (risk > 0) {
             const tp1 = round(ep + 1.0 * risk);
@@ -2477,8 +2479,9 @@ export function computeLevels(
         const chasePct = (recentLow.price - currentPrice) / recentLow.price;
         if (freshBreak && chasePct <= 0.03) {
           // Enter at the breakout level (limit), not at current price.
+          // SL is 1×ATR above the level — breathing room against noise wicks.
           const ep   = round(recentLow.price);
-          const sl   = round(recentLow.price + 0.3 * atr);
+          const sl   = round(recentLow.price + 1.0 * atr);
           const risk = sl - ep;
           if (risk > 0) {
             const tp1 = round(ep - 1.0 * risk);
