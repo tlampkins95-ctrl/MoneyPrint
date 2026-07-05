@@ -38,3 +38,9 @@ Declared BEFORE the FIB50_SWING block (TS2448 fires if declared after):
 - 1d SELL: `wHist[wHist.length-2] <= 0` (last completed weekly MACD bar ≤ 0)
 - 1h BUY: `dHist[dHist.length-2] >= 0`
 - 1d BUY: `wHist[wHist.length-2] >= 0`
+
+## HIGHER_TIMEFRAME chain (notifier.ts)
+`1h → 4h → 1d → 1w`
+Changed from `1h → 1d` to `1h → 4h` so a 1h BUY is suppressed when 4h
+is actively SELL (and vice versa). Daily candles still fetched separately
+via `needDailyForWeekly` for the internal MACD gate — unaffected.

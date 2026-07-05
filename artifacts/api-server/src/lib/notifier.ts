@@ -963,7 +963,7 @@ function isWebPushEnabled(): boolean {
 
 // Map each tracked TF to the higher TF used as its alignment gate.
 const HIGHER_TIMEFRAME: Partial<Record<Timeframe, Timeframe>> = {
-  "1h": "1d",
+  "1h": "4h",
   "4h": "1d",
   "1d": "1w",
 };
