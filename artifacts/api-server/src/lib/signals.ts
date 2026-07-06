@@ -2968,8 +2968,8 @@ export function logClosedTrade(
          (key, symbol, timeframe, signal, signal_type,
           entry_price, stop_loss, take_profit1, take_profit2,
           risk_reward_ratio, exit_price, outcome, r_multiple,
-          tp1_hit, opened_at, closed_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+          tp1_hit, triggered, opened_at, closed_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
       [
         k,
         symbolKey,
@@ -2985,6 +2985,7 @@ export function logClosedTrade(
         outcome,
         rMultiple,
         trade.tp1Hit,
+        trade.triggered ?? false,
         trade.openedAt ?? null,
         Date.now(),
       ],

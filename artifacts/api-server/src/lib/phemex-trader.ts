@@ -152,6 +152,7 @@ interface AccountData {
     avgEntryPriceRp?:    string;
     stopLossRp?:         string;  // "0" when no SL is attached
     unrealisedPnlRv?:    string;  // per-position unrealized PnL in USDT
+    markPriceRp?:        string;  // current mark price
   }>;
 }
 
@@ -298,6 +299,7 @@ export interface OpenPhemexPosition {
   entryPrice:     number;
   stopLossRp:     number;
   unrealisedPnl:  number;
+  markPrice:      number;
 }
 
 /**
@@ -325,6 +327,7 @@ export async function getAllOpenPhemexPositions(): Promise<OpenPhemexPosition[]>
         entryPrice:    parseFloat(p.avgEntryPriceRp ?? "0"),
         stopLossRp:    parseFloat(p.stopLossRp ?? "0"),
         unrealisedPnl: parseFloat(p.unrealisedPnlRv ?? "0"),
+        markPrice:     parseFloat(p.markPriceRp ?? p.avgEntryPriceRp ?? "0"),
       });
     }
     return result;
