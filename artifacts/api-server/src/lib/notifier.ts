@@ -759,11 +759,14 @@ async function executePhemexTrade(
   const currentTfRank = TF_ORDER_HTF.indexOf(timeframe as typeof TF_ORDER_HTF[number]);
   if (currentTfRank !== -1) {
     const oppositePosSideHTF: "Long" | "Short" = levels.signal === "BUY" ? "Short" : "Long";
+    // Only veto for 1d/1w conflicts — a 4h signal disagreeing with a 1h signal
+    // is normal multi-TF behaviour and should not block the lower-TF entry.
+    const minVetoRank = TF_ORDER_HTF.indexOf("1d");
     const htfConflict = findActiveTradesByPhemexSymbol(phemexSymbol, oppositePosSideHTF)
       .find(({ timeframe: tf, trade }) => {
         if (!trade.triggered) return false;
         const rank = TF_ORDER_HTF.indexOf(tf as typeof TF_ORDER_HTF[number]);
-        return rank > currentTfRank;
+        return rank > currentTfRank && rank >= minVetoRank;
       });
     if (htfConflict) {
       logger.warn(
