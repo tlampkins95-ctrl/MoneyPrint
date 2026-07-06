@@ -346,8 +346,13 @@ async function executePhemexTrade(
   const side: "Buy" | "Sell" = levels.signal === "BUY" ? "Buy" : "Sell";
   const posSideForCheck: "Long" | "Short" = side === "Buy" ? "Long" : "Short";
   const qtyStep     = meta.phemexQtyStep ?? 0.001;
-  const qtyDecimals = Math.max(0, -Math.floor(Math.log10(qtyStep)));
-  const pxDecimals  = meta.decimals ?? 2;
+  // For lot-based contracts (e.g. XAUUSDT: 1 lot = 0.001 XAU), rawQty is in
+  // base currency and must be divided by lotSize to get the Phemex order qty.
+  // qtyDecimals is 0 because lots are always integers.
+  const phemexLotSize  = (meta as { phemexLotSize?: number }).phemexLotSize ?? 1;
+  const lotBased       = phemexLotSize !== 1;
+  const qtyDecimals    = lotBased ? 0 : Math.max(0, -Math.floor(Math.log10(qtyStep)));
+  const pxDecimals     = meta.decimals ?? 2;
 
   // Call getUSDTBalance() BEFORE any position or order operations.
   // This is critical: getUSDTBalance() sets the cached detectedHedgeMode as a
@@ -404,7 +409,7 @@ async function executePhemexTrade(
           phemexSymbol,
           posSide:    posSideForCheck,
           stopPx:     storedSl,
-          qtyRq:      existingSize.toFixed(qtyDecimals),
+          qtyRq:      (lotBased ? existingSize / phemexLotSize : existingSize).toFixed(qtyDecimals),
           pxDecimals,
         });
       }
@@ -426,11 +431,12 @@ async function executePhemexTrade(
         phemexSymbol,
         posSide:  posSideForCheck,
         priceRp:  levels.takeProfit2.toFixed(pxDecimals),
-        qtyRq:    existingSize.toFixed(qtyDecimals),
+        qtyRq:    (lotBased ? existingSize / phemexLotSize : existingSize).toFixed(qtyDecimals),
         clOrdID:  `phx-tp2-${symbol}-${timeframe}-${entryTs}`,
       });
     } else {
-      const halfQtyRq = (existingSize / 2).toFixed(qtyDecimals);
+      const existingSizeLots = lotBased ? existingSize / phemexLotSize : existingSize;
+      const halfQtyRq = (existingSizeLots / 2).toFixed(qtyDecimals);
       [tp1OrderId, tp2OrderId] = await Promise.all([
         placeLimitClose({
           phemexSymbol,
@@ -590,9 +596,11 @@ async function executePhemexTrade(
   //   qty        = dollarRisk / slDistance
   const dollarRisk = accountSize * phemexRiskPct();
   const slDistance = Math.abs(levels.entryPrice - levels.stopLoss);
-  const rawQty     = slDistance > 0 ? dollarRisk / slDistance : 0;
+  const rawQtyBase = slDistance > 0 ? dollarRisk / slDistance : 0;
+  // Convert base-currency qty to Phemex order units (lots) when applicable.
+  const rawQty     = lotBased ? rawQtyBase / phemexLotSize : rawQtyBase;
   logger.info(
-    { symbol, timeframe, accountSize, riskPct: phemexRiskPct(), dollarRisk, slDistance, rawQty },
+    { symbol, timeframe, accountSize, riskPct: phemexRiskPct(), dollarRisk, slDistance, rawQtyBase, rawQty, phemexLotSize },
     "phemex-trader: risk-based sizing",
   );
   if (!rawQty || rawQty <= 0) {
@@ -1570,7 +1578,7 @@ async function checkSymbol(
     // position exists it only re-enters for FIB50_SWING.
     if (
       (levels.signal === "BUY" || levels.signal === "SELL") &&
-      (levels.tradeState === "PENDING" || levels.tradeState === "FILLED_PROFIT") &&
+      (levels.tradeState === "PENDING" || levels.tradeState === "FILLED_PROFIT" || levels.tradeState === "FILLED_DRAWDOWN") &&
       isPhemexTradingEnabled() &&
       phemexAutoTraderEnabled &&
       !openPhemexOrders.has(k) &&
@@ -1585,7 +1593,7 @@ async function checkSymbol(
         const rewardDist = Math.abs(levels.entryPrice - levels.takeProfit1);
         const rewardPct  = rewardDist / levels.entryPrice;
         const MIN_REWARD_PCT = 0.03; // 3% minimum — tighter than trending (5%) since metals/forex can have smaller swings
-        const skipRewardCheck = levels.tradeState === "FILLED_PROFIT";
+        const skipRewardCheck = levels.tradeState === "FILLED_PROFIT" || levels.tradeState === "FILLED_DRAWDOWN";
         if (!skipRewardCheck && rewardPct < MIN_REWARD_PCT) {
           logger.warn(
             { symbol, timeframe, rewardPct: rewardPct.toFixed(4), entryPrice: levels.entryPrice, tp1: levels.takeProfit1 },

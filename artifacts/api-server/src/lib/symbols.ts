@@ -37,6 +37,10 @@ export interface SymbolMeta {
   // Phemex contract qty increment. Orders are rounded DOWN to this step
   // (you can't place 0.0017 BTC, only 0.001 or 0.002).
   phemexQtyStep?: number;
+  // For contracts where 1 Phemex qty unit ≠ 1 base-currency unit.
+  // E.g. XAUUSDT: Phemex qty is in lots where 1 lot = 0.001 XAU.
+  // rawQty (in XAU) must be divided by this to get the order qty in lots.
+  phemexLotSize?: number;
   // Phemex SPOT symbol (prefixed with lowercase 's', e.g. "sSKYAIUSDT").
   // When present, the live price is fetched from Phemex's spot ticker so the
   // Now-price line in the screener agrees with the PHEMEX spot chart to the cent.
@@ -93,7 +97,8 @@ export const SYMBOLS: Record<Symbol, SymbolMeta> = {
     // sizing on a $500 account without forcing 312% over-sizing.
     phemexPerp: "XAUUSDT",
     phemexMinQty: 0.01,
-    phemexQtyStep: 0.01,
+    phemexQtyStep: 0.001,
+    phemexLotSize: 0.001,
     venue: "Phemex · USDT perp",
   },
   EURUSD: {
