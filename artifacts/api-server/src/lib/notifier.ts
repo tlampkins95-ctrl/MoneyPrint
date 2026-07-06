@@ -244,6 +244,8 @@ interface OpenPhemexOrder {
   tp1OrderId?:  string;    // reduce-only limit at TP1 (half qty)
   tp2OrderId?:  string;    // reduce-only limit at TP2 (half qty)
   tp1Filled?:   boolean;   // true once TP1 fills and SL has been moved to BE
+  tp1Price?:    number;    // TP1 price, used for partial-profit BE trigger
+  beMoved?:     boolean;   // true once SL has been moved to breakeven (partial-profit trigger)
 }
 
 // How long an unfilled entry limit may sit before it is considered stale and
@@ -902,11 +904,13 @@ async function executePhemexTrade(
       placedAt:   Date.now(),
       fullQty:    rawQty,
       entryPx:    actualEntryPx,
+      tp1Price:   effectiveTP,
       pxDecimals,
       qtyDecimals,
       tp1OrderId: tp1OrderId ?? undefined,
       tp2OrderId: tp2OrderId ?? undefined,
       tp1Filled:  false,
+      beMoved:    false,
     });
     // Stamp the flag so subsequent restarts know a real Phemex order existed
     // for this slot — enabling the externally-closed guard to work correctly.
@@ -1442,10 +1446,50 @@ async function checkSymbol(
       lastPatternKey: levels.signal === "WAIT" ? undefined : prev?.lastPatternKey,
     });
 
+    // Partial-profit breakeven trigger: if price moves 40% of the way from
+    // entry to TP1, move SL to breakeven on the full position immediately.
+    // This fires BEFORE TP1 prints so a reversal can never turn a winning
+    // trade into a full SL loss (e.g. up $15 on Gold then back to -$95).
+    const tp1CheckOrder = openPhemexOrders.get(k);
+    if (
+      (levels.signal === "BUY" || levels.signal === "SELL") &&
+      tp1CheckOrder?.fullQty !== undefined &&
+      tp1CheckOrder.entryPx !== undefined &&
+      tp1CheckOrder.tp1Price !== undefined &&
+      !tp1CheckOrder.beMoved &&
+      !tp1CheckOrder.tp1Filled
+    ) {
+      const cur = levels.currentPrice ?? 0;
+      const entry = tp1CheckOrder.entryPx;
+      const tp1   = tp1CheckOrder.tp1Price;
+      const partialThreshold = entry + (tp1 - entry) * 0.4;
+      const beTriggered = tp1CheckOrder.posSide === "Long"
+        ? cur >= partialThreshold
+        : cur <= partialThreshold;
+      if (beTriggered) {
+        try {
+          await cancelExistingStopOrders(tp1CheckOrder.phemexSymbol, tp1CheckOrder.posSide!);
+          await placeStopOrder({
+            phemexSymbol: tp1CheckOrder.phemexSymbol,
+            posSide:      tp1CheckOrder.posSide!,
+            stopPx:       entry,
+            qtyRq:        tp1CheckOrder.fullQty.toFixed(tp1CheckOrder.qtyDecimals ?? 0),
+            pxDecimals:   tp1CheckOrder.pxDecimals ?? 2,
+          });
+          openPhemexOrders.set(k, { ...tp1CheckOrder, beMoved: true });
+          logger.info(
+            { symbol, timeframe, entryPx: entry, tp1Price: tp1, currentPrice: cur, partialThreshold },
+            "phemex-trader: partial profit — SL moved to breakeven (40% toward TP1)",
+          );
+        } catch (err) {
+          logger.warn({ err, symbol, timeframe }, "phemex-trader: partial profit BE move failed");
+        }
+      }
+    }
+
     // TP1 fill detection: if the tracked position has shrunk to ~50% of fullQty,
     // TP1 hit. Cancel the bracket SL and place a new stop at breakeven (entry price)
     // so the second half rides risk-free to TP2.
-    const tp1CheckOrder = openPhemexOrders.get(k);
     if (
       (levels.signal === "BUY" || levels.signal === "SELL") &&
       tp1CheckOrder?.fullQty !== undefined &&
@@ -2001,8 +2045,45 @@ async function checkTrendingSymbol(
       lastPatternKey: levels.signal === "WAIT" ? undefined : prev?.lastPatternKey,
     });
 
-    // TP1 fill detection for trending coins — same logic as checkSymbol.
+    // Partial-profit breakeven trigger for trending coins — same logic as checkSymbol.
     const tp1CheckOrderT = openPhemexOrders.get(k);
+    if (
+      (levels.signal === "BUY" || levels.signal === "SELL") &&
+      tp1CheckOrderT?.fullQty !== undefined &&
+      tp1CheckOrderT.entryPx !== undefined &&
+      tp1CheckOrderT.tp1Price !== undefined &&
+      !tp1CheckOrderT.beMoved &&
+      !tp1CheckOrderT.tp1Filled
+    ) {
+      const cur = levels.currentPrice ?? 0;
+      const entry = tp1CheckOrderT.entryPx;
+      const tp1   = tp1CheckOrderT.tp1Price;
+      const partialThreshold = entry + (tp1 - entry) * 0.4;
+      const beTriggered = tp1CheckOrderT.posSide === "Long"
+        ? cur >= partialThreshold
+        : cur <= partialThreshold;
+      if (beTriggered) {
+        try {
+          await cancelExistingStopOrders(tp1CheckOrderT.phemexSymbol, tp1CheckOrderT.posSide!);
+          await placeStopOrder({
+            phemexSymbol: tp1CheckOrderT.phemexSymbol,
+            posSide:      tp1CheckOrderT.posSide!,
+            stopPx:       entry,
+            qtyRq:        tp1CheckOrderT.fullQty.toFixed(tp1CheckOrderT.qtyDecimals ?? 0),
+            pxDecimals:   tp1CheckOrderT.pxDecimals ?? 2,
+          });
+          openPhemexOrders.set(k, { ...tp1CheckOrderT, beMoved: true });
+          logger.info(
+            { symbolKey, timeframe, entryPx: entry, tp1Price: tp1, currentPrice: cur, partialThreshold },
+            "phemex-trader: trending partial profit — SL moved to breakeven (40% toward TP1)",
+          );
+        } catch (err) {
+          logger.warn({ err, symbolKey, timeframe }, "phemex-trader: trending partial profit BE move failed");
+        }
+      }
+    }
+
+    // TP1 fill detection for trending coins — same logic as checkSymbol.
     if (
       (levels.signal === "BUY" || levels.signal === "SELL") &&
       tp1CheckOrderT?.fullQty !== undefined &&
