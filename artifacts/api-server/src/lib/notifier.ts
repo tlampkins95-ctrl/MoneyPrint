@@ -788,9 +788,23 @@ async function executePhemexTrade(
   //                  new_TP  = currentPrice + (takeProfit1 - entryPrice)
   //  SELL re-anchor: new_SL  = currentPrice + (stopLoss - entryPrice)
   //                  new_TP  = currentPrice - (entryPrice - takeProfit1)
-  const minPx = getMinPriceRp(phemexSymbol);
-  const isMarketIocSell = side === "Sell" && minPx > 0 && levels.entryPrice < minPx;
-  const isMarketIocBuy  = side === "Buy"  && minPx > 0 && levels.entryPrice < minPx;
+  const minPx  = getMinPriceRp(phemexSymbol);
+  const ref    = levels.currentPrice ?? 0;
+  const pct24h = levels.priceChangePct ?? 0;
+
+  // Market IOC when:
+  //  (a) Entry is below Phemex minPriceRp floor (order would be rejected), OR
+  //  (b) Price has already run past the limit entry by >0.5% — a resting limit
+  //      at the original fib/band level will never fill if price has blown through.
+  //      Enter at market now and re-anchor SL/TP to current price preserving R:R.
+  const priceRunPastEntryBuy  = side === "Buy"  && ref > levels.entryPrice * 1.005;
+  const priceRunPastEntrySell = side === "Sell" && ref < levels.entryPrice * 0.995;
+  const isMarketIocSell = side === "Sell" && (
+    (minPx > 0 && levels.entryPrice < minPx) || priceRunPastEntrySell
+  );
+  const isMarketIocBuy = side === "Buy" && (
+    (minPx > 0 && levels.entryPrice < minPx) || priceRunPastEntryBuy
+  );
   let effectiveSL  = levels.stopLoss;
   let effectiveTP  = levels.takeProfit1;
   let effectiveTP2 = levels.takeProfit2;
@@ -798,14 +812,14 @@ async function executePhemexTrade(
     const reward  = levels.entryPrice - levels.takeProfit1;
     const reward2 = levels.entryPrice - levels.takeProfit2;
     const risk    = levels.stopLoss   - levels.entryPrice;
-    const ref     = levels.currentPrice;
     effectiveTP   = ref - reward;
     effectiveTP2  = ref - reward2;
     effectiveSL   = ref + risk;
     logger.info(
       { symbol, phemexSymbol, signalEntry: levels.entryPrice, currentPrice: ref,
         origSL: levels.stopLoss, origTP: levels.takeProfit1,
-        newSL: effectiveSL, newTP: effectiveTP, newTP2: effectiveTP2 },
+        newSL: effectiveSL, newTP: effectiveTP, newTP2: effectiveTP2,
+        reason: priceRunPastEntrySell ? "price-ran-past-entry" : "min-price-floor" },
       "phemex-trader: Market IOC SELL — SL/TP re-anchored to current price",
     );
   } else if (isMarketIocBuy) {
@@ -814,9 +828,7 @@ async function executePhemexTrade(
     //  2. priceChangePct > 0        — coin is positive on the day
     // If either fails, the fib entry hasn't been reached from above, or the
     // coin is declining — a market fill at a higher price makes no sense.
-    const ref        = levels.currentPrice ?? 0;
-    const pct24h     = levels.priceChangePct ?? 0;
-    const isPumping  = ref > levels.entryPrice && pct24h > 0;
+    const isPumping = ref > levels.entryPrice && pct24h > 0;
     if (!isPumping) {
       logger.warn(
         { symbol, phemexSymbol, signalEntry: levels.entryPrice, currentPrice: ref, priceChangePct: pct24h },
@@ -836,7 +848,8 @@ async function executePhemexTrade(
     logger.info(
       { symbol, phemexSymbol, signalEntry: levels.entryPrice, currentPrice: ref, priceChangePct: pct24h,
         origSL: levels.stopLoss, origTP: levels.takeProfit1,
-        newSL: effectiveSL, newTP: effectiveTP, newTP2: effectiveTP2 },
+        newSL: effectiveSL, newTP: effectiveTP, newTP2: effectiveTP2,
+        reason: priceRunPastEntryBuy ? "price-ran-past-entry" : "min-price-floor" },
       "phemex-trader: Market IOC BUY — SL/TP re-anchored to current price",
     );
   }

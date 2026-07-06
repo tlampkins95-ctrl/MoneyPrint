@@ -3425,12 +3425,19 @@ export function computeLevelsStable(
   // but the current quote is 0.3% below it. Using currentPrice there would
   // record a negative R on a trade whose outcome is "BE_TRAIL".
   if (existing && isInvalidated(existing, fresh.currentPrice)) {
-    const isBuyTrade = existing.signal === "BUY";
-    const tp2Hit = isBuyTrade
-      ? fresh.currentPrice >= existing.takeProfit2
-      : fresh.currentPrice <= existing.takeProfit2;
-    const exitAtLevel = tp2Hit ? existing.takeProfit2 : existing.stopLoss;
-    logClosedTrade(existing, symbolKey, timeframe, exitAtLevel);
+    if (!existing.triggered) {
+      // Limit order never filled — price moved without us. Record as MISSED
+      // regardless of whether TP2 or SL was hit. Showing TP2 profit for an
+      // unfilled limit is phantom P&L that never existed in the account.
+      logClosedTrade(existing, symbolKey, timeframe, fresh.currentPrice, "MISSED");
+    } else {
+      const isBuyTrade = existing.signal === "BUY";
+      const tp2Hit = isBuyTrade
+        ? fresh.currentPrice >= existing.takeProfit2
+        : fresh.currentPrice <= existing.takeProfit2;
+      const exitAtLevel = tp2Hit ? existing.takeProfit2 : existing.stopLoss;
+      logClosedTrade(existing, symbolKey, timeframe, exitAtLevel);
+    }
     activeTrades.delete(k);
     persistActiveTrades();
     lastClosedBarTs.set(k, getBarOpenTs(candles));
@@ -3446,7 +3453,9 @@ export function computeLevelsStable(
     (fresh.signal === "BUY" || fresh.signal === "SELL") &&
     fresh.signal !== stillActiveBeforeFlip.signal
   ) {
-    logClosedTrade(stillActiveBeforeFlip, symbolKey, timeframe, fresh.currentPrice, "REVERSED");
+    // If limit never filled, this is also MISSED — not a real reversal loss.
+    const flipOutcome = stillActiveBeforeFlip.triggered ? "REVERSED" : "MISSED";
+    logClosedTrade(stillActiveBeforeFlip, symbolKey, timeframe, fresh.currentPrice, flipOutcome);
     activeTrades.delete(k);
     persistActiveTrades();
     lastClosedBarTs.set(k, getBarOpenTs(candles));
