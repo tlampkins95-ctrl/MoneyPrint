@@ -346,13 +346,8 @@ async function executePhemexTrade(
   const side: "Buy" | "Sell" = levels.signal === "BUY" ? "Buy" : "Sell";
   const posSideForCheck: "Long" | "Short" = side === "Buy" ? "Long" : "Short";
   const qtyStep     = meta.phemexQtyStep ?? 0.001;
-  // For lot-based contracts (e.g. XAUUSDT: 1 lot = 0.001 XAU), rawQty is in
-  // base currency and must be divided by lotSize to get the Phemex order qty.
-  // qtyDecimals is 0 because lots are always integers.
-  const phemexLotSize  = (meta as { phemexLotSize?: number }).phemexLotSize ?? 1;
-  const lotBased       = phemexLotSize !== 1;
-  const qtyDecimals    = lotBased ? 0 : Math.max(0, -Math.floor(Math.log10(qtyStep)));
-  const pxDecimals     = meta.decimals ?? 2;
+  const qtyDecimals = Math.max(0, -Math.floor(Math.log10(qtyStep)));
+  const pxDecimals  = meta.decimals ?? 2;
 
   // Call getUSDTBalance() BEFORE any position or order operations.
   // This is critical: getUSDTBalance() sets the cached detectedHedgeMode as a
@@ -409,7 +404,7 @@ async function executePhemexTrade(
           phemexSymbol,
           posSide:    posSideForCheck,
           stopPx:     storedSl,
-          qtyRq:      (lotBased ? existingSize / phemexLotSize : existingSize).toFixed(qtyDecimals),
+          qtyRq:      existingSize.toFixed(qtyDecimals),
           pxDecimals,
         });
       }
@@ -431,12 +426,11 @@ async function executePhemexTrade(
         phemexSymbol,
         posSide:  posSideForCheck,
         priceRp:  levels.takeProfit2.toFixed(pxDecimals),
-        qtyRq:    (lotBased ? existingSize / phemexLotSize : existingSize).toFixed(qtyDecimals),
+        qtyRq:    existingSize.toFixed(qtyDecimals),
         clOrdID:  `phx-tp2-${symbol}-${timeframe}-${entryTs}`,
       });
     } else {
-      const existingSizeLots = lotBased ? existingSize / phemexLotSize : existingSize;
-      const halfQtyRq = (existingSizeLots / 2).toFixed(qtyDecimals);
+      const halfQtyRq = (existingSize / 2).toFixed(qtyDecimals);
       [tp1OrderId, tp2OrderId] = await Promise.all([
         placeLimitClose({
           phemexSymbol,
@@ -596,11 +590,9 @@ async function executePhemexTrade(
   //   qty        = dollarRisk / slDistance
   const dollarRisk = accountSize * phemexRiskPct();
   const slDistance = Math.abs(levels.entryPrice - levels.stopLoss);
-  const rawQtyBase = slDistance > 0 ? dollarRisk / slDistance : 0;
-  // Convert base-currency qty to Phemex order units (lots) when applicable.
-  const rawQty     = lotBased ? rawQtyBase / phemexLotSize : rawQtyBase;
+  const rawQty = slDistance > 0 ? dollarRisk / slDistance : 0;
   logger.info(
-    { symbol, timeframe, accountSize, riskPct: phemexRiskPct(), dollarRisk, slDistance, rawQtyBase, rawQty, phemexLotSize },
+    { symbol, timeframe, accountSize, riskPct: phemexRiskPct(), dollarRisk, slDistance, rawQty },
     "phemex-trader: risk-based sizing",
   );
   if (!rawQty || rawQty <= 0) {

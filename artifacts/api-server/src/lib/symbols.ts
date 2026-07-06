@@ -97,8 +97,7 @@ export const SYMBOLS: Record<Symbol, SymbolMeta> = {
     // sizing on a $500 account without forcing 312% over-sizing.
     phemexPerp: "XAUUSDT",
     phemexMinQty: 0.01,
-    phemexQtyStep: 0.001,
-    phemexLotSize: 0.001,
+    phemexQtyStep: 0.01,
     venue: "Phemex · USDT perp",
   },
   EURUSD: {
