@@ -2128,9 +2128,16 @@ export function computeLevels(
     }
 
     // ── SELL: pump fade ────────────────────────────────────────────────────────
-    // MACD: histogram ticking down (histPrev1 < histPrev2) AND was positive
-    // (histPrev2 > 0) — turning from bullish to bearish, exhaustion of the pump.
-    const drSellMacd = histPrev1 < histPrev2 && histPrev2 > 0;
+    // MACD: requires 2 consecutive completed bars of decline while histogram is
+    // still positive — not just a single-bar dip (MET 0.0032→0.0017 on a coin
+    // still up 8.85% is a noise tick, not exhaustion). histPrev3>histPrev2 and
+    // histPrev2>histPrev1, both positive, confirms the fade is established.
+    const drSellMacd =
+      Number.isFinite(histPrev3) &&
+      histPrev3 > 0 &&
+      histPrev2 > 0 &&
+      histPrev2 < histPrev3 &&   // first bar of decline confirmed
+      histPrev1 < histPrev2;     // second bar still declining
     if (signal === "WAIT" && !isLongOnly && higherTfAllowsSell && bwContractingForSell && drSellMacd) {
       const highs = [...drSwingHighs].reverse();
       const lows  = [...drSwingLows].reverse();
