@@ -751,6 +751,33 @@ async function executePhemexTrade(
     return;
   }
 
+  // Cross-TF veto: don't short a coin that has an active triggered BUY on a
+  // higher timeframe, and don't long a coin with an active triggered SELL on a
+  // higher TF. Prevents entering against the established higher-TF trend —
+  // e.g. the system shorting into weekly support while a weekly BUY is live.
+  const TF_ORDER_HTF = ["1h", "4h", "1d", "1w"] as const;
+  const currentTfRank = TF_ORDER_HTF.indexOf(timeframe as typeof TF_ORDER_HTF[number]);
+  if (currentTfRank !== -1) {
+    const oppositePosSideHTF: "Long" | "Short" = levels.signal === "BUY" ? "Short" : "Long";
+    const htfConflict = findActiveTradesByPhemexSymbol(phemexSymbol, oppositePosSideHTF)
+      .find(({ timeframe: tf, trade }) => {
+        if (!trade.triggered) return false;
+        const rank = TF_ORDER_HTF.indexOf(tf as typeof TF_ORDER_HTF[number]);
+        return rank > currentTfRank;
+      });
+    if (htfConflict) {
+      logger.warn(
+        { symbol, timeframe, phemexSymbol, signal: levels.signal,
+          htfTimeframe: htfConflict.timeframe, htfSignalType: htfConflict.trade.signalType },
+        "phemex-trader: higher-TF conflict — opposite triggered trade on HTF, skipping to avoid fighting the trend",
+      );
+      if (!openPhemexOrders.has(k)) {
+        openPhemexOrders.set(k, { orderId: `htf-conflict-${Date.now()}`, phemexSymbol, posSide: posSideForCheck });
+      }
+      return;
+    }
+  }
+
   // Also check for an unfilled pending limit order that survived the restart.
   // checkExistingPosition only sees filled positions; a pending order wouldn't
   // show there yet but would be duplicated if we placed another one.
