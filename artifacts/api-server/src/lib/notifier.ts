@@ -307,21 +307,18 @@ async function executePhemexTrade(
     return;
   }
 
-  // Per-signal-type auto-trade gate. Set PHEMEX_AUTOTRADER_SIGNAL_TYPES to a
-  // comma-separated list of signal types allowed to place real orders
-  // (e.g. "FIB50_SWING,DUMP_RECOVERY"). Unset or empty = all types trade.
-  // Alerts still fire for gated types — only Phemex order placement is suppressed.
-  // Use this to validate a new signal type in alert-only mode before going live.
-  const allowedSignalTypes = process.env.PHEMEX_AUTOTRADER_SIGNAL_TYPES;
-  if (allowedSignalTypes && allowedSignalTypes.trim()) {
-    const allowed = allowedSignalTypes.split(",").map(s => s.trim()).filter(Boolean);
-    if (levels.signalType && !allowed.includes(levels.signalType)) {
-      logger.info(
-        { symbol, timeframe, signalType: levels.signalType, allowedSignalTypes },
-        "phemex-trader: auto-trade skipped — signal type not in PHEMEX_AUTOTRADER_SIGNAL_TYPES allowlist",
-      );
-      return;
-    }
+  // Per-signal-type auto-trade gate. PHEMEX_AUTOTRADER_SIGNAL_TYPES overrides
+  // the default allowlist. Unset = use the hardcoded default below.
+  // Alerts still fire for blocked types — only Phemex order placement is suppressed.
+  const DEFAULT_ALLOWED_SIGNAL_TYPES = "FIB50_SWING,BB_REJECTION,DOUBLE_BOTTOM,DOUBLE_TOP,BB_BREAKOUT";
+  const allowedSignalTypes = (process.env.PHEMEX_AUTOTRADER_SIGNAL_TYPES ?? "").trim() || DEFAULT_ALLOWED_SIGNAL_TYPES;
+  const allowed = allowedSignalTypes.split(",").map(s => s.trim()).filter(Boolean);
+  if (levels.signalType && !allowed.includes(levels.signalType)) {
+    logger.info(
+      { symbol, timeframe, signalType: levels.signalType, allowedSignalTypes },
+      "phemex-trader: auto-trade skipped — signal type not in allowlist",
+    );
+    return;
   }
 
   inFlightOrderSlots.add(k);
