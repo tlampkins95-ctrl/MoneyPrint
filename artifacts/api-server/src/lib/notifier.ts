@@ -759,9 +759,12 @@ async function executePhemexTrade(
   const currentTfRank = TF_ORDER_HTF.indexOf(timeframe as typeof TF_ORDER_HTF[number]);
   if (currentTfRank !== -1) {
     const oppositePosSideHTF: "Long" | "Short" = levels.signal === "BUY" ? "Short" : "Long";
-    // Only veto for 1d/1w conflicts — a 4h signal disagreeing with a 1h signal
-    // is normal multi-TF behaviour and should not block the lower-TF entry.
-    const minVetoRank = TF_ORDER_HTF.indexOf("1d");
+    // Only veto for weekly (1w) conflicts. Every signal already has a daily
+    // MACD gate (higherTfAllowsBuy/Sell) that covers 1d alignment — adding a
+    // 1d veto here causes double-gating and blocks valid entries when a stale
+    // triggered 1d trade exists but the daily MACD has since reversed.
+    // 4h vs 1h disagreement is also normal multi-TF behaviour, so 4h is excluded too.
+    const minVetoRank = TF_ORDER_HTF.indexOf("1w");
     const htfConflict = findActiveTradesByPhemexSymbol(phemexSymbol, oppositePosSideHTF)
       .find(({ timeframe: tf, trade }) => {
         if (!trade.triggered) return false;
