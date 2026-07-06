@@ -2446,9 +2446,15 @@ export function computeLevels(
           }
         }
 
-        // SELL: price below lower band + MACD histogram negative AND falling + prev bar also outside
+        // SELL: price below lower band + MACD histogram negative AND falling + prev bar also outside.
+        // Gap exception: a single candle that dropped >5% is a real breakdown, not a wick —
+        // bypass the 2-bar walk requirement in that case.
         const bbkSellMacd = macdWarm && histPrev1 < 0 && histPrev1 < histPrev2;
-        if (signal === "WAIT" && pctBk < 0 && bbkSellMacd && higherTfAllowsSell && !isLongOnly && prevClose < bbkBands.lower) {
+        const lastCompletedClose = bbkCompleted[bbkCompleted.length - 1]?.close ?? currentPrice;
+        const prevCompletedClose = bbkCompleted[bbkCompleted.length - 2]?.close ?? lastCompletedClose;
+        const singleBarDump = prevCompletedClose > 0 && (prevCompletedClose - lastCompletedClose) / prevCompletedClose >= 0.05;
+        const twoBarWalkSell = prevClose < bbkBands.lower || singleBarDump;
+        if (signal === "WAIT" && pctBk < 0 && bbkSellMacd && higherTfAllowsSell && !isLongOnly && twoBarWalkSell) {
           const ep   = round(currentPrice);
           const sl   = round(bbkBands.lower + 0.3 * atr);
           const risk = sl - ep;
@@ -2463,7 +2469,7 @@ export function computeLevels(
             takeProfit2  = tp2;
             dca1         = undefined;
             patternResult = null;
-            signalReason = `[${tfLabel}] BB BREAKOUT SELL: Price ${fmt(ep)} below lower BB30 ${fmt(bbkBands.lower)} (%B ${pctBk.toFixed(2)}), MACD negative+falling — 2-bar band walk confirmed. SL ${fmt(sl)} (above band), TP1 ${fmt(tp1)}, TP2 ${fmt(tp2)}.`;
+            signalReason = `[${tfLabel}] BB BREAKOUT SELL: Price ${fmt(ep)} below lower BB30 ${fmt(bbkBands.lower)} (%B ${pctBk.toFixed(2)}), MACD negative+falling${singleBarDump ? ` — gap dump ${(((prevCompletedClose - lastCompletedClose) / prevCompletedClose) * 100).toFixed(1)}% bypasses 2-bar walk` : " — 2-bar band walk confirmed"}. SL ${fmt(sl)} (above band), TP1 ${fmt(tp1)}, TP2 ${fmt(tp2)}.`;
           }
         }
       }
