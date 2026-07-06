@@ -621,10 +621,10 @@ async function executePhemexTrade(
   // FIB50_SWING and DUMP_RECOVERY use zone-based entries that tolerate catch-up
   // re-entry (they enter at currentPrice near a structural extreme, not a
   // time-pinned price level).
-  // EXCEPTION: FILLED_PROFIT means the entry already happened — TP1 was hit and
-  // the position is still open. We only need to restore the TP2 order, not place
-  // a new entry. Let it fall through to checkExistingPosition in that case.
-  if (isCatchUp && levels.signalType !== "FIB50_SWING" && levels.signalType !== "DUMP_RECOVERY" && levels.tradeState !== "FILLED_PROFIT") {
+  // EXCEPTION: FILLED_PROFIT / FILLED_DRAWDOWN both mean the entry already
+  // happened — the position is open. We only need to restore TP orders, not
+  // place a new entry. Let both fall through to checkExistingPosition.
+  if (isCatchUp && levels.signalType !== "FIB50_SWING" && levels.signalType !== "DUMP_RECOVERY" && levels.tradeState !== "FILLED_PROFIT" && levels.tradeState !== "FILLED_DRAWDOWN") {
     logger.info(
       { symbol, timeframe, signalType: levels.signalType },
       "phemex-trader: catch-up skipped — no position to restore for non-FIB50_SWING signal",
@@ -2247,12 +2247,12 @@ async function checkTrendingSymbol(
       }
     }
     const trendingCatchUpTypeAllowed =
-      levels.signalType === "FIB50_SWING" || levels.signalType === "DUMP_RECOVERY" || levels.signalType === "MACD_DIP_LONG" || levels.tradeState === "FILLED_PROFIT";
+      levels.signalType === "FIB50_SWING" || levels.signalType === "DUMP_RECOVERY" || levels.signalType === "MACD_DIP_LONG" || levels.tradeState === "FILLED_PROFIT" || levels.tradeState === "FILLED_DRAWDOWN";
     const catchUpBbBreakoutBuyBlocked = levels.signalType === "BB_BREAKOUT" && levels.signal === "BUY";
     if (
       !catchUpBbBreakoutBuyBlocked &&
       (levels.signal === "BUY" || levels.signal === "SELL") &&
-      (levels.tradeState === "PENDING" || levels.tradeState === "FILLED_PROFIT") &&
+      (levels.tradeState === "PENDING" || levels.tradeState === "FILLED_PROFIT" || levels.tradeState === "FILLED_DRAWDOWN") &&
       trendingCatchUpTypeAllowed &&
       isPhemexTradingEnabled() &&
       phemexAutoTraderEnabled &&
