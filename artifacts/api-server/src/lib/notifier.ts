@@ -1279,7 +1279,10 @@ async function checkSymbol(
           { symbol, timeframe, signal: levels.signal, tradingEnabled, autoTraderOn, hasPhemexSymbol: !!phemexSymbol },
           "phemex-trader: gate check",
         );
-        if (tradingEnabled && autoTraderOn && phemexSymbol) {
+        // BB_BREAKOUT BUY: 0 TP1 hits across all tracked trades — entering at
+        // momentum peaks (price above upper BB) with no follow-through. Blocked.
+        const bbBreakoutBuyBlocked = levels.signalType === "BB_BREAKOUT" && levels.signal === "BUY";
+        if (tradingEnabled && autoTraderOn && phemexSymbol && !bbBreakoutBuyBlocked) {
           const candleRange = candles.length > 0
             ? {
                 low:   Math.min(...candles.map(c => c.close)),
@@ -1848,8 +1851,10 @@ async function checkTrendingSymbol(
       // Phemex auto-trade for trending coins.
       // tMeta.phemexPerp is the exchange symbol (e.g. "ONDOUSDT").
       // We pass trendingMeta so executePhemexTrade doesn't bail on the SYMBOLS lookup.
+      const trendingBbBreakoutBuyBlocked = levels.signalType === "BB_BREAKOUT" && levels.signal === "BUY";
       if (
         !isSeedSnapshot &&
+        !trendingBbBreakoutBuyBlocked &&
         (levels.signal === "BUY" || levels.signal === "SELL") &&
         isPhemexTradingEnabled() &&
         phemexAutoTraderEnabled &&
@@ -2049,7 +2054,9 @@ async function checkTrendingSymbol(
     }
     const trendingCatchUpTypeAllowed =
       levels.signalType === "FIB50_SWING" || levels.signalType === "DUMP_RECOVERY" || levels.tradeState === "FILLED_PROFIT";
+    const catchUpBbBreakoutBuyBlocked = levels.signalType === "BB_BREAKOUT" && levels.signal === "BUY";
     if (
+      !catchUpBbBreakoutBuyBlocked &&
       (levels.signal === "BUY" || levels.signal === "SELL") &&
       (levels.tradeState === "PENDING" || levels.tradeState === "FILLED_PROFIT") &&
       trendingCatchUpTypeAllowed &&
