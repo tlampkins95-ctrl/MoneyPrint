@@ -2895,7 +2895,7 @@ function insertSignalLog(trade: ActiveTrade, symbolKey: string, timeframe: Timef
 // "TP1" is a milestone outcome (trade stays open, stop is trailed to BE).
 // It is used exclusively to notify the notifier so the SL streak can reset
 // on a partial win — the trade is NOT closed and activeTrades is NOT modified.
-export type ClosedOutcome = "SL" | "BE_TRAIL" | "TP2" | "TP1" | "REVERSED" | "MISSED";
+export type ClosedOutcome = "SL" | "BE_TRAIL" | "TP2" | "TP1" | "REVERSED" | "MISSED" | "PROFIT_LOCK";
 
 // Call before activeTrades.delete() to record the outcome in the DB.
 // forceOutcome is used for REVERSED and MISSED paths; the isInvalidated path
@@ -2912,7 +2912,7 @@ export function registerOnTradeClosedCallback(
   onTradeClosedCallback = cb;
 }
 
-function logClosedTrade(
+export function logClosedTrade(
   trade: ActiveTrade,
   symbolKey: string,
   timeframe: Timeframe,
@@ -3793,6 +3793,33 @@ export function setPhemexOrderPlaced(symbolKey: string, timeframe: Timeframe): v
   if (!trade || trade.phemexOrderPlaced) return;
   trade.phemexOrderPlaced = true;
   persistActiveTrades();
+}
+
+// Returns all active trades whose signal direction matches the given posSide,
+// matched against a Phemex symbol string. Used by lockProfits() to record
+// profit-lock closes to closed_trades without losing signal metadata.
+export function findActiveTradesByPhemexSymbol(
+  phemexSymbol: string,
+  posSide: "Long" | "Short",
+): Array<{ symbolKey: string; timeframe: Timeframe; trade: ActiveTrade }> {
+  const results: Array<{ symbolKey: string; timeframe: Timeframe; trade: ActiveTrade }> = [];
+  for (const [k, trade] of activeTrades) {
+    if (trade.signal !== "BUY" && trade.signal !== "SELL") continue;
+    // posSide Long = BUY trade, Short = SELL trade
+    if (posSide === "Long" && trade.signal !== "BUY") continue;
+    if (posSide === "Short" && trade.signal !== "SELL") continue;
+    const parts = k.split("::");
+    if (parts.length !== 3) continue;
+    const symbolKey = parts[1];
+    const timeframe = parts[2] as Timeframe;
+    // Match: symbolKey IS the phemex symbol (trending coins), or check SYMBOLS config
+    const meta = (SYMBOLS as Record<string, SymbolMeta>)[symbolKey];
+    const resolvedPhemex = meta?.phemexPerp ?? symbolKey;
+    if (resolvedPhemex === phemexSymbol || symbolKey === phemexSymbol) {
+      results.push({ symbolKey, timeframe, trade });
+    }
+  }
+  return results;
 }
 
 // Returns all symbol/timeframe pairs that have an active BUY or SELL trade record.

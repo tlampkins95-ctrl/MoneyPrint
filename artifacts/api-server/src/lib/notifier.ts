@@ -6,7 +6,7 @@ import {
   fetchCandlesForTimeframe,
   type Timeframe,
 } from "./yahoo-fetch";
-import { computeLevelsStable, fetchSpotPrice, getActiveTrade, clearActiveTrade, markTradeTriggered, applyFuturesBasis, registerOnTradeClosedCallback, calcMACDHist, computePositionSizing, DEFAULT_ACCOUNT_SIZE, DEFAULT_RISK_PCT, DEFAULT_MIN_COLLATERAL, DEFAULT_MAX_LEVERAGE, DEFAULT_MT5_LOTS, setPhemexOrderPlaced, type ClosedOutcome } from "./signals";
+import { computeLevelsStable, fetchSpotPrice, getActiveTrade, clearActiveTrade, markTradeTriggered, applyFuturesBasis, registerOnTradeClosedCallback, calcMACDHist, computePositionSizing, DEFAULT_ACCOUNT_SIZE, DEFAULT_RISK_PCT, DEFAULT_MIN_COLLATERAL, DEFAULT_MAX_LEVERAGE, DEFAULT_MT5_LOTS, setPhemexOrderPlaced, logClosedTrade, findActiveTradesByPhemexSymbol, type ClosedOutcome } from "./signals";
 import {
   buildAlertContext,
   sendTelegramAlert,
@@ -2174,6 +2174,16 @@ async function lockProfits(): Promise<void> {
         posSide:      pos.posSide,
         qtyRq:        pos.size.toFixed(pxDecimals),
       });
+      // Record to closed_trades so profit-lock closes aren't invisible
+      const matches = findActiveTradesByPhemexSymbol(pos.phemexSymbol, pos.posSide);
+      for (const { symbolKey, timeframe, trade } of matches) {
+        logClosedTrade(trade, symbolKey, timeframe, pos.markPrice, "PROFIT_LOCK");
+        clearActiveTrade(symbolKey, timeframe);
+        logger.info(
+          { symbolKey, timeframe, signalType: trade.signalType, signal: trade.signal, exitPrice: pos.markPrice, pnl: pos.unrealisedPnl },
+          "phemex-trader: profit-lock close recorded to closed_trades",
+        );
+      }
     }
   } catch (err) {
     logger.warn({ err }, "phemex-trader: lockProfits scan failed (non-fatal)");
