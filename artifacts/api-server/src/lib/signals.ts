@@ -2440,7 +2440,7 @@ export function computeLevels(
         const twoBarWalkBuy = pctBkPrev > 0.9 || singleBarPump;
         if (pctBk > 1.0 && bbkBuyMacd && higherTfAllowsBuy && twoBarWalkBuy) {
           const ep   = round(currentPrice);
-          const sl   = round(bbkBands.upper - 0.3 * atr);
+          const sl   = round(bbkBands.upper - 1.0 * atr);
           const risk = ep - sl;
           if (risk > 0) {
             const tp1 = round(ep + 1.5 * risk);
@@ -2465,7 +2465,7 @@ export function computeLevels(
         const twoBarWalkSell = pctBkPrev < 0.1 || singleBarDump;
         if (signal === "WAIT" && pctBk < 0 && bbkSellMacd && higherTfAllowsSell && !isLongOnly && twoBarWalkSell) {
           const ep   = round(currentPrice);
-          const sl   = round(bbkBands.lower + 0.3 * atr);
+          const sl   = round(bbkBands.lower + 1.0 * atr);
           const risk = sl - ep;
           if (risk > 0) {
             const tp1 = round(ep - 1.5 * risk);
