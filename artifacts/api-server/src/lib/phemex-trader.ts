@@ -238,12 +238,15 @@ export async function checkExistingOrder(
       { symbol: phemexSymbol, currency: "USDT" },
     );
     const rows = data?.rows ?? [];
-    const match = rows.find(
-      o => o.symbol === phemexSymbol &&
-           (o.posSide ?? o.side) === posSide &&
-           o.ordStatus !== "Cancelled" &&
-           o.ordStatus !== "Filled",
-    );
+    // activeList rows have side="Buy"/"Sell" but no posSide field in hedge mode.
+    // Derive the position side from the order side: Buy→Long, Sell→Short.
+    const match = rows.find(o => {
+      const derivedSide = o.posSide ?? (o.side === "Buy" ? "Long" : "Short");
+      return o.symbol === phemexSymbol &&
+             derivedSide === posSide &&
+             o.ordStatus !== "Cancelled" &&
+             o.ordStatus !== "Filled";
+    });
     return match?.orderID ?? null;
   } catch (err: unknown) {
     // Phemex returns code 10002 (OM_ORDER_NOT_FOUND) when a symbol has no
