@@ -1720,18 +1720,17 @@ async function checkTrendingSymbol(
 
       // Signal-type guard for trending coins. PIVOT_BOUNCE and BREAKOUT on
       // trending symbols showed 0% WR across every coin in production.
-      // BB_REJECTION SELL is also blocked: trending coins are pumping by definition —
-      // shorting them at the upper band causes repeated SL hits in a bull market.
-      // BB_REJECTION BUY (buying the lower-band dip on a trending coin) is still allowed.
+      // BB_REJECTION SELL IS allowed on trending coins — shorting overextended
+      // pumping coins (touching upper band with MACD declining) is the core
+      // winning strategy (HYPE, PENGU, DYDX shorts all used this pattern).
       // Filled trades bypass this: fills are always actionable regardless of
       // what signal type originally opened the position.
       if (!isFilledTrade) {
-        const isBbrSell = levels.signalType === "BB_REJECTION" && levels.signal === "SELL";
-        const trendingTypeAllowed = !isBbrSell && (levels.signalType === "FIB50_SWING" || levels.signalType === "DOUBLE_TOP" || levels.signalType === "DOUBLE_BOTTOM" || levels.signalType === "BB_REJECTION" || levels.signalType === "BB_WALK" || levels.signalType === "DUMP_RECOVERY" || levels.signalType === "BB_BREAKOUT" || levels.signalType === "BB_OVEREXTENSION" || levels.signalType === "SWING_BREAK");
+        const trendingTypeAllowed = levels.signalType === "FIB50_SWING" || levels.signalType === "DOUBLE_TOP" || levels.signalType === "DOUBLE_BOTTOM" || levels.signalType === "BB_REJECTION" || levels.signalType === "BB_WALK" || levels.signalType === "BB_BREAKOUT" || levels.signalType === "BB_OVEREXTENSION" || levels.signalType === "SWING_BREAK";
         if (!trendingTypeAllowed) {
           logger.info(
             { symbolKey, timeframe, signalType: levels.signalType, signal: levels.signal },
-            "Trending signal alert suppressed (BB_REJECTION SELL and non-allowed types blocked on trending coins)",
+            "Trending signal alert suppressed (signal type not allowed for trending coins)",
           );
           stateMap.set(k, { ...(prev ?? {}), signal: levels.signal, lastAlertAt: prev?.lastAlertAt ?? 0 });
           return;
