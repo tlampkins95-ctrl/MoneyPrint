@@ -858,14 +858,16 @@ async function executePhemexTrade(
   await setSymbolLeverage(phemexSymbol, phemexMaxLeverage());
 
   const entryTs = Date.now();
+  const isMarketIoc = isMarketIocSell || isMarketIocBuy;
   const orderId = await placeOrder({
     phemexSymbol,
     side,
-    qtyRq:      rawQty.toFixed(qtyDecimals),
-    priceRp:    levels.entryPrice.toFixed(pxDecimals),
-    stopLossRp: effectiveSL.toFixed(pxDecimals),
+    qtyRq:       rawQty.toFixed(qtyDecimals),
+    priceRp:     (isMarketIoc ? ref : levels.entryPrice).toFixed(pxDecimals),
+    stopLossRp:  effectiveSL.toFixed(pxDecimals),
+    forceMarket: isMarketIoc,
     // No bracket TP — two reduce-only limit orders below handle TP1/TP2 separately.
-    clOrdID:    `phx-${symbol}-${timeframe}-${entryTs}`,
+    clOrdID:     `phx-${symbol}-${timeframe}-${entryTs}`,
   });
 
   if (orderId) {
