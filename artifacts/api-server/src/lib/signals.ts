@@ -1461,35 +1461,38 @@ export function computeLevels(
     return { lastHist: dLastHist, prevHist: dPrevHist };
   };
 
+  // Higher-TF gate: align with MACD sign (color), not just direction.
+  //   SELL allowed only when higher-TF MACD histogram is NEGATIVE (red).
+  //   BUY  allowed only when higher-TF MACD histogram is POSITIVE (green).
+  // This ensures FIB50_SWING and other gated signals never short into a green
+  // daily MACD or go long into a red one.
   let higherTfAllowsSell = true;
   if ((timeframe === "1h" || timeframe === "4h") && dailyCandlesForWeekly && dailyCandlesForWeekly.length >= 35) {
     const d = _checkDailyMacd();
-    if (d && d.lastHist >= d.prevHist) {
-      higherTfAllowsSell = false; // daily MACD not curling down — no 1h/4h shorts
+    if (d && d.lastHist >= 0) {
+      higherTfAllowsSell = false; // daily MACD green (≥0) — no 1h/4h shorts
     }
   } else if (timeframe === "1d" && weeklyCandlesForDaily && weeklyCandlesForDaily.length >= 35) {
     const wCloses   = weeklyCandlesForDaily.map((c) => c.close);
     const wHist     = calcMACDHist(wCloses);
     const wLastHist = wHist[wHist.length - 2];
-    const wPrevHist = wHist[wHist.length - 3];
-    if (Number.isFinite(wLastHist) && Number.isFinite(wPrevHist) && wLastHist >= wPrevHist) {
-      higherTfAllowsSell = false; // weekly MACD not curling down — no 1d shorts
+    if (Number.isFinite(wLastHist) && wLastHist >= 0) {
+      higherTfAllowsSell = false; // weekly MACD green (≥0) — no 1d shorts
     }
   }
 
   let higherTfAllowsBuy = true;
   if ((timeframe === "1h" || timeframe === "4h") && dailyCandlesForWeekly && dailyCandlesForWeekly.length >= 35) {
     const d = _checkDailyMacd();
-    if (d && d.lastHist <= d.prevHist) {
-      higherTfAllowsBuy = false; // daily MACD not curling up — no 1h/4h longs
+    if (d && d.lastHist <= 0) {
+      higherTfAllowsBuy = false; // daily MACD red (≤0) — no 1h/4h longs
     }
   } else if (timeframe === "1d" && weeklyCandlesForDaily && weeklyCandlesForDaily.length >= 35) {
     const wCloses   = weeklyCandlesForDaily.map((c) => c.close);
     const wHist     = calcMACDHist(wCloses);
     const wLastHist = wHist[wHist.length - 2];
-    const wPrevHist = wHist[wHist.length - 3];
-    if (Number.isFinite(wLastHist) && Number.isFinite(wPrevHist) && wLastHist <= wPrevHist) {
-      higherTfAllowsBuy = false; // weekly MACD not curling up — no 1d longs
+    if (Number.isFinite(wLastHist) && wLastHist <= 0) {
+      higherTfAllowsBuy = false; // weekly MACD red (≤0) — no 1d longs
     }
   }
 

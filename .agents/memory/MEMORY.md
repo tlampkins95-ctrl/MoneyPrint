@@ -30,7 +30,7 @@
 - [Self-hedge via conflicting timeframe signals](self-hedge-guard.md) — 1h BUY + 1d SELL for same symbol both execute in hedge mode, opening Long+Short simultaneously. Fix: check opposite posSide in checkExistingPosition before placing any order.
 - [Phemex activeList field names](phemex-activeList-fields.md) — orderType/execInst/side (not ordType/reduceOnly/posSide); posSide absent, derive from side.
 - [detectCandlestickSignal never wired](candlestick-signal-wiring.md) — was imported but never called in signals.ts; now wired after detectChartPattern in PATTERN_BREAKOUT block.
-- [Higher-TF trend gate](higher-tf-trend-gate.md) — higherTfAllowsBuy: daily MACD hist RISING (current>prev). higherTfAllowsSell: daily MACD hist FALLING. NO sign check (not >0 or <0). FIB50_SWING has NO separate EMA gate — weeklyAllowsBuy/Sell deleted.
+- [Higher-TF trend gate](higher-tf-trend-gate.md) — higherTfAllowsBuy: daily MACD hist > 0 (green). higherTfAllowsSell: daily MACD hist < 0 (red). Sign-based, not direction-based. FIB50_SWING has NO separate EMA gate.
 - [Higher-TF gate coverage](higher-tf-gate-coverage.md) — all 6 SELL + 5 BUY assignments verified; FIB50_SWING and DOUBLE_TOP SELL were missing gates; BB_OVEREXTENSION was explicitly bypassing them; all fixed.
 - [FIB50_SWING 1d SL ATR minimum](fib50swing-1d-sl-atr.md) — formula SL ≈ 1 ATR on 1d (clipped by daily candle noise); enforced 1.5 ATR minimum for 1d only; other TFs keep strict 2:1 R:R.
 - [User strategy indicators](user-strategy-indicators.md) — strategy uses Bollinger Bands + MACD only. No EMAs in the strategy. Never build gates or filters using EMA crossovers.
