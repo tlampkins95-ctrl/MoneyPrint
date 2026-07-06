@@ -1878,6 +1878,9 @@ async function checkTrendingSymbol(
       // Phemex auto-trade for trending coins.
       // tMeta.phemexPerp is the exchange symbol (e.g. "ONDOUSDT").
       // We pass trendingMeta so executePhemexTrade doesn't bail on the SYMBOLS lookup.
+      // BB_BREAKOUT BUY is blocked for trending coins: entering above the upper band
+      // on a volatile trending coin risks chasing exhaustion moves (longing the top).
+      // For static symbols (XAGUSD, BTC, ETH) the signal is allowed via the allowlist.
       const trendingBbBreakoutBuyBlocked = levels.signalType === "BB_BREAKOUT" && levels.signal === "BUY";
       if (
         !isSeedSnapshot &&
