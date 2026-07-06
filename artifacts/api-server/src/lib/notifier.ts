@@ -1703,13 +1703,22 @@ async function checkTrendingSymbol(
     // signal transitions that happen while the server is running.
     const isSeedSnapshot = false;
 
-    // Bootstrap: if this coin/TF has never been evaluated AND there is no
-    // existing active trade (i.e. this is a brand-new signal, not restart
-    // recovery), seed stateMap to WAIT so the standard transition logic fires
-    // the alert on this very first tick. Without this, the first evaluation
-    // stores the SELL/BUY state and returns — then every subsequent tick sees
-    // prev.signal === levels.signal and transitioned stays false forever.
-    if (!stateMap.has(k) && !isSeedSnapshot && !activeTradeBeforeCompute &&
+    // Bootstrap: if this coin/TF has never been evaluated and the signal is a
+    // fresh BUY/SELL that was never alerted, seed stateMap to WAIT so the
+    // standard transition logic fires the alert on this very first tick.
+    // Without this, the first evaluation stores the state and returns — then
+    // every subsequent tick sees prev.signal === levels.signal so transitioned
+    // stays false forever.
+    // Allow bootstrap even when activeTradeBeforeCompute is set, as long as
+    // the trade is still PENDING/unfilled (loaded from JSON snapshot but never
+    // actually triggered). Only block when the trade is already filled — that's
+    // genuine restart recovery where the user is already in a position.
+    // A trade is "filled" (actually triggered) only when triggered===true.
+    // A PENDING trade (triggered===false/undefined) loaded from the JSON
+    // snapshot on restart is not a real position — allow bootstrap to fire.
+    const activeTradeIsFilled =
+      activeTradeBeforeCompute != null && activeTradeBeforeCompute.triggered === true;
+    if (!stateMap.has(k) && !isSeedSnapshot && !activeTradeIsFilled &&
         (levels.signal === "BUY" || levels.signal === "SELL") &&
         levels.tradeState === "PENDING") {
       stateMap.set(k, { signal: "WAIT", lastAlertAt: 0 });
@@ -1863,15 +1872,13 @@ async function checkTrendingSymbol(
         higherCandles.length >= 2
       ) {
         const higherResult = computeLevelsStable(higherCandles as typeof candles, spot, higherTf, symbolKey, tMeta);
-        // For trending coins, BUY signals require the daily to be actively BUY —
-        // not just non-SELL. Trending coins are frequently discovered because search
-        // interest spikes during a dump (red candles = people panic-searching). A 1h
-        // recovery setup on a daily-WAIT coin is longing into a downtrend.
-        // SELL signals keep the weaker gate (block only when daily is actively BUY).
+        // Block only when the higher TF is actively opposed — daily SELL blocks
+        // lower-TF BUY, daily BUY blocks lower-TF SELL. Daily WAIT does NOT block
+        // lower-TF BUY: green daily MACD with the signal type gates already applied
+        // is sufficient confirmation to ride a pump.
         const higherTfOpposedT =
           (higherResult.signal === "BUY" && levels.signal === "SELL") ||
-          (higherResult.signal === "SELL" && levels.signal === "BUY") ||
-          (higherResult.signal !== "BUY" && levels.signal === "BUY");
+          (higherResult.signal === "SELL" && levels.signal === "BUY");
         if (higherTfOpposedT) {
           logger.info(
             { symbolKey, timeframe, signal: levels.signal, higherTf, higherSignal: higherResult.signal },
