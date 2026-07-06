@@ -361,7 +361,7 @@ async function executePhemexTrade(
   // If a position already exists we are restoring TPs on an already-filled
   // trade — the reward/candle-range/EMA20 guards are for new-entry quality
   // only and must NOT block TP restoration (e.g. DYDX with <5% reward range).
-  let existingPos: { size: number; stopLossRp: number } | null;
+  let existingPos: { size: number; stopLossRp: number; markPrice: number } | null;
   try {
     existingPos = await checkExistingPosition(phemexSymbol, posSideForCheck);
   } catch {
@@ -370,29 +370,44 @@ async function executePhemexTrade(
     return;
   }
   if (existingPos !== null) {
-    const { size: existingSize, stopLossRp: existingSlPrice } = existingPos;
+    const { size: existingSize, stopLossRp: existingSlPrice, markPrice: existingMarkPrice } = existingPos;
     logger.info(
-      { symbol, timeframe, phemexSymbol, side, existingSize, existingSlPrice },
+      { symbol, timeframe, phemexSymbol, side, existingSize, existingSlPrice, existingMarkPrice },
       "phemex-trader: position already exists on Phemex — registering in tracker, skipping new order",
     );
     // If Phemex shows no SL on this position (stopLossRp === 0), the bracket
     // was silently dropped or the position predates bracket support. Place a
     // stop-market reduce-only order now to protect it.
     if (existingSlPrice === 0) {
-      logger.warn(
-        { symbol, timeframe, phemexSymbol, slPrice: levels.stopLoss },
-        "phemex-trader: existing position has no SL — placing stop-market order",
-      );
-      // Cancel any stale SL stop orders from prior restarts before placing a
-      // fresh one. Without this, every restart stacks another stop-market.
-      await cancelExistingStopOrders(phemexSymbol, posSideForCheck);
-      await placeStopOrder({
-        phemexSymbol,
-        posSide:    posSideForCheck,
-        stopPx:     levels.stopLoss,
-        qtyRq:      existingSize.toFixed(qtyDecimals),
-        pxDecimals,
-      });
+      const storedSl = levels.stopLoss;
+      // Safety gate: if the stored SL is within 3% of current mark price, the
+      // position has moved into the SL zone since the signal was recorded.
+      // Placing it now would cause an immediate or near-immediate stopout.
+      // Skip and log — manual intervention required.
+      const slDistancePct = existingMarkPrice > 0
+        ? Math.abs(existingMarkPrice - storedSl) / existingMarkPrice
+        : 1;
+      if (slDistancePct < 0.03) {
+        logger.warn(
+          { symbol, timeframe, phemexSymbol, storedSl, existingMarkPrice, slDistancePct: slDistancePct.toFixed(4) },
+          "phemex-trader: skipping restart SL — stored SL is within 3% of current mark price (would cause immediate stopout)",
+        );
+      } else {
+        logger.warn(
+          { symbol, timeframe, phemexSymbol, slPrice: storedSl, existingMarkPrice, slDistancePct: slDistancePct.toFixed(4) },
+          "phemex-trader: existing position has no SL — placing stop-market order",
+        );
+        // Cancel any stale SL stop orders from prior restarts before placing a
+        // fresh one. Without this, every restart stacks another stop-market.
+        await cancelExistingStopOrders(phemexSymbol, posSideForCheck);
+        await placeStopOrder({
+          phemexSymbol,
+          posSide:    posSideForCheck,
+          stopPx:     storedSl,
+          qtyRq:      existingSize.toFixed(qtyDecimals),
+          pxDecimals,
+        });
+      }
     }
     // Re-place split-TP orders that were lost when openPhemexOrders was wiped
     // on server restart. Cancel any stale reduce-only Limit orders first to

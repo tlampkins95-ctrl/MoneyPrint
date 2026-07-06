@@ -265,7 +265,7 @@ export async function checkExistingOrder(
 export async function checkExistingPosition(
   phemexSymbol: string,
   posSide: "Long" | "Short",
-): Promise<{ size: number; stopLossRp: number } | null> {
+): Promise<{ size: number; stopLossRp: number; markPrice: number } | null> {
   try {
     const data = await phemexRequest<AccountData>(
       "GET",
@@ -281,6 +281,7 @@ export async function checkExistingPosition(
     return {
       size:        parseFloat(match.size ?? match.qty ?? "0"),
       stopLossRp:  parseFloat(match.stopLossRp ?? "0"),
+      markPrice:   parseFloat((match as Record<string, string>)["markPriceRp"] ?? match.avgEntryPriceRp ?? "0"),
     };
   } catch (err) {
     // Re-throw so the caller treats an API failure as "unknown, skip order"
