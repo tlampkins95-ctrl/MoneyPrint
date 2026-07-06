@@ -2092,23 +2092,73 @@ async function checkTrendingSymbol(
   }
 }
 
+// ─── Profit-lock runtime state ────────────────────────────────────────────────
+const PROFIT_LOCK_STATE_FILE = join(
+  process.env["ACTIVE_TRADES_FILE"]
+    ? dirname(process.env["ACTIVE_TRADES_FILE"])
+    : join(process.cwd(), ".runtime"),
+  "profit-lock-state.json",
+);
+
+interface ProfitLockState { enabled: boolean; threshold: number }
+
+function loadProfitLockState(): ProfitLockState {
+  const envThreshold = parseFloat(process.env["PROFIT_LOCK_USD"] ?? "30");
+  const defaults: ProfitLockState = { enabled: true, threshold: envThreshold };
+  try {
+    if (!existsSync(PROFIT_LOCK_STATE_FILE)) return defaults;
+    const parsed = JSON.parse(readFileSync(PROFIT_LOCK_STATE_FILE, "utf8")) as Partial<ProfitLockState>;
+    return {
+      enabled:   typeof parsed.enabled === "boolean" ? parsed.enabled : true,
+      threshold: typeof parsed.threshold === "number" && isFinite(parsed.threshold) ? parsed.threshold : envThreshold,
+    };
+  } catch { return defaults; }
+}
+
+function persistProfitLockState(s: ProfitLockState): void {
+  try {
+    mkdirSync(dirname(PROFIT_LOCK_STATE_FILE), { recursive: true });
+    writeFileSync(PROFIT_LOCK_STATE_FILE, JSON.stringify(s), "utf8");
+  } catch (err) {
+    logger.warn({ err }, "phemex-trader: failed to persist profit-lock state");
+  }
+}
+
+let profitLockState = loadProfitLockState();
+
+export function setProfitLockEnabled(enabled: boolean): void {
+  profitLockState = { ...profitLockState, enabled };
+  persistProfitLockState(profitLockState);
+  logger.info({ enabled }, `phemex-trader: profit-lock ${enabled ? "ENABLED" : "DISABLED"}`);
+}
+
+export function setProfitLockThreshold(threshold: number): void {
+  profitLockState = { ...profitLockState, threshold };
+  persistProfitLockState(profitLockState);
+  logger.info({ threshold }, "phemex-trader: profit-lock threshold updated");
+}
+
+export function getProfitLockState(): ProfitLockState {
+  return { ...profitLockState };
+}
+
 /**
  * Profit-lock: scans every open Phemex position each poll cycle.
- * If unrealized PnL >= PROFIT_LOCK_USD, cancel all pending TP/SL orders
+ * If unrealized PnL >= threshold, cancel all pending TP/SL orders
  * and market-close the position immediately to bank the profit.
  *
- * Threshold defaults to $30, overrideable via PROFIT_LOCK_USD env var.
+ * Configurable at runtime via /api/phemex/profit-lock (toggle + threshold).
  */
-const PROFIT_LOCK_USD = parseFloat(process.env["PROFIT_LOCK_USD"] ?? "30");
-
 async function lockProfits(): Promise<void> {
   if (!isPhemexTradingEnabled()) return;
+  if (!profitLockState.enabled) return;
+  const threshold = profitLockState.threshold;
   try {
     const positions = await getAllOpenPhemexPositions();
     for (const pos of positions) {
-      if (!isFinite(pos.unrealisedPnl) || pos.unrealisedPnl < PROFIT_LOCK_USD) continue;
+      if (!isFinite(pos.unrealisedPnl) || pos.unrealisedPnl < threshold) continue;
       logger.info(
-        { symbol: pos.phemexSymbol, posSide: pos.posSide, unrealisedPnl: pos.unrealisedPnl, threshold: PROFIT_LOCK_USD },
+        { symbol: pos.phemexSymbol, posSide: pos.posSide, unrealisedPnl: pos.unrealisedPnl, threshold },
         "phemex-trader: profit-lock triggered — closing position",
       );
       // Cancel TPs and SL so they don't interfere with the market close

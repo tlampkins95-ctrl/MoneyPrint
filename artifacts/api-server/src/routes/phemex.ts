@@ -1,6 +1,9 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { getUSDTBalance, isPhemexTradingEnabled } from "../lib/phemex-trader";
-import { setPhemexAutoTraderEnabled, getPhemexAutoTraderEnabled } from "../lib/notifier";
+import {
+  setPhemexAutoTraderEnabled, getPhemexAutoTraderEnabled,
+  setProfitLockEnabled, setProfitLockThreshold, getProfitLockState,
+} from "../lib/notifier";
 
 const router: IRouter = Router();
 
@@ -41,6 +44,31 @@ router.post("/phemex/toggle", (req: Request, res: Response) => {
   }
   setPhemexAutoTraderEnabled(body.enabled);
   res.json({ ok: true, enabled: body.enabled });
+});
+
+router.get("/phemex/profit-lock", (req: Request, res: Response) => {
+  res.json(getProfitLockState());
+});
+
+router.post("/phemex/profit-lock", (req: Request, res: Response) => {
+  if (!isPhemexTradingEnabled()) {
+    res.status(503).json({ ok: false, error: "API keys not configured" });
+    return;
+  }
+  const body = req.body as { enabled?: boolean; threshold?: number };
+  if (typeof body.enabled !== "boolean" && typeof body.threshold !== "number") {
+    res.status(400).json({ ok: false, error: "Body must include { enabled?: boolean, threshold?: number }" });
+    return;
+  }
+  if (typeof body.enabled === "boolean") setProfitLockEnabled(body.enabled);
+  if (typeof body.threshold === "number") {
+    if (!isFinite(body.threshold) || body.threshold <= 0) {
+      res.status(400).json({ ok: false, error: "threshold must be a positive number" });
+      return;
+    }
+    setProfitLockThreshold(body.threshold);
+  }
+  res.json({ ok: true, ...getProfitLockState() });
 });
 
 export default router;

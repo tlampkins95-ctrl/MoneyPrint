@@ -348,6 +348,44 @@ export function PnlTab({ onSelect }: { onSelect: (s: string, t: Timeframe) => vo
     }
   }, [phemex, phemexToggling, fetchPhemexStatus]);
 
+  // ── Profit-lock state ─────────────────────────────────────────────────────
+  interface ProfitLockState { enabled: boolean; threshold: number }
+  const [profitLock, setProfitLock] = useState<ProfitLockState | null>(null);
+  const [profitLockSaving, setProfitLockSaving] = useState(false);
+  const [thresholdInput, setThresholdInput] = useState<string>("");
+
+  const fetchProfitLock = useCallback(async () => {
+    try {
+      const r = await fetch("/api/phemex/profit-lock");
+      if (r.ok) {
+        const s = await r.json() as ProfitLockState;
+        setProfitLock(s);
+        setThresholdInput(String(s.threshold));
+      }
+    } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => { void fetchProfitLock(); }, [fetchProfitLock]);
+
+  const saveProfitLock = useCallback(async (patch: Partial<ProfitLockState>) => {
+    if (!profitLock || profitLockSaving) return;
+    setProfitLockSaving(true);
+    try {
+      const r = await fetch("/api/phemex/profit-lock", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      if (r.ok) {
+        const s = await r.json() as ProfitLockState & { ok: boolean };
+        setProfitLock({ enabled: s.enabled, threshold: s.threshold });
+        setThresholdInput(String(s.threshold));
+      }
+    } finally {
+      setProfitLockSaving(false);
+    }
+  }, [profitLock, profitLockSaving]);
+
   const signals = data?.signals ?? [];
   const rows: PnlRow[] = signals
     .filter((s) => s.levels.signal === "BUY" || s.levels.signal === "SELL")
@@ -453,6 +491,68 @@ export function PnlTab({ onSelect }: { onSelect: (s: string, t: Timeframe) => vo
           >
             {phemexToggling ? "..." : phemex.enabled ? "DISABLE" : "ENABLE"}
           </button>
+        </div>
+      )}
+
+      {/* ── PROFIT LOCK ─────────────────────────────────────────────── */}
+      {phemex?.keysPresent && profitLock !== null && (
+        <div className={cn(
+          "rounded-xl border px-4 py-3 flex items-center gap-3 transition-colors",
+          profitLock.enabled
+            ? "border-amber-500/40 bg-amber-500/5"
+            : "border-zinc-700/60 bg-zinc-900/40",
+        )}>
+          <DollarSign className={cn("w-4 h-4 shrink-0", profitLock.enabled ? "text-amber-400" : "text-zinc-500")} />
+          <div className="flex flex-col gap-0.5 flex-1 min-w-0">
+            <span className={cn(
+              "text-[11px] font-bold tracking-wider",
+              profitLock.enabled ? "text-amber-300" : "text-zinc-400",
+            )}>
+              PROFIT LOCK {profitLock.enabled ? "ON" : "OFF"}
+            </span>
+            <span className="text-[10px] font-mono text-zinc-500">
+              {profitLock.enabled
+                ? `Auto-close any position at $${profitLock.threshold} unrealized profit`
+                : "Positions will ride to TP1/TP2 — no auto-close"}
+            </span>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {profitLock.enabled && (
+              <div className="flex items-center gap-1">
+                <span className="text-[10px] font-mono text-zinc-500">$</span>
+                <input
+                  type="number"
+                  min={1}
+                  step={5}
+                  value={thresholdInput}
+                  onChange={(e) => setThresholdInput(e.target.value)}
+                  onBlur={() => {
+                    const n = parseFloat(thresholdInput);
+                    if (isFinite(n) && n > 0 && n !== profitLock.threshold)
+                      void saveProfitLock({ threshold: n });
+                    else setThresholdInput(String(profitLock.threshold));
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                  }}
+                  className="w-16 bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-[11px] font-mono text-amber-200 text-right focus:outline-none focus:border-amber-500/60"
+                />
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => void saveProfitLock({ enabled: !profitLock.enabled })}
+              disabled={profitLockSaving}
+              className={cn(
+                "px-3 py-1.5 rounded-lg text-[11px] font-bold tracking-wider transition-colors disabled:opacity-50",
+                profitLock.enabled
+                  ? "bg-zinc-700/40 text-zinc-300 border border-zinc-600/40 hover:bg-zinc-700/60"
+                  : "bg-amber-500/15 text-amber-300 border border-amber-500/30 hover:bg-amber-500/25",
+              )}
+            >
+              {profitLockSaving ? "..." : profitLock.enabled ? "DISABLE" : "ENABLE"}
+            </button>
+          </div>
         </div>
       )}
 
