@@ -1857,6 +1857,36 @@ async function checkTrendingSymbol(
         }
       }
 
+      // FIB50_SWING SELL guard (trending coins): require daily to be actively SELL.
+      // FIB50_SWING is trend-following — a SELL fires when price rejects a fib
+      // level. On a trending coin (discovered because it's pumping), a 1h fib
+      // rejection during a daily uptrend is a pullback, not a reversal.
+      // Applies even on direction flips: a flip from BUY→SELL on a coin whose
+      // daily is BUY or WAIT is still just a short-term pullback.
+      if (
+        !isFilledTrade &&
+        levels.signalType === "FIB50_SWING" &&
+        levels.signal === "SELL" &&
+        higherTf === "1d" &&
+        (higherCandles as typeof candles).length >= 2
+      ) {
+        const dailyResultFibT = computeLevelsStable(
+          higherCandles as typeof candles, spot, "1d", symbolKey, tMeta,
+        );
+        if (dailyResultFibT.signal !== "SELL") {
+          logger.info(
+            { symbolKey, timeframe, signalType: levels.signalType, dailySignal: dailyResultFibT.signal },
+            "Trending FIB50_SWING SELL suppressed — daily not actively bearish (uptrend pullback guard)",
+          );
+          stateMap.set(k, {
+            ...(prev ?? {}),
+            signal: prev?.signal ?? "WAIT",
+            lastAlertAt: prev?.lastAlertAt ?? 0,
+          });
+          return;
+        }
+      }
+
       // Reward-distance pre-check for trending coins: suppress both alert and
       // trade if TP1 is too close to entry. executePhemexTrade has the same
       // check internally, but it runs async (fire-and-forget) so the alert
