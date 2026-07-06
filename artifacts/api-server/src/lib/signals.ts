@@ -2420,14 +2420,25 @@ export function computeLevels(
       if (bbkBands) {
         const pctBk = (currentPrice - bbkBands.lower) / (bbkBands.upper - bbkBands.lower);
 
-        // Band-walk confirmation: the previous completed bar must also have closed
-        // outside the band. A single-bar spike above/below and then revert is the
-        // most common false positive; requiring 2 consecutive bars outside filters it.
-        const prevClose = bbkCompleted[bbkCompleted.length - 2]?.close ?? currentPrice;
+        // Band-walk confirmation for both BUY and SELL.
+        // For BUY: the previous completed bar must have been in the top 90% of the
+        // band range (pctBkPrev > 0.9), OR the last completed bar jumped ≥5% in a
+        // single candle (singleBarPump). Using pctBkPrev instead of a strict
+        // prevClose > upper comparison avoids false negatives when the upper band
+        // shifts up as the pump progresses, making an outside bar look "inside"
+        // against the current wider bands.
+        // For SELL: same logic symmetrically (pctBkPrev < 0.1 or singleBarDump).
+        const lastCompletedClose = bbkCompleted[bbkCompleted.length - 1]?.close ?? currentPrice;
+        const prevCompletedClose = bbkCompleted[bbkCompleted.length - 2]?.close ?? lastCompletedClose;
+        const prevClose = prevCompletedClose;
+        const bandRange = bbkBands.upper - bbkBands.lower;
+        const pctBkPrev = bandRange > 0 ? (prevClose - bbkBands.lower) / bandRange : 0;
 
-        // BUY: price above upper band + MACD histogram positive AND rising + prev bar also outside
+        // BUY: price above upper band + MACD histogram positive AND rising + 2-bar walk
         const bbkBuyMacd = macdWarm && histPrev1 > 0 && histPrev1 > histPrev2;
-        if (pctBk > 1.0 && bbkBuyMacd && higherTfAllowsBuy && prevClose > bbkBands.upper) {
+        const singleBarPump = prevCompletedClose > 0 && (lastCompletedClose - prevCompletedClose) / prevCompletedClose >= 0.05;
+        const twoBarWalkBuy = pctBkPrev > 0.9 || singleBarPump;
+        if (pctBk > 1.0 && bbkBuyMacd && higherTfAllowsBuy && twoBarWalkBuy) {
           const ep   = round(currentPrice);
           const sl   = round(bbkBands.upper - 0.3 * atr);
           const risk = ep - sl;
@@ -2442,7 +2453,7 @@ export function computeLevels(
             takeProfit2  = tp2;
             dca1         = undefined;
             patternResult = null;
-            signalReason = `[${tfLabel}] BB BREAKOUT BUY: Price ${fmt(ep)} above upper BB30 ${fmt(bbkBands.upper)} (%B ${pctBk.toFixed(2)}), MACD positive+rising — 2-bar band walk confirmed. SL ${fmt(sl)} (below band), TP1 ${fmt(tp1)}, TP2 ${fmt(tp2)}.`;
+            signalReason = `[${tfLabel}] BB BREAKOUT BUY: Price ${fmt(ep)} above upper BB30 ${fmt(bbkBands.upper)} (%B ${pctBk.toFixed(2)}), MACD positive+rising${singleBarPump ? ` — gap pump ${(((lastCompletedClose - prevCompletedClose) / prevCompletedClose) * 100).toFixed(1)}% bypasses 2-bar walk` : " — 2-bar band walk confirmed"}. SL ${fmt(sl)} (below band), TP1 ${fmt(tp1)}, TP2 ${fmt(tp2)}.`;
           }
         }
 
@@ -2450,10 +2461,8 @@ export function computeLevels(
         // Gap exception: a single candle that dropped >5% is a real breakdown, not a wick —
         // bypass the 2-bar walk requirement in that case.
         const bbkSellMacd = macdWarm && histPrev1 < 0 && histPrev1 < histPrev2;
-        const lastCompletedClose = bbkCompleted[bbkCompleted.length - 1]?.close ?? currentPrice;
-        const prevCompletedClose = bbkCompleted[bbkCompleted.length - 2]?.close ?? lastCompletedClose;
         const singleBarDump = prevCompletedClose > 0 && (prevCompletedClose - lastCompletedClose) / prevCompletedClose >= 0.05;
-        const twoBarWalkSell = prevClose < bbkBands.lower || singleBarDump;
+        const twoBarWalkSell = pctBkPrev < 0.1 || singleBarDump;
         if (signal === "WAIT" && pctBk < 0 && bbkSellMacd && higherTfAllowsSell && !isLongOnly && twoBarWalkSell) {
           const ep   = round(currentPrice);
           const sl   = round(bbkBands.lower + 0.3 * atr);

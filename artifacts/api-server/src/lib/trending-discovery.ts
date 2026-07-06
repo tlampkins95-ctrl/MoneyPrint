@@ -276,6 +276,43 @@ async function fetchTopGainers(): Promise<TrendingCoin[]> {
   }
 }
 
+// Fetch top 24h gainers directly from OKX USDT-SWAP tickers. This is the most
+// reliable source — no auth, no rate limits, always fresh — and catches pumping
+// coins that haven't yet appeared on CoinGecko trending or gainers lists.
+async function fetchOkxGainers(): Promise<TrendingCoin[]> {
+  try {
+    const res = await fetch("https://www.okx.com/api/v5/market/tickers?instType=SWAP", {
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; Forex-Screener/1.0)" },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) return [];
+    const json = (await res.json()) as {
+      data?: Array<{ instId: string; last: string; open24h: string; volCcy24h: string }>;
+    };
+    return (json.data ?? [])
+      .filter((t) => t.instId.endsWith("-USDT-SWAP"))
+      .map((t) => {
+        const last = parseFloat(t.last);
+        const open24h = parseFloat(t.open24h);
+        const volCcy24h = parseFloat(t.volCcy24h);
+        const change24h = open24h > 0 ? ((last - open24h) / open24h) * 100 : 0;
+        return { instId: t.instId, symbol: t.instId.replace("-USDT-SWAP", ""), change24h, last, volCcy24h };
+      })
+      .filter((t) => t.change24h > 5 && t.volCcy24h > 1_000_000)
+      .sort((a, b) => b.change24h - a.change24h)
+      .slice(0, 30)
+      .map((t, idx) => ({
+        symbol: t.symbol,
+        cmcRank: 300 + idx,
+        priceChange24h: t.change24h,
+        price: t.last,
+      }));
+  } catch (err) {
+    logger.warn({ err }, "OKX gainers fetch error");
+    return [];
+  }
+}
+
 // Fetch trending coins ranked by user search interest — same concept as the
 // CMC trending tab. No API key required.
 async function fetchCmcTrending(): Promise<TrendingCoin[]> {
@@ -500,19 +537,23 @@ async function runDiscovery(pool: Pool): Promise<void> {
   try {
     logger.info("Running trending coin discovery");
 
-    const [trendingCoins, gainerCoins, okxMap, phemexMap] = await Promise.all([
+    const [trendingCoins, gainerCoins, okxGainerCoins, okxMap, phemexMap] = await Promise.all([
       fetchCmcTrending(),
       fetchTopGainers(),
+      fetchOkxGainers(),
       fetchOkxSwapInstruments(),
       fetchPhemexPerpProducts(),
     ]);
 
-    // Merge trending + gainers, deduplicating by ticker (trending takes priority),
-    // then sort by 24h gain descending so the biggest movers get first pick of slots.
+    // Merge all three sources, deduplicating by ticker.
+    // CoinGecko trending → CoinGecko gainers → OKX gainers (most reliable, no rate limits).
+    // Sort by 24h gain descending so the biggest movers get first pick of slots.
     const seenTickers = new Set(trendingCoins.map((c) => c.symbol));
+    const seenAfterGainers = new Set([...seenTickers, ...gainerCoins.map((c) => c.symbol)]);
     const mergedCoins: TrendingCoin[] = [
       ...trendingCoins,
       ...gainerCoins.filter((c) => !seenTickers.has(c.symbol)),
+      ...okxGainerCoins.filter((c) => !seenAfterGainers.has(c.symbol)),
     ].sort((a, b) => (b.priceChange24h ?? 0) - (a.priceChange24h ?? 0));
 
     if (mergedCoins.length === 0) {

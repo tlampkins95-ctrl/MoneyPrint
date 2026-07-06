@@ -1681,7 +1681,6 @@ async function checkTrendingSymbol(
       : undefined;
 
     const k = key(symbolKey, timeframe);
-    const prev = stateMap.get(k);
 
     // Snapshot the active trade BEFORE calling computeLevelsStable.
     // Mirrors the same pattern as checkSymbol: computeLevelsStable writes a
@@ -1703,6 +1702,21 @@ async function checkTrendingSymbol(
     // (XAGUSD, EURUSD) in checkSymbol. Here we only alert on genuine live
     // signal transitions that happen while the server is running.
     const isSeedSnapshot = false;
+
+    // Bootstrap: if this coin/TF has never been evaluated AND there is no
+    // existing active trade (i.e. this is a brand-new signal, not restart
+    // recovery), seed stateMap to WAIT so the standard transition logic fires
+    // the alert on this very first tick. Without this, the first evaluation
+    // stores the SELL/BUY state and returns — then every subsequent tick sees
+    // prev.signal === levels.signal and transitioned stays false forever.
+    if (!stateMap.has(k) && !isSeedSnapshot && !activeTradeBeforeCompute &&
+        (levels.signal === "BUY" || levels.signal === "SELL") &&
+        levels.tradeState === "PENDING") {
+      stateMap.set(k, { signal: "WAIT", lastAlertAt: 0 });
+    }
+
+    const prev = stateMap.get(k);
+
     const transitioned =
       !!prev && prev.signal !== levels.signal && (levels.signal === "BUY" || levels.signal === "SELL");
 
