@@ -133,7 +133,7 @@ export function getNotifierStatus(): NotifierStatus {
 const ALERT_SYMBOLS: Symbol[] = ["XAGUSD", "EURUSD"];
 
 // FIB50_SWING fires on 1H and 1D. 1H entries confirmed by weekly macro trend.
-const TRACKED_TIMEFRAMES: Timeframe[] = ["1h", "1d"];
+const TRACKED_TIMEFRAMES: Timeframe[] = ["1h", "4h", "1d"];
 // Only seed-alert on 30m at startup/restart for trending/all symbols.
 // ALERT_SYMBOLS (XAGUSD, EURUSD) also seed on 1h — there are only 2 symbols
 // so the risk of a barrage is minimal, and missing a live 1h metal BUY on
