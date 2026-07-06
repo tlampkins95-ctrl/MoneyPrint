@@ -103,6 +103,7 @@ export const GetLevelsResponse = zod.object({
       "PATTERN_BREAKOUT",
       "DUMP_RECOVERY",
       "SWING_BREAK",
+      "MACD_DIP_LONG",
     ])
     .describe(
       "Which signal mode generated this signal. FIB50_SWING = swing fibonacci retracement: enter at 50% fib of recent swing, TP1 at 78.6% fib, SL 2:1 R:R. DOUBLE_TOP = bearish reversal; entry at resistance, TP1 at neckline. DOUBLE_BOTTOM = bullish reversal; entry at support, TP1 at neckline. BB_REJECTION = Bollinger Band exhaustion reversal; entry at BB30 extreme, TP1 at 50% fib of recent swing, SL 2:1 R:R. BB_BREAKOUT = outside-band momentum continuation (money print): price above upper \/ below lower BB30 with MACD confirming — ride the breakout. BB_OVEREXTENSION = pump-fade SELL: last completed candle closed above upper BB with volume spike and RSI overbought — enter short on first red candle confirmation, TP1 at BB midline. DUMP_RECOVERY = bottom\/top consolidation reversal: enter near the extreme of a significant dump\/pump with MACD turning, TP1 at 50% fib midpoint. SWING_BREAK = resistance\/support breakout: price closes above recent swing high (BUY) or below recent swing low (SELL) with MACD confirming — catches the START of the move.",
@@ -631,6 +632,7 @@ export const GetActiveSignalsResponse = zod.object({
                 "PATTERN_BREAKOUT",
                 "DUMP_RECOVERY",
                 "SWING_BREAK",
+                "MACD_DIP_LONG",
               ])
               .describe(
                 "Which signal mode generated this signal. FIB50_SWING = swing fibonacci retracement: enter at 50% fib of recent swing, TP1 at 78.6% fib, SL 2:1 R:R. DOUBLE_TOP = bearish reversal; entry at resistance, TP1 at neckline. DOUBLE_BOTTOM = bullish reversal; entry at support, TP1 at neckline. BB_REJECTION = Bollinger Band exhaustion reversal; entry at BB30 extreme, TP1 at 50% fib of recent swing, SL 2:1 R:R. BB_BREAKOUT = outside-band momentum continuation (money print): price above upper \/ below lower BB30 with MACD confirming — ride the breakout. BB_OVEREXTENSION = pump-fade SELL: last completed candle closed above upper BB with volume spike and RSI overbought — enter short on first red candle confirmation, TP1 at BB midline. DUMP_RECOVERY = bottom\/top consolidation reversal: enter near the extreme of a significant dump\/pump with MACD turning, TP1 at 50% fib midpoint. SWING_BREAK = resistance\/support breakout: price closes above recent swing high (BUY) or below recent swing low (SELL) with MACD confirming — catches the START of the move.",
@@ -1240,6 +1242,7 @@ export const GetTradeHistoryResponse = zod.object({
         "PATTERN_BREAKOUT",
         "DUMP_RECOVERY",
         "SWING_BREAK",
+        "MACD_DIP_LONG",
       ]),
       entryPrice: zod.number(),
       stopLoss: zod.number(),
@@ -1321,6 +1324,7 @@ export const GetSignalLogResponse = zod.object({
         "PATTERN_BREAKOUT",
         "DUMP_RECOVERY",
         "SWING_BREAK",
+        "MACD_DIP_LONG",
       ]),
       entryPrice: zod.number(),
       stopLoss: zod.number(),

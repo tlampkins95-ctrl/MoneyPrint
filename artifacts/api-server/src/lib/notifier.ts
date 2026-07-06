@@ -6,7 +6,7 @@ import {
   fetchCandlesForTimeframe,
   type Timeframe,
 } from "./yahoo-fetch";
-import { computeLevelsStable, fetchSpotPrice, getActiveTrade, clearActiveTrade, markTradeTriggered, applyFuturesBasis, registerOnTradeClosedCallback, calcMACDHist, computePositionSizing, DEFAULT_ACCOUNT_SIZE, DEFAULT_RISK_PCT, DEFAULT_MIN_COLLATERAL, DEFAULT_MAX_LEVERAGE, DEFAULT_MT5_LOTS, setPhemexOrderPlaced, logClosedTrade, findActiveTradesByPhemexSymbol, type ClosedOutcome } from "./signals";
+import { computeLevelsStable, fetchSpotPrice, getActiveTrade, clearActiveTrade, markTradeTriggered, applyFuturesBasis, registerOnTradeClosedCallback, calcMACDHist, computePositionSizing, DEFAULT_ACCOUNT_SIZE, DEFAULT_RISK_PCT, DEFAULT_MIN_COLLATERAL, DEFAULT_MAX_LEVERAGE, DEFAULT_MT5_LOTS, setPhemexOrderPlaced, logClosedTrade, findActiveTradesByPhemexSymbol, getPhemexTradedSymbols, type ClosedOutcome } from "./signals";
 import {
   buildAlertContext,
   sendTelegramAlert,
@@ -1187,7 +1187,7 @@ async function checkSymbol(
       // after the breakout bar. Filled trades bypass this: a fill notification is
       // always actionable regardless of what signal type originally opened the position.
       if (!isFilledTrade) {
-        const signalTypeAllowed = levels.signalType === "FIB50_SWING" || levels.signalType === "DOUBLE_TOP" || levels.signalType === "DOUBLE_BOTTOM" || levels.signalType === "BB_REJECTION" || levels.signalType === "BB_WALK" || levels.signalType === "DUMP_RECOVERY" || levels.signalType === "BB_BREAKOUT" || levels.signalType === "BB_OVEREXTENSION" || levels.signalType === "SWING_BREAK";
+        const signalTypeAllowed = levels.signalType === "FIB50_SWING" || levels.signalType === "DOUBLE_TOP" || levels.signalType === "DOUBLE_BOTTOM" || levels.signalType === "BB_REJECTION" || levels.signalType === "BB_WALK" || levels.signalType === "DUMP_RECOVERY" || levels.signalType === "BB_BREAKOUT" || levels.signalType === "BB_OVEREXTENSION" || levels.signalType === "SWING_BREAK" || levels.signalType === "MACD_DIP_LONG";
         if (!signalTypeAllowed) {
           logger.info(
             { symbol, timeframe, signalType: levels.signalType },
@@ -1782,7 +1782,7 @@ async function checkTrendingSymbol(
       // Filled trades bypass this: fills are always actionable regardless of
       // what signal type originally opened the position.
       if (!isFilledTrade) {
-        const trendingTypeAllowed = levels.signalType === "FIB50_SWING" || levels.signalType === "DOUBLE_TOP" || levels.signalType === "DOUBLE_BOTTOM" || levels.signalType === "BB_REJECTION" || levels.signalType === "BB_WALK" || levels.signalType === "BB_BREAKOUT" || levels.signalType === "BB_OVEREXTENSION" || levels.signalType === "SWING_BREAK";
+        const trendingTypeAllowed = levels.signalType === "FIB50_SWING" || levels.signalType === "DOUBLE_TOP" || levels.signalType === "DOUBLE_BOTTOM" || levels.signalType === "BB_REJECTION" || levels.signalType === "BB_WALK" || levels.signalType === "BB_BREAKOUT" || levels.signalType === "BB_OVEREXTENSION" || levels.signalType === "SWING_BREAK" || levels.signalType === "MACD_DIP_LONG";
         if (!trendingTypeAllowed) {
           logger.info(
             { symbolKey, timeframe, signalType: levels.signalType, signal: levels.signal },
@@ -2193,7 +2193,7 @@ async function checkTrendingSymbol(
       }
     }
     const trendingCatchUpTypeAllowed =
-      levels.signalType === "FIB50_SWING" || levels.signalType === "DUMP_RECOVERY" || levels.tradeState === "FILLED_PROFIT";
+      levels.signalType === "FIB50_SWING" || levels.signalType === "DUMP_RECOVERY" || levels.signalType === "MACD_DIP_LONG" || levels.tradeState === "FILLED_PROFIT";
     const catchUpBbBreakoutBuyBlocked = levels.signalType === "BB_BREAKOUT" && levels.signal === "BUY";
     if (
       !catchUpBbBreakoutBuyBlocked &&
@@ -2354,6 +2354,18 @@ async function tick(): Promise<void> {
       // If not found, skip — checkTrendingSymbol will return early if tMeta is null.
       void findTrendingSymbolByKey(symbolKey).then((meta) => {
         if (meta) tasks.push(checkTrendingSymbol(symbolKey, timeframe));
+      });
+    }
+
+    // MACD_DIP_LONG: poll all coins that have ever had a Phemex order placed on
+    // the 1h timeframe. This catches coins that fell out of the trending cache
+    // but the user still wants watched for dip-recovery entries.
+    // Static symbols are already covered by checkSymbol above.
+    // Trending coins currently in cache are already covered above.
+    for (const symbolKey of getPhemexTradedSymbols()) {
+      if (trendingSymbolKeys.has(symbolKey) || staticKeys.has(symbolKey)) continue;
+      void findTrendingSymbolByKey(symbolKey).then((meta) => {
+        if (meta) tasks.push(checkTrendingSymbol(symbolKey, "1h"));
       });
     }
   } catch {

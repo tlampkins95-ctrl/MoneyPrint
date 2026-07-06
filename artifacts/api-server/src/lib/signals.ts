@@ -1549,7 +1549,7 @@ export function computeLevels(
   const SWING_SL_BUFFER_ATR = 0.5;  // extra buffer below/above swing extreme for SL
 
   let signal: "BUY" | "SELL" | "WAIT" = "WAIT";
-  let signalType: "FIB50_SWING" | "DOUBLE_TOP" | "DOUBLE_BOTTOM" | "BB_REJECTION" | "BB_WALK" | "BB_BREAKOUT" | "BB_OVEREXTENSION" | "PATTERN_BREAKOUT" | "DUMP_RECOVERY" | "SWING_BREAK" = "FIB50_SWING";
+  let signalType: "FIB50_SWING" | "DOUBLE_TOP" | "DOUBLE_BOTTOM" | "BB_REJECTION" | "BB_WALK" | "BB_BREAKOUT" | "BB_OVEREXTENSION" | "PATTERN_BREAKOUT" | "DUMP_RECOVERY" | "SWING_BREAK" | "MACD_DIP_LONG" = "FIB50_SWING";
   let signalReason = "";
   let patternResult: PatternResult | null = null;
   let entryPrice = currentPrice;
@@ -2551,6 +2551,47 @@ export function computeLevels(
     }
   }
 
+  // ── MACD_DIP_LONG: daily-green + hourly MACD cross from red to green ──────────
+  // Long-only signal for coins that have traded on Phemex (also fires on static
+  // symbols). Fires on the 1h timeframe only when:
+  //   • daily MACD is green (higherTfAllowsBuy = true, sign-based gate)
+  //   • last completed 1h bar's MACD histogram crossed from negative to positive
+  //     (dip reversal confirmed by momentum flip: histPrev2 < 0 → histPrev1 ≥ 0)
+  // Entry:  current price (market IOC — momentum is already turning)
+  // SL:     below the lowest low during the MACD-negative period − 0.5×ATR
+  // TP1/2:  1× / 2× risk (2:1 R:R on TP2)
+  if (signal === "WAIT" && timeframe === "1h" && higherTfAllowsBuy) {
+    if (macdWarm && histPrev2 < 0 && histPrev1 >= 0) {
+      // Find dip low: lowest low since MACD went negative.
+      // Start from the cross bar (closes.length-2) and walk back through all
+      // bars where MACD was negative, stopping when we reach a positive bar.
+      let dipLow = candles.length >= 2 ? candles[candles.length - 2].low : Infinity;
+      for (let i = closes.length - 3; i >= Math.max(0, closes.length - 60); i--) {
+        const h = macdHist[i];
+        if (Number.isFinite(h) && h >= 0) break;
+        dipLow = Math.min(dipLow, candles[i].low);
+      }
+      if (Number.isFinite(dipLow) && dipLow < currentPrice) {
+        const sl   = round(dipLow - 0.5 * atr);
+        const risk = currentPrice - sl;
+        // Sanity: sl must be positive, risk must be meaningful, SL not >15% away
+        if (risk > 0 && sl > 0 && risk / currentPrice < 0.15) {
+          const tp1 = round(currentPrice + 1.0 * risk);
+          const tp2 = round(currentPrice + 2.0 * risk);
+          signal      = "BUY";
+          signalType  = "MACD_DIP_LONG";
+          entryPrice  = round(currentPrice);
+          stopLoss    = sl;
+          takeProfit1 = tp1;
+          takeProfit2 = tp2;
+          dca1        = undefined;
+          patternResult = null;
+          signalReason = `[${tfLabel}] MACD DIP LONG: 1h MACD histogram crossed from red (${histPrev2.toFixed(5)}) to green (${histPrev1.toFixed(5)}) — dip reversal confirmed, daily MACD green. Entry ${fmt(currentPrice)}, SL ${fmt(sl)} (below dip low ${fmt(dipLow)}), TP1 ${fmt(tp1)}, TP2 ${fmt(tp2)}.`;
+        }
+      }
+    }
+  }
+
   // ── PATTERN_BREAKOUT detection (confirmed chart pattern breakout) ────────────
   // Last in the cascade — fires only when all other signal types are WAIT.
   // Detects confirmed breakouts from triangles, wedges, flags, pennants, H&S/IHS.
@@ -2776,7 +2817,7 @@ type Levels = ReturnType<typeof computeLevels>;
 
 interface ActiveTrade {
   signal: "BUY" | "SELL";
-  signalType?: "FIB50_SWING" | "DOUBLE_TOP" | "DOUBLE_BOTTOM" | "BB_REJECTION" | "BB_WALK" | "BB_BREAKOUT" | "BB_OVEREXTENSION" | "PATTERN_BREAKOUT" | "DUMP_RECOVERY" | "SWING_BREAK";
+  signalType?: "FIB50_SWING" | "DOUBLE_TOP" | "DOUBLE_BOTTOM" | "BB_REJECTION" | "BB_WALK" | "BB_BREAKOUT" | "BB_OVEREXTENSION" | "PATTERN_BREAKOUT" | "DUMP_RECOVERY" | "SWING_BREAK" | "MACD_DIP_LONG";
   signalReason: string;
   entryPrice: number;
   stopLoss: number;
@@ -3719,7 +3760,8 @@ export function computeLevelsStable(
     const isMarketEntry = (
       fresh.signalType === "BB_WALK" ||
       fresh.signalType === "BB_BREAKOUT" ||
-      fresh.signalType === "DUMP_RECOVERY"
+      fresh.signalType === "DUMP_RECOVERY" ||
+      fresh.signalType === "MACD_DIP_LONG"
     );
     const triggered = isMarketEntry
       ? true
@@ -3848,6 +3890,37 @@ export function seedActiveTrades(raw: Record<string, unknown>): number {
   return count;
 }
 
+// ─── Phemex-traded symbols registry ──────────────────────────────────────────
+// Persists the set of symbolKeys that have ever had a Phemex order placed.
+// Used by the MACD_DIP_LONG notifier to know which coins to watch on 1h.
+const PHEMEX_TRADED_FILE = join(dirname(ACTIVE_TRADES_FILE), "phemex-traded-symbols.json");
+let phemexTradedSymbols = new Set<string>();
+
+(function loadPhemexTradedSymbols() {
+  try {
+    const raw = readFileSync(PHEMEX_TRADED_FILE, "utf-8");
+    const arr = JSON.parse(raw) as string[];
+    phemexTradedSymbols = new Set(arr);
+  } catch { /* file absent on first run — starts empty */ }
+})();
+
+function persistPhemexTradedSymbols(): void {
+  try {
+    mkdirSync(dirname(PHEMEX_TRADED_FILE), { recursive: true });
+    writeFileSync(PHEMEX_TRADED_FILE, JSON.stringify([...phemexTradedSymbols]));
+  } catch { /* non-fatal */ }
+}
+
+export function recordPhemexTradedSymbol(symbolKey: string): void {
+  if (phemexTradedSymbols.has(symbolKey)) return;
+  phemexTradedSymbols.add(symbolKey);
+  persistPhemexTradedSymbols();
+}
+
+export function getPhemexTradedSymbols(): string[] {
+  return [...phemexTradedSymbols];
+}
+
 // Stamps phemexOrderPlaced=true on the active trade record after the auto-trader
 // successfully places a Phemex entry order. Records without this flag (pure
 // signal tracking or legacy entries loaded from disk) were never placed on
@@ -3858,6 +3931,7 @@ export function setPhemexOrderPlaced(symbolKey: string, timeframe: Timeframe): v
   if (!trade || trade.phemexOrderPlaced) return;
   trade.phemexOrderPlaced = true;
   persistActiveTrades();
+  recordPhemexTradedSymbol(symbolKey);
 }
 
 // Returns all active trades whose signal direction matches the given posSide,
