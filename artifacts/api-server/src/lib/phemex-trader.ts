@@ -379,6 +379,7 @@ export interface PlaceOrderParams {
   stopLossRp:    string;    // SL trigger price as string
   takeProfitRp?: string;    // TP trigger price as string (omit to skip bracket TP)
   clOrdID:       string;    // unique client order id
+  forceMarket?:  boolean;   // skip limit, use Market IOC (price ran past entry)
 }
 
 interface OrderResponseData {
@@ -466,7 +467,7 @@ export async function placeOrder(params: PlaceOrderParams): Promise<string | nul
   //           (TE_SELL_SL_SHOULD_GT_BASE). Use a Market IOC order instead so
   //           the SELL fills at the current bid immediately.
   const belowFloor = minPrice > 0 && rawPrice < minPrice;
-  const useMarket  = belowFloor && params.side === "Sell";
+  const useMarket  = params.forceMarket || (belowFloor && params.side === "Sell");
   const clampedPrice = (!useMarket && belowFloor)
     ? minPrice.toFixed(pxPrec)
     : params.priceRp;
