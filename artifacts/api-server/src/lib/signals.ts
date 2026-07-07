@@ -1467,32 +1467,52 @@ export function computeLevels(
   // This ensures FIB50_SWING and other gated signals never short into a green
   // daily MACD or go long into a red one.
   let higherTfAllowsSell = true;
-  if ((timeframe === "1h" || timeframe === "4h") && dailyCandlesForWeekly && dailyCandlesForWeekly.length >= 35) {
-    const d = _checkDailyMacd();
-    if (d && d.lastHist >= 0) {
-      higherTfAllowsSell = false; // daily MACD green (≥0) — no 1h/4h shorts
+  if (timeframe === "1h" || timeframe === "4h") {
+    if (dailyCandlesForWeekly && dailyCandlesForWeekly.length >= 35) {
+      const d = _checkDailyMacd();
+      if (d && d.lastHist >= 0) {
+        higherTfAllowsSell = false; // daily MACD green (≥0) — no 1h/4h shorts
+      }
+    } else {
+      // Not enough daily history to verify MACD — block shorts as safe default.
+      // New coins (< 35 daily candles) must not trade in either direction.
+      higherTfAllowsSell = false;
     }
-  } else if (timeframe === "1d" && weeklyCandlesForDaily && weeklyCandlesForDaily.length >= 35) {
-    const wCloses   = weeklyCandlesForDaily.map((c) => c.close);
-    const wHist     = calcMACDHist(wCloses);
-    const wLastHist = wHist[wHist.length - 2];
-    if (Number.isFinite(wLastHist) && wLastHist >= 0) {
-      higherTfAllowsSell = false; // weekly MACD green (≥0) — no 1d shorts
+  } else if (timeframe === "1d") {
+    if (weeklyCandlesForDaily && weeklyCandlesForDaily.length >= 35) {
+      const wCloses   = weeklyCandlesForDaily.map((c) => c.close);
+      const wHist     = calcMACDHist(wCloses);
+      const wLastHist = wHist[wHist.length - 2];
+      if (Number.isFinite(wLastHist) && wLastHist >= 0) {
+        higherTfAllowsSell = false; // weekly MACD green (≥0) — no 1d shorts
+      }
+    } else {
+      higherTfAllowsSell = false; // insufficient weekly history — block shorts
     }
   }
 
   let higherTfAllowsBuy = true;
-  if ((timeframe === "1h" || timeframe === "4h") && dailyCandlesForWeekly && dailyCandlesForWeekly.length >= 35) {
-    const d = _checkDailyMacd();
-    if (d && d.lastHist <= 0) {
-      higherTfAllowsBuy = false; // daily MACD red (≤0) — no 1h/4h longs
+  if (timeframe === "1h" || timeframe === "4h") {
+    if (dailyCandlesForWeekly && dailyCandlesForWeekly.length >= 35) {
+      const d = _checkDailyMacd();
+      if (d && d.lastHist <= 0) {
+        higherTfAllowsBuy = false; // daily MACD red (≤0) — no 1h/4h longs
+      }
+    } else {
+      // Not enough daily history to verify MACD — block longs as safe default.
+      // New coins (< 35 daily candles) must not trade in either direction.
+      higherTfAllowsBuy = false;
     }
-  } else if (timeframe === "1d" && weeklyCandlesForDaily && weeklyCandlesForDaily.length >= 35) {
-    const wCloses   = weeklyCandlesForDaily.map((c) => c.close);
-    const wHist     = calcMACDHist(wCloses);
-    const wLastHist = wHist[wHist.length - 2];
-    if (Number.isFinite(wLastHist) && wLastHist <= 0) {
-      higherTfAllowsBuy = false; // weekly MACD red (≤0) — no 1d longs
+  } else if (timeframe === "1d") {
+    if (weeklyCandlesForDaily && weeklyCandlesForDaily.length >= 35) {
+      const wCloses   = weeklyCandlesForDaily.map((c) => c.close);
+      const wHist     = calcMACDHist(wCloses);
+      const wLastHist = wHist[wHist.length - 2];
+      if (Number.isFinite(wLastHist) && wLastHist <= 0) {
+        higherTfAllowsBuy = false; // weekly MACD red (≤0) — no 1d longs
+      }
+    } else {
+      higherTfAllowsBuy = false; // insufficient weekly history — block longs
     }
   }
 
@@ -2078,6 +2098,7 @@ export function computeLevels(
       if (
         signal === "WAIT" &&
         higherTfAllowsBuy &&
+        trend !== "DOWNTREND" &&
         bbrBuyMacd &&
         volFading &&
         Math.abs(currentPrice - bb30r.lower) <= BBR_TOL_ATR * atr

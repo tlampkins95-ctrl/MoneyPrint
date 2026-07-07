@@ -62,3 +62,4 @@
 - [checkExistingOrder side field mismatch](check-existing-order-side.md) — activeList rows have side="Buy"/"Sell" but checkExistingOrder compared to "Long"/"Short"; always returned null → duplicate entry guard never fired → TP retry clear caused double orders.
 - [BB_BREAKOUT SL too tight](bb-breakout-sl-atr.md) — original 0.3×ATR buffer on the band placed SL only ~3% from entry on narrow-band coins; raised to 1.0×ATR so a wick can't wipe the trade before the first candle closes.
 - [HTF conflict veto](htf-conflict-veto.md) — weekly-only veto; daily MACD gate (higherTfAllowsBuy/Sell) already covers 1d alignment so 1d veto causes double-gating; only a triggered weekly opposite trade blocks entry.
+- [higherTfAllows new-coin bypass](higher-tf-new-coin-bypass.md) — gates default true when dailyCandlesForWeekly < 35; new listings bypass all MACD checks. Fix: default false when history insufficient.
