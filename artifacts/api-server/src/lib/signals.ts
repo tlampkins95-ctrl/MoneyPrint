@@ -2046,29 +2046,37 @@ export function computeLevels(
       const coinAlreadyDumped = pct24hChange < -15;
 
       // ── SELL: upper band rejection ──────────────────────────────────────
-      // MACD: histogram must be RED (negative) on the last completed bar.
-      // Strategy rule: never short when MACD is green. A declining-but-still-green
-      // histogram means momentum is fading but has NOT confirmed a reversal — that
-      // is exactly wrong for a short entry. Require histPrev1 < 0 (red) to ensure
-      // the momentum flip has actually occurred before entering short.
+      // MACD: 2 consecutive bars of declining histogram, starting from positive
+      // territory. Histogram does NOT need to have crossed to red yet —
+      // "light green and fading" is the correct entry per the strategy.
+      // "Solid green" (histogram still growing) = pump running = do NOT short.
+      // "Light green" (histogram peaked and declining) = momentum fading = short.
       const bbrSellMacd =
         Number.isFinite(histPrev3) &&
-        histPrev1 < 0 &&           // MACD histogram MUST be red — no shorting on green MACD
-        histPrev1 < histPrev2;     // and still declining (confirming direction)
+        histPrev3 > 0 &&           // histogram started from positive (real pump, not noise)
+        histPrev3 > histPrev2 &&   // first confirmed bar of decline from peak
+        histPrev2 > histPrev1;     // second confirmed bar of decline (momentum fading)
+
+      // Price check: the last COMPLETED candle must have CLOSED at or above the
+      // upper BB. Firing on a live mid-candle tick that is merely "near" the band
+      // triggers the short before the candle confirms the rejection on close —
+      // the candle can then close back inside the band and squeeze the position.
+      const lastCompletedClose = bbrCompleted[bbrCompleted.length - 1]?.close ?? 0;
+      const closedAtUpperBand  = lastCompletedClose >= bb30r.upper;
 
       // BB_REJECTION is a COUNTER-TREND signal — it fires precisely when the
       // higher timeframe is still bullish (pump not over) but the 1h/4h MACD has
-      // flipped negative at the upper band. Requiring higherTfAllowsSell
+      // peaked and is fading at the upper band. Requiring higherTfAllowsSell
       // or weeklyAllowsBbrSell kills every short on pumping coins in bull markets,
       // which is exactly when BB_REJECTION has edge (HYPE, PENGU, DYDX type shorts).
-      // The bbrSellMacd gate (red histogram + declining) is the real filter.
+      // The bbrSellMacd gate (2-bar declining histogram) is the real filter.
       if (
         !isLongOnly &&
         !coinAlreadyDumped &&
         bwContractingForSell &&
         bbrSellMacd &&
         volFading &&
-        Math.abs(currentPrice - bb30r.upper) <= BBR_TOL_ATR * atr
+        closedAtUpperBand
       ) {
         // Find most-recent structural swing HIGH (pump top) + swing LOW before it (pump base)
         const sellHighs = [...bbrSwingHighs].reverse();
@@ -2085,8 +2093,8 @@ export function computeLevels(
         }
         if (swingTop !== null && swingBase !== null) {
           const tp1Raw = (swingTop + swingBase) / 2; // 50% retracement midpoint
-          if (tp1Raw < currentPrice) {
-            const ep  = round(bb30r.upper);
+          const ep     = round(bb30r.upper);
+          if (tp1Raw < ep) {
             const tp1 = round(tp1Raw);
             const sl  = round(ep + 0.5 * (ep - tp1));   // 2:1 R:R
             const tp2 = round(floorTarget(ep, sl, tp1 - (ep - tp1), MIN_RR_TP2, "SELL"));
