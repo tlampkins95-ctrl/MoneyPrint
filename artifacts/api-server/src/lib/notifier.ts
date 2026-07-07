@@ -893,6 +893,45 @@ async function executePhemexTrade(
     );
   }
 
+  // Sanity-check re-anchored prices BEFORE placing any order.
+  // Two degenerate cases must be rejected:
+  //
+  //  1. Negative / zero TP — happens when a SELL signal's measured-move target
+  //     was already deep below zero before re-anchoring (e.g. LAB TP2 = -0.95).
+  //     Phemex rejects with "Invalid price".
+  //
+  //  2. SL beyond liquidation — with 25x leverage the liq distance is ~4%.
+  //     A signal with a 40%+ SL (designed for a slow 1d move) re-anchored to a
+  //     market-IOC fill results in SL > liq price; Phemex rejects with
+  //     TE_SELL_SL_SHOULD_LT_LIQ / TE_BUY_SL_SHOULD_GT_LIQ.
+  //     Guard: SL distance must be < 85% of the theoretical liq distance
+  //     (1 / maxLeverage) to leave margin for funding and mark-price spread.
+  if (isMarketIocSell || isMarketIocBuy) {
+    const tpFloor = minPx > 0 ? minPx : 0;
+    if (effectiveTP <= tpFloor || effectiveTP2 <= tpFloor) {
+      logger.warn(
+        { symbol, timeframe, effectiveTP, effectiveTP2, tpFloor },
+        "phemex-trader: Market IOC skipped — re-anchored TP would be at or below price floor (degenerate R:R)",
+      );
+      if (!openPhemexOrders.has(k)) {
+        openPhemexOrders.set(k, { orderId: `degenerate-rr-${Date.now()}`, phemexSymbol, posSide: posSideForCheck });
+      }
+      return;
+    }
+    const slDistanceFrac = ref > 0 ? Math.abs(effectiveSL - ref) / ref : 1;
+    const maxSlFrac = 0.85 / Math.max(phemexMaxLeverage(), 1);
+    if (slDistanceFrac > maxSlFrac) {
+      logger.warn(
+        { symbol, timeframe, effectiveSL, currentPrice: ref, slDistanceFrac: slDistanceFrac.toFixed(4), maxSlFrac: maxSlFrac.toFixed(4) },
+        "phemex-trader: Market IOC skipped — re-anchored SL exceeds leverage-adjusted liquidation distance",
+      );
+      if (!openPhemexOrders.has(k)) {
+        openPhemexOrders.set(k, { orderId: `sl-beyond-liq-${Date.now()}`, phemexSymbol, posSide: posSideForCheck });
+      }
+      return;
+    }
+  }
+
   // Set leverage on Phemex to match what the sizing math assumed.
   // Without this, Phemex uses whatever leverage is already on the account for
   // that symbol — which may be 1x (the default), causing the margin used to be
