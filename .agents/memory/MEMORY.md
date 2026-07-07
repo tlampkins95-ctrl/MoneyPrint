@@ -63,3 +63,5 @@
 - [BB_BREAKOUT SL too tight](bb-breakout-sl-atr.md) — original 0.3×ATR buffer on the band placed SL only ~3% from entry on narrow-band coins; raised to 1.0×ATR so a wick can't wipe the trade before the first candle closes.
 - [HTF conflict veto](htf-conflict-veto.md) — weekly-only veto; daily MACD gate (higherTfAllowsBuy/Sell) already covers 1d alignment so 1d veto causes double-gating; only a triggered weekly opposite trade blocks entry.
 - [higherTfAllows null-MACD bypass](higher-tf-null-macd-bypass.md) — gates default true when _checkDailyMacd() returns null (non-finite histogram); any MACD computation failure silently allowed all signals. Fix: invert logic — require confirmed positive/negative, null = block.
+- [Market IOC slippage cap](market-ioc-slippage-cap.md) — IOC BUY/SELL capped at 3% past signal entry; beyond that the setup is invalidated, do not chase.
+- [minPriceRp is NOT a USD price floor](minpricerp-not-usd-floor.md) — ALLOUSDT minPriceRp=1 yet longs at $0.42 are accepted; tpFloor must be 0 everywhere, not minPriceRp.

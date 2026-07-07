@@ -386,11 +386,11 @@ async function executePhemexTrade(
     );
 
     // Degenerate-position guard: if the stored TPs are invalid (negative or
-    // below the exchange price floor), there is no valid exit — close at market.
-    // A wide SL alone is NOT a reason to close an existing position; it just
-    // means the stop-market placement may fail, which is handled below.
+    // zero), there is no valid exit — close at market.
+    // Do NOT use minPriceRp as a floor — it doesn't reliably map to USD price
+    // for all contracts (ALLOUSDT longs at $0.42 prove minPriceRp=1 is not $1 min).
     {
-      const tpFloor   = getMinPriceRp(phemexSymbol);
+      const tpFloor   = 0;
       const tpInvalid = levels.takeProfit1 <= tpFloor || levels.takeProfit2 <= tpFloor;
       if (tpInvalid) {
         logger.warn(
@@ -884,8 +884,30 @@ async function executePhemexTrade(
   //      Enter at market now and re-anchor SL/TP to current price preserving R:R.
   //  (c) Signal is a market-entry type (entry = currentPrice at fire time) — a
   //      limit at a stale price is always wrong regardless of direction moved.
-  const priceRunPastEntryBuy  = side === "Buy"  && ref > levels.entryPrice * 1.005;
-  const priceRunPastEntrySell = side === "Sell" && ref < levels.entryPrice * 0.995;
+  //
+  // MAX SLIPPAGE CAP: if price has moved MORE than 3% past the signal entry,
+  // the trade is too far from the designed entry — the R:R is blown and we'd be
+  // chasing. Do NOT enter via IOC in that case. priceRunPastEntry only triggers
+  // within the 0.5%–3% window.
+  const slippageBuy  = levels.entryPrice > 0 ? (ref - levels.entryPrice) / levels.entryPrice : 0;
+  const slippageSell = levels.entryPrice > 0 ? (levels.entryPrice - ref) / levels.entryPrice : 0;
+  const MAX_CHASE_PCT = 0.03; // 3% max slippage — beyond this the setup is invalidated
+  const priceRunPastEntryBuy  = side === "Buy"  && slippageBuy  > 0.005 && slippageBuy  <= MAX_CHASE_PCT;
+  const priceRunPastEntrySell = side === "Sell" && slippageSell > 0.005 && slippageSell <= MAX_CHASE_PCT;
+  // Entry too far from signal — skip entirely, don't chase
+  const buyTooFarPast  = side === "Buy"  && !isMarketEntrySignalType && slippageBuy  > MAX_CHASE_PCT;
+  const sellTooFarPast = side === "Sell" && slippageSell > MAX_CHASE_PCT;
+  if (buyTooFarPast || sellTooFarPast) {
+    logger.warn(
+      { symbol, timeframe, signalEntry: levels.entryPrice, currentPrice: ref,
+        slippagePct: ((buyTooFarPast ? slippageBuy : slippageSell) * 100).toFixed(2) },
+      "phemex-trader: Market IOC skipped — price too far past signal entry (>3% slippage, invalidated setup)",
+    );
+    if (!openPhemexOrders.has(k)) {
+      openPhemexOrders.set(k, { orderId: `too-far-past-entry-${Date.now()}`, phemexSymbol, posSide: posSideForCheck });
+    }
+    return;
+  }
   const isMarketIocSell = side === "Sell" && (
     (minPx > 0 && levels.entryPrice < minPx) || priceRunPastEntrySell
   );
@@ -957,11 +979,15 @@ async function executePhemexTrade(
   //     Guard: SL distance must be < 85% of the theoretical liq distance
   //     (1 / maxLeverage) to leave margin for funding and mark-price spread.
   if (isMarketIocSell || isMarketIocBuy) {
-    const tpFloor = minPx > 0 ? minPx : 0;
+    // tpFloor = 0: only block negative/zero TPs (e.g. LAB TP2=-0.95).
+    // Do NOT use minPriceRp here — it does not reliably represent a USD price
+    // floor for all contracts (e.g. ALLOUSDT minPriceRp=1 yet longs at $0.42
+    // are accepted fine). Real exchange rejections are caught by error handling.
+    const tpFloor = 0;
     if (effectiveTP <= tpFloor || effectiveTP2 <= tpFloor) {
       logger.warn(
         { symbol, timeframe, effectiveTP, effectiveTP2, tpFloor },
-        "phemex-trader: Market IOC skipped — re-anchored TP would be at or below price floor (degenerate R:R)",
+        "phemex-trader: Market IOC skipped — re-anchored TP is zero or negative (degenerate R:R)",
       );
       if (!openPhemexOrders.has(k)) {
         openPhemexOrders.set(k, { orderId: `degenerate-rr-${Date.now()}`, phemexSymbol, posSide: posSideForCheck });
