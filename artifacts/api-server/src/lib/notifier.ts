@@ -309,6 +309,16 @@ async function executePhemexTrade(
     return;
   }
 
+  // Per-symbol exclusion list. Alerts still fire — only order placement is blocked.
+  const excludedSymbols = (process.env.PHEMEX_EXCLUDED_SYMBOLS ?? "").split(",").map(s => s.trim()).filter(Boolean);
+  if (excludedSymbols.includes(symbol)) {
+    logger.info(
+      { symbol, timeframe },
+      "phemex-trader: auto-trade skipped — symbol in exclusion list",
+    );
+    return;
+  }
+
   // Per-signal-type auto-trade gate. PHEMEX_AUTOTRADER_SIGNAL_TYPES overrides
   // the default allowlist. Unset = use the hardcoded default below.
   // Alerts still fire for blocked types — only Phemex order placement is suppressed.
