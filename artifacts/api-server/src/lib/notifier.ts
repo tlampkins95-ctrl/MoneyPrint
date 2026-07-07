@@ -1358,7 +1358,7 @@ async function checkSymbol(
       // after the breakout bar. Filled trades bypass this: a fill notification is
       // always actionable regardless of what signal type originally opened the position.
       if (!isFilledTrade) {
-        const signalTypeAllowed = levels.signalType === "FIB50_SWING" || levels.signalType === "DOUBLE_TOP" || levels.signalType === "DOUBLE_BOTTOM" || levels.signalType === "BB_REJECTION" || levels.signalType === "BB_WALK" || levels.signalType === "DUMP_RECOVERY" || levels.signalType === "BB_BREAKOUT" || levels.signalType === "BB_OVEREXTENSION" || levels.signalType === "SWING_BREAK" || levels.signalType === "MACD_DIP_LONG";
+        const signalTypeAllowed = levels.signalType === "FIB50_SWING" || levels.signalType === "DOUBLE_TOP" || levels.signalType === "DOUBLE_BOTTOM" || levels.signalType === "BB_REJECTION" || levels.signalType === "BB_WALK" || levels.signalType === "DUMP_RECOVERY" || levels.signalType === "BB_BREAKOUT" || levels.signalType === "BB_OVEREXTENSION" || levels.signalType === "MACD_DIP_LONG";
         if (!signalTypeAllowed) {
           logger.info(
             { symbol, timeframe, signalType: levels.signalType },
@@ -1976,7 +1976,7 @@ async function checkTrendingSymbol(
       // Filled trades bypass this: fills are always actionable regardless of
       // what signal type originally opened the position.
       if (!isFilledTrade) {
-        const trendingTypeAllowed = levels.signalType === "FIB50_SWING" || levels.signalType === "DOUBLE_TOP" || levels.signalType === "DOUBLE_BOTTOM" || levels.signalType === "BB_REJECTION" || levels.signalType === "BB_WALK" || levels.signalType === "BB_BREAKOUT" || levels.signalType === "BB_OVEREXTENSION" || levels.signalType === "SWING_BREAK" || levels.signalType === "MACD_DIP_LONG";
+        const trendingTypeAllowed = levels.signalType === "FIB50_SWING" || levels.signalType === "DOUBLE_TOP" || levels.signalType === "DOUBLE_BOTTOM" || levels.signalType === "BB_REJECTION" || levels.signalType === "BB_WALK" || levels.signalType === "BB_BREAKOUT" || levels.signalType === "BB_OVEREXTENSION" || levels.signalType === "MACD_DIP_LONG";
         if (!trendingTypeAllowed) {
           logger.info(
             { symbolKey, timeframe, signalType: levels.signalType, signal: levels.signal },
