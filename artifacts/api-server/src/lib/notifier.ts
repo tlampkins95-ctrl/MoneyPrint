@@ -374,6 +374,42 @@ async function executePhemexTrade(
       { symbol, timeframe, phemexSymbol, side, existingSize, existingSlPrice, existingMarkPrice },
       "phemex-trader: position already exists on Phemex — registering in tracker, skipping new order",
     );
+
+    // Degenerate-position guard: if the position's SL/TP can never be safely
+    // placed (TP would be negative/below floor, or SL distance exceeds the
+    // leverage-adjusted liquidation distance), close at market immediately
+    // rather than leaving the position naked.
+    {
+      const tpFloor    = getMinPriceRp(phemexSymbol);
+      const slFromMark = existingMarkPrice > 0
+        ? Math.abs(levels.stopLoss - existingMarkPrice) / existingMarkPrice
+        : 0;
+      const maxSlFrac  = 0.85 / Math.max(phemexMaxLeverage(), 1);
+      const tpInvalid  = levels.takeProfit1 <= tpFloor || levels.takeProfit2 <= tpFloor;
+      const slBeyondLiq = slFromMark > maxSlFrac;
+      if (tpInvalid || slBeyondLiq) {
+        logger.warn(
+          { symbol, timeframe, phemexSymbol, tp1: levels.takeProfit1, tp2: levels.takeProfit2,
+            tpFloor, slFromMark: slFromMark.toFixed(4), maxSlFrac: maxSlFrac.toFixed(4),
+            tpInvalid, slBeyondLiq },
+          "phemex-trader: existing position has degenerate SL/TP — closing at market",
+        );
+        try {
+          await cancelExistingTpOrders(phemexSymbol, posSideForCheck);
+          await cancelExistingStopOrders(phemexSymbol, posSideForCheck);
+          await marketClosePosition({
+            phemexSymbol,
+            posSide: posSideForCheck,
+            qtyRq:   existingSize.toFixed(qtyDecimals),
+          });
+        } catch (closeErr) {
+          logger.warn({ closeErr, symbol, timeframe }, "phemex-trader: degenerate-position market close failed");
+        }
+        openPhemexOrders.set(k, { orderId: `degenerate-closed-${Date.now()}`, phemexSymbol, posSide: posSideForCheck });
+        return;
+      }
+    }
+
     // If Phemex shows no SL on this position (stopLossRp === 0), the bracket
     // was silently dropped or the position predates bracket support. Place a
     // stop-market reduce-only order now to protect it.
