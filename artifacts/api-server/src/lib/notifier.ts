@@ -978,6 +978,11 @@ async function executePhemexTrade(
   //     TE_SELL_SL_SHOULD_LT_LIQ / TE_BUY_SL_SHOULD_GT_LIQ.
   //     Guard: SL distance must be < 85% of the theoretical liq distance
   //     (1 / maxLeverage) to leave margin for funding and mark-price spread.
+  // Leverage to use for this order. May be auto-reduced below phemexMaxLeverage()
+  // when the SL is wider than the liquidation distance at max leverage (e.g. DOUBLE_TOP
+  // with peaks-based SL of 14% at 20x would liquidate before SL fires).
+  let effectiveLeverage = phemexMaxLeverage();
+
   if (isMarketIocSell || isMarketIocBuy) {
     // tpFloor = 0: only block negative/zero TPs (e.g. LAB TP2=-0.95).
     // Do NOT use minPriceRp here — it does not reliably represent a USD price
@@ -997,22 +1002,21 @@ async function executePhemexTrade(
     const slDistanceFrac = ref > 0 ? Math.abs(effectiveSL - ref) / ref : 1;
     const maxSlFrac = 0.85 / Math.max(phemexMaxLeverage(), 1);
     if (slDistanceFrac > maxSlFrac) {
-      logger.warn(
-        { symbol, timeframe, effectiveSL, currentPrice: ref, slDistanceFrac: slDistanceFrac.toFixed(4), maxSlFrac: maxSlFrac.toFixed(4) },
-        "phemex-trader: Market IOC skipped — re-anchored SL exceeds leverage-adjusted liquidation distance",
+      // SL is wider than max-leverage liq distance. Auto-reduce leverage so liq
+      // is further away than the SL (e.g. DOUBLE_TOP 14% SL → 6x instead of 20x).
+      // Risk sizing (qty = dollarRisk / slDistance) is unchanged.
+      const safeLev = Math.max(1, Math.floor(0.85 / slDistanceFrac));
+      effectiveLeverage = safeLev;
+      logger.info(
+        { symbol, timeframe, effectiveSL, currentPrice: ref, slDistanceFrac: slDistanceFrac.toFixed(4), maxSlFrac: maxSlFrac.toFixed(4), reducedLeverage: safeLev },
+        "phemex-trader: Market IOC — SL wider than max-leverage liq; auto-reducing leverage to fit SL",
       );
-      if (!openPhemexOrders.has(k)) {
-        openPhemexOrders.set(k, { orderId: `sl-beyond-liq-${Date.now()}`, phemexSymbol, posSide: posSideForCheck });
-      }
-      return;
     }
   }
 
-  // Set leverage on Phemex to match what the sizing math assumed.
-  // Without this, Phemex uses whatever leverage is already on the account for
-  // that symbol — which may be 1x (the default), causing the margin used to be
-  // orders of magnitude larger than the intended 2% risk would suggest.
-  await setSymbolLeverage(phemexSymbol, phemexMaxLeverage());
+  // Set leverage on Phemex. effectiveLeverage == phemexMaxLeverage() normally,
+  // but is auto-reduced when the SL is wider than the liq distance at max leverage.
+  await setSymbolLeverage(phemexSymbol, effectiveLeverage);
 
   const entryTs = Date.now();
   const isMarketIoc = isMarketIocSell || isMarketIocBuy;
