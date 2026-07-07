@@ -1952,6 +1952,27 @@ async function checkTrendingSymbol(
         }
       }
 
+      // Symmetric gate for BUY: don't long if daily MACD is red (histogram < 0
+      // or uncomputable). Mirrors the SELL gate above.
+      if (!isFilledTrade && timeframe === "1h" && levels.signal === "BUY") {
+        const dailyCandlesForGate = rawDailyForWeekly as typeof candles;
+        let dailyMacdAllowsBuy = false;
+        if (dailyCandlesForGate.length >= 35) {
+          const dailyCloses = dailyCandlesForGate.map(c => c.close);
+          const dailyHist = calcMACDHist(dailyCloses);
+          const lastHist = dailyHist[dailyHist.length - 1];
+          dailyMacdAllowsBuy = isFinite(lastHist) && lastHist > 0;
+        }
+        if (!dailyMacdAllowsBuy) {
+          logger.info(
+            { symbolKey, timeframe, signalType: levels.signalType },
+            "Trending 1h BUY suppressed — daily MACD not confirmed positive",
+          );
+          stateMap.set(k, { ...(prev ?? {}), signal: prev?.signal ?? "WAIT", lastAlertAt: prev?.lastAlertAt ?? 0 });
+          return;
+        }
+      }
+
       // BB_REJECTION SELL conflict guard (trending coins): suppress even on
       // direction flips when the daily is actively BUY. Trending coins are on
       // the list because they're pumping — shorting them via mean-reversion
