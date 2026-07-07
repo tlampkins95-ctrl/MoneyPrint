@@ -2021,6 +2021,20 @@ export function computeLevels(
       const bbrSwingHighs = findSwingHighs(bbrCompleted, 3, BBR_LOOKBACK);
       const bbrSwingLows  = findSwingLows(bbrCompleted,  3, BBR_LOOKBACK);
 
+      // 24h decline guard for BB_REJECTION SELL.
+      // If the coin has already dropped 15%+ over the last 24h worth of candles,
+      // the dump is at or near exhaustion — shorting here means entering after the
+      // move is done and risking a bounce through the SL. Block SELL only; BUY is
+      // unaffected (buying at lower-band after a dump is the correct direction).
+      const barsFor24h = timeframe === "1h" ? 24 : timeframe === "4h" ? 6 : timeframe === "1d" ? 1 : 0;
+      const lookback24hBar = barsFor24h > 0 && bbrCompleted.length > barsFor24h
+        ? bbrCompleted[bbrCompleted.length - 1 - barsFor24h]
+        : null;
+      const pct24hChange = lookback24hBar && lookback24hBar.close > 0
+        ? ((currentPrice - lookback24hBar.close) / lookback24hBar.close) * 100
+        : 0;
+      const coinAlreadyDumped = pct24hChange < -15;
+
       // ── SELL: upper band rejection ──────────────────────────────────────
       // MACD: 2 consecutive completed bars of decline while histogram is still green.
       // histPrev3 > histPrev2 > histPrev1 with histPrev2 > 0 ensures the fade
@@ -2041,6 +2055,7 @@ export function computeLevels(
       // filter — a BB-walking coin won't have 3 bars of declining MACD.
       if (
         !isLongOnly &&
+        !coinAlreadyDumped &&
         bwContractingForSell &&
         bbrSellMacd &&
         volFading &&
