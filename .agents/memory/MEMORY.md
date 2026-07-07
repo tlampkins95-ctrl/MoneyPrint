@@ -66,3 +66,4 @@
 - [Market IOC slippage cap](market-ioc-slippage-cap.md) — IOC BUY/SELL capped at 3% past signal entry; beyond that the setup is invalidated, do not chase.
 - [minPriceRp is NOT a USD price floor](minpricerp-not-usd-floor.md) — ALLOUSDT minPriceRp=1 yet longs at $0.42 are accepted; tpFloor must be 0 everywhere, not minPriceRp.
 - [Wide-SL auto-leverage reduction](wide-sl-auto-leverage.md) — DOUBLE_TOP/BOTTOM SLs (14%+) exceed liq at max leverage; auto-reduce to floor(0.85/slFrac) instead of skipping the trade.
+- [BB_BREAKOUT SELL in allowlist](bb-breakout-allowlist.md) — BB_BREAKOUT SELL is auto-traded; BUY side blocked by bbBreakoutBuyBlocked gate. User confirmed this is their favorite short setup (LAB dump example).
