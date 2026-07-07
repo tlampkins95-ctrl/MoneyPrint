@@ -385,24 +385,17 @@ async function executePhemexTrade(
       "phemex-trader: position already exists on Phemex — registering in tracker, skipping new order",
     );
 
-    // Degenerate-position guard: if the position's SL/TP can never be safely
-    // placed (TP would be negative/below floor, or SL distance exceeds the
-    // leverage-adjusted liquidation distance), close at market immediately
-    // rather than leaving the position naked.
+    // Degenerate-position guard: if the stored TPs are invalid (negative or
+    // below the exchange price floor), there is no valid exit — close at market.
+    // A wide SL alone is NOT a reason to close an existing position; it just
+    // means the stop-market placement may fail, which is handled below.
     {
-      const tpFloor    = getMinPriceRp(phemexSymbol);
-      const slFromMark = existingMarkPrice > 0
-        ? Math.abs(levels.stopLoss - existingMarkPrice) / existingMarkPrice
-        : 0;
-      const maxSlFrac  = 0.85 / Math.max(phemexMaxLeverage(), 1);
-      const tpInvalid  = levels.takeProfit1 <= tpFloor || levels.takeProfit2 <= tpFloor;
-      const slBeyondLiq = slFromMark > maxSlFrac;
-      if (tpInvalid || slBeyondLiq) {
+      const tpFloor   = getMinPriceRp(phemexSymbol);
+      const tpInvalid = levels.takeProfit1 <= tpFloor || levels.takeProfit2 <= tpFloor;
+      if (tpInvalid) {
         logger.warn(
-          { symbol, timeframe, phemexSymbol, tp1: levels.takeProfit1, tp2: levels.takeProfit2,
-            tpFloor, slFromMark: slFromMark.toFixed(4), maxSlFrac: maxSlFrac.toFixed(4),
-            tpInvalid, slBeyondLiq },
-          "phemex-trader: existing position has degenerate SL/TP — closing at market",
+          { symbol, timeframe, phemexSymbol, tp1: levels.takeProfit1, tp2: levels.takeProfit2, tpFloor },
+          "phemex-trader: existing position has invalid TPs — closing at market",
         );
         try {
           await cancelExistingTpOrders(phemexSymbol, posSideForCheck);
