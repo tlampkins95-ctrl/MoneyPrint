@@ -1,6 +1,6 @@
 import app from "./app";
 import { logger } from "./lib/logger";
-import { startSignalNotifier } from "./lib/notifier";
+import { startSignalNotifier, reconcilePhemexPositions } from "./lib/notifier";
 import { startTrendingDiscovery } from "./lib/trending-discovery";
 import { syncFromDb } from "./lib/signals";
 
@@ -30,6 +30,7 @@ app.listen(port, async (err) => {
   // notifier's first poll seeds new trades and the cleanup DELETE wipes
   // existing production rows that haven't been loaded into memory yet.
   await syncFromDb();
+  await reconcilePhemexPositions();
 
   startSignalNotifier();
   startTrendingDiscovery();

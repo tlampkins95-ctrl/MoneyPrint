@@ -6,7 +6,7 @@ import {
   fetchCandlesForTimeframe,
   type Timeframe,
 } from "./yahoo-fetch";
-import { computeLevelsStable, fetchSpotPrice, getActiveTrade, clearActiveTrade, markTradeTriggered, applyFuturesBasis, registerOnTradeClosedCallback, calcMACDHist, computePositionSizing, DEFAULT_ACCOUNT_SIZE, DEFAULT_RISK_PCT, DEFAULT_MIN_COLLATERAL, DEFAULT_MAX_LEVERAGE, DEFAULT_MT5_LOTS, setPhemexOrderPlaced, logClosedTrade, findActiveTradesByPhemexSymbol, getPhemexTradedSymbols, type ClosedOutcome } from "./signals";
+import { computeLevelsStable, fetchSpotPrice, getActiveTrade, clearActiveTrade, markTradeTriggered, applyFuturesBasis, registerOnTradeClosedCallback, calcMACDHist, computePositionSizing, DEFAULT_ACCOUNT_SIZE, DEFAULT_RISK_PCT, DEFAULT_MIN_COLLATERAL, DEFAULT_MAX_LEVERAGE, DEFAULT_MT5_LOTS, setPhemexOrderPlaced, logClosedTrade, findActiveTradesByPhemexSymbol, getPhemexTradedSymbols, getAllActiveTradeSymbols, type ClosedOutcome } from "./signals";
 import {
   buildAlertContext,
   sendTelegramAlert,
@@ -2650,6 +2650,79 @@ async function detectOrphanedPositions(): Promise<void> {
     }
   } catch (err) {
     logger.warn({ err }, "phemex-trader: detectOrphanedPositions failed");
+  }
+}
+
+/**
+ * One-shot startup check: for every triggered trade that was placed on Phemex
+ * (phemexOrderPlaced=true), verify the position still exists. If Phemex shows
+ * no open position, the trade closed while the server was down (SL hit, TP hit,
+ * or manually closed). Log it as closed so it appears in closed_trades instead
+ * of hanging in activeTrades indefinitely.
+ *
+ * Uses stopLoss as the exit price proxy — the outcome auto-derives as "SL" for
+ * losing trades, "TP2" if stopLoss somehow exceeded takeProfit2 (shouldn't
+ * happen in practice). This is a conservative approximation; the alternative
+ * (no record at all) is far worse.
+ *
+ * Must be called AFTER syncFromDb() so activeTrades is populated, and BEFORE
+ * startSignalNotifier() so the polling loop doesn't race with this check.
+ */
+export async function reconcilePhemexPositions(): Promise<void> {
+  if (!isPhemexTradingEnabled()) return;
+
+  const allTrades = getAllActiveTradeSymbols();
+  if (allTrades.length === 0) return;
+
+  // getUSDTBalance() must run first — it sets the detectedHedgeMode side-effect
+  // that checkExistingPosition relies on for posSide parameters.
+  try {
+    await getUSDTBalance();
+  } catch (err) {
+    logger.warn({ err }, "reconcile: could not fetch Phemex balance — skipping position reconciliation");
+    return;
+  }
+
+  logger.info({ count: allTrades.length }, "reconcile: checking Phemex positions for triggered trades");
+
+  for (const { symbolKey, timeframe } of allTrades) {
+    const trade = getActiveTrade(symbolKey, timeframe);
+    if (!trade) continue;
+
+    // Only reconcile trades that were actually filled on Phemex
+    if (!trade.triggered || !trade.phemexOrderPlaced) continue;
+
+    // Derive phemex perpetual symbol: static symbols have it in SYMBOLS,
+    // trending coins use the symbolKey directly (e.g. "VVVUSDT").
+    const staticMeta = SYMBOLS[symbolKey as Symbol];
+    const phemexSymbol: string = staticMeta?.phemexPerp ?? symbolKey;
+
+    const posSide = trade.signal === "BUY" ? ("Long" as const) : ("Short" as const);
+
+    let existingPos: Awaited<ReturnType<typeof checkExistingPosition>> | undefined;
+    try {
+      existingPos = await checkExistingPosition(phemexSymbol, posSide);
+    } catch (err) {
+      logger.warn({ err, symbolKey, timeframe, phemexSymbol }, "reconcile: checkExistingPosition threw — skipping symbol");
+      continue;
+    }
+
+    if (existingPos === null) {
+      // Position is gone — it closed while the server was down.
+      // Use stopLoss as exit price proxy so outcome auto-derives correctly:
+      // a losing trade records as SL, a breakeven-trailed trade as BE_TRAIL.
+      logger.info(
+        { symbolKey, timeframe, phemexSymbol, signal: trade.signal, entryPrice: trade.entryPrice, stopLoss: trade.stopLoss },
+        "reconcile: triggered position no longer on Phemex — logging as closed and clearing active trade",
+      );
+      logClosedTrade(trade, symbolKey, timeframe, trade.stopLoss);
+      clearActiveTrade(symbolKey, timeframe);
+    } else {
+      logger.info(
+        { symbolKey, timeframe, phemexSymbol, size: existingPos.size },
+        "reconcile: position still open on Phemex — no action needed",
+      );
+    }
   }
 }
 
