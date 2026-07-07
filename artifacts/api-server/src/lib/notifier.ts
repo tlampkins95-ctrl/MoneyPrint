@@ -447,17 +447,24 @@ async function executePhemexTrade(
         }),
       ]);
     }
+    // beMoved: if TP1 already hit the runner is protected at BE by the TP1 fill
+    // path (which also moves SL). If TP1 hasn't hit yet we don't know whether
+    // the 40% BE move already fired in a prior session, but setting beMoved=false
+    // is the safe default — worst case we re-move SL to an already-correct BE
+    // level, which is a no-op in terms of risk.
     openPhemexOrders.set(k, {
       orderId:    `pre-existing-${entryTs}`,
       phemexSymbol,
       posSide:    posSideForCheck,
       fullQty:    tp1AlreadyHit ? existingSize * 2 : existingSize,
       entryPx:    levels.entryPrice,
+      tp1Price:   levels.takeProfit1,
       pxDecimals,
       qtyDecimals,
       tp1OrderId: tp1OrderId ?? undefined,
       tp2OrderId: tp2OrderId ?? undefined,
       tp1Filled:  tp1AlreadyHit,
+      beMoved:    tp1AlreadyHit,
     });
     logger.info(
       { symbol, timeframe, phemexSymbol, existingSize, tp1AlreadyHit,
@@ -2311,10 +2318,8 @@ async function checkTrendingSymbol(
       }
     }
     const trendingCatchUpTypeAllowed =
-      levels.signalType === "FIB50_SWING" || levels.signalType === "DUMP_RECOVERY" || levels.signalType === "MACD_DIP_LONG" || levels.tradeState === "FILLED_PROFIT" || levels.tradeState === "FILLED_DRAWDOWN";
-    const catchUpBbBreakoutBuyBlocked = levels.signalType === "BB_BREAKOUT" && levels.signal === "BUY";
+      levels.signalType === "FIB50_SWING" || levels.signalType === "DUMP_RECOVERY" || levels.signalType === "MACD_DIP_LONG" || levels.signalType === "BB_BREAKOUT" || levels.signalType === "BB_REJECTION" || levels.tradeState === "FILLED_PROFIT" || levels.tradeState === "FILLED_DRAWDOWN";
     if (
-      !catchUpBbBreakoutBuyBlocked &&
       (levels.signal === "BUY" || levels.signal === "SELL") &&
       (levels.tradeState === "PENDING" || levels.tradeState === "FILLED_PROFIT" || levels.tradeState === "FILLED_DRAWDOWN") &&
       trendingCatchUpTypeAllowed &&
