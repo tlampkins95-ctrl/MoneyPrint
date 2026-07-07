@@ -160,7 +160,7 @@ function detectHS(candles: CandleRaw[]): PatternResult | null {
     // Chart shows it as "H&S Head". Measured-move target = 2*neckline - head.
     return {
       pattern: "HEAD_AND_SHOULDERS", direction: "bearish", category: "reversal",
-      confirmed: candles[candles.length - 2].close < necklineBreakLevel,
+      confirmed: candles[candles.length - 1].close < necklineBreakLevel,
       necklinePrice: +neckline.toFixed(10),
       upperBound:    +H2.price.toFixed(10),
     };
@@ -238,17 +238,21 @@ export function detectDoubleTop(candles: CandleRaw[]): PatternResult | null {
 
   for (let i = highs.length - 1; i >= 1; i--) {
     const H2 = highs[i], H1 = highs[i - 1];
-    // Two peaks within 1.5% of each other (tighter than 2.5% to avoid noise)
-    if (Math.abs(H1.price - H2.price) / Math.max(H1.price, H2.price) > 0.015) continue;
-    // Must be at least 20 bars apart so the two peaks are visually distinct
-    if (H2.idx - H1.idx < 20) continue;
+    // Two peaks within 3% of each other — crypto tops are rarely identical;
+    // 1.5% was too tight and rejected valid patterns where one peak wick was
+    // slightly higher than the other.
+    if (Math.abs(H1.price - H2.price) / Math.max(H1.price, H2.price) > 0.03) continue;
+    // Must be at least 10 bars apart so the two peaks are visually distinct
+    if (H2.idx - H1.idx < 10) continue;
     const valleys = lows.filter(l => l.idx > H1.idx && l.idx < H2.idx);
     if (!valleys.length) continue;
     const valley = valleys.reduce((a, b) => b.price < a.price ? b : a);
     const avgTop = (H1.price + H2.price) / 2;
     // Valley must be at least 4% below the tops — shallow dips are just noise
     if ((avgTop - valley.price) / avgTop < 0.04) continue;
-    if (H2.idx < candles.length - 20) continue;
+    // 60-bar staleness window: on 1h that's 2.5 days; on 4h it's 10 days.
+    // Keeps the pattern actionable without chasing ancient history.
+    if (H2.idx < candles.length - 60) continue;
     // Compute vol/20MA ratios for both peaks and expose them in the result.
     // The volume gate (right ≥ left) is enforced in signals.ts, not here, so
     // the detector returns the pattern regardless of volume direction.
@@ -257,7 +261,7 @@ export function detectDoubleTop(candles: CandleRaw[]): PatternResult | null {
     const rightVolume = ma2 > 0 ? volAtPeak(candles, H2.idx) / ma2 : undefined;
     return {
       pattern: "DOUBLE_TOP", direction: "bearish", category: "reversal",
-      confirmed: candles[candles.length - 2].close < valley.price,
+      confirmed: candles[candles.length - 1].close < valley.price,
       necklinePrice:   +valley.price.toFixed(10),
       upperBound:      +avgTop.toFixed(10),
       patternStartDate: candles[H1.idx]?.date,
@@ -293,7 +297,7 @@ export function detectFastDoubleTop(candles: CandleRaw[]): PatternResult | null 
     const rightVolume = ma2 > 0 ? volAtPeak(candles, H2.idx) / ma2 : undefined;
     return {
       pattern: "DOUBLE_TOP", direction: "bearish", category: "reversal",
-      confirmed: candles[candles.length - 2].close < valley.price,
+      confirmed: candles[candles.length - 1].close < valley.price,
       necklinePrice:   +valley.price.toFixed(10),
       upperBound:      +avgTop.toFixed(10),
       patternStartDate: candles[H1.idx]?.date,
@@ -330,7 +334,7 @@ export function detectDoubleBottom(candles: CandleRaw[]): PatternResult | null {
     const rightVolume = ma2 > 0 ? volAtPeak(candles, L2.idx) / ma2 : undefined;
     return {
       pattern: "DOUBLE_BOTTOM", direction: "bullish", category: "reversal",
-      confirmed: candles[candles.length - 2].close > peak.price,
+      confirmed: candles[candles.length - 1].close > peak.price,
       necklinePrice:    +peak.price.toFixed(10),
       upperBound:       +avgBot.toFixed(10),
       patternStartDate:  candles[L1.idx]?.date,

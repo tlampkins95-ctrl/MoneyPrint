@@ -1896,29 +1896,39 @@ export function computeLevels(
   if (signal === "WAIT" && !isLongOnly) {
     const dtBars = candles.slice(0, candles.length - 1); // exclude live bar, same as FIB50_SWING
     const dtResult = detectFastDoubleTop(dtBars) ?? detectDoubleTop(dtBars);
-    // Volume gate: right peak must carry at least as much relative volume as the left peak.
-    // Rising right-side volume confirms distribution is accelerating at resistance.
-    // Fails open when volume data is unavailable (leftVolume/rightVolume undefined).
-    const dtVolOk = dtResult?.leftVolume == null || dtResult?.rightVolume == null ||
-                    dtResult.rightVolume >= dtResult.leftVolume;
-    if (dtResult?.upperBound != null && dtResult.necklinePrice != null && dtResult.confirmed && dtVolOk) {
+    // Volume gate removed: classical TA says LOWER volume on the second peak is
+    // actually MORE bearish (buyers losing conviction at resistance), so requiring
+    // rightVolume >= leftVolume was backwards and rejected valid setups.
+    if (dtResult?.upperBound != null && dtResult.necklinePrice != null && dtResult.confirmed) {
       const resistance = dtResult.upperBound;
-      if (Math.abs(currentPrice - resistance) <= FIB50_TOLERANCE_ATR * atr) {
-        const ep  = round(resistance);
+      const neckline   = dtResult.necklinePrice;
+      // Confirmed (neckline broken downward): enter at neckline level — this places
+      // a SELL limit at the neckline waiting for a retest bounce. If price is already
+      // well below the neckline (>10 ATR), the pattern is too extended to trade.
+      // Old logic entered at resistance and required proximity to peaks — that meant
+      // confirmed breakdowns (where price is already below neckline) never triggered.
+      const belowNeckline = currentPrice < neckline;
+      const tooExtended   = belowNeckline && (neckline - currentPrice) > 10 * atr;
+      if (!tooExtended) {
+        const ep  = round(neckline);           // SELL limit at neckline — fires on retest
         const sl  = round(resistance + atr * 0.5);
-        const tp1 = round(dtResult.necklinePrice);
-        const rawMeasured = dtResult.necklinePrice - (resistance - dtResult.necklinePrice);
-        const tp2 = round(floorTarget(ep, sl, rawMeasured, MIN_RR_TP2, "SELL"));
-        signal       = "SELL";
-        signalType   = "DOUBLE_TOP";
-        entryPrice   = ep;
-        stopLoss     = sl;
-        takeProfit1  = tp1;
-        takeProfit2  = tp2;
-        dca1         = undefined;
-        patternResult = dtResult;
-        const stateTag = dtResult.confirmed ? " (neckline broken)" : " (forming)";
-        signalReason = `[${tfLabel}] DOUBLE TOP SELL${stateTag}: Resistance ${fmt(resistance)}, Neckline ${fmt(dtResult.necklinePrice)}. Entry ${fmt(ep)}, SL ${fmt(sl)} (above peaks), TP1 ${fmt(tp1)} (neckline), TP2 ${fmt(tp2)} (measured move).`;
+        const risk = sl - ep;
+        if (risk > 0) {
+          const rawMeasured = neckline - (resistance - neckline);
+          const tp1 = round(neckline - risk);
+          const tp2 = round(floorTarget(ep, sl, rawMeasured, MIN_RR_TP2, "SELL"));
+          if (tp1 < ep && tp2 < tp1) {
+            signal       = "SELL";
+            signalType   = "DOUBLE_TOP";
+            entryPrice   = ep;
+            stopLoss     = sl;
+            takeProfit1  = tp1;
+            takeProfit2  = tp2;
+            dca1         = undefined;
+            patternResult = dtResult;
+            signalReason = `[${tfLabel}] DOUBLE TOP SELL (neckline broken): Resistance ${fmt(resistance)}, Neckline ${fmt(neckline)}. Entry ${fmt(ep)} (neckline retest), SL ${fmt(sl)} (above peaks), TP1 ${fmt(tp1)}, TP2 ${fmt(tp2)} (measured move).`;
+          }
+        }
       }
     }
   }
@@ -2036,23 +2046,22 @@ export function computeLevels(
       const coinAlreadyDumped = pct24hChange < -15;
 
       // ── SELL: upper band rejection ──────────────────────────────────────
-      // MACD: 2 consecutive completed bars of decline while histogram is still green.
-      // histPrev3 > histPrev2 > histPrev1 with histPrev2 > 0 ensures the fade
-      // is established (not just a single-bar blip) and still in positive territory.
+      // MACD: histogram must be RED (negative) on the last completed bar.
+      // Strategy rule: never short when MACD is green. A declining-but-still-green
+      // histogram means momentum is fading but has NOT confirmed a reversal — that
+      // is exactly wrong for a short entry. Require histPrev1 < 0 (red) to ensure
+      // the momentum flip has actually occurred before entering short.
       const bbrSellMacd =
         Number.isFinite(histPrev3) &&
-        histPrev3 > 0 &&
-        histPrev2 > 0 &&
-        histPrev2 < histPrev3 &&   // bar 2 already declining from bar 3
-        histPrev1 < histPrev2;     // bar 1 still declining from bar 2
+        histPrev1 < 0 &&           // MACD histogram MUST be red — no shorting on green MACD
+        histPrev1 < histPrev2;     // and still declining (confirming direction)
 
       // BB_REJECTION is a COUNTER-TREND signal — it fires precisely when the
-      // higher timeframe is still bullish (pump not over) but the 1h/4h is
-      // showing 3-bar declining MACD from positive. Requiring higherTfAllowsSell
+      // higher timeframe is still bullish (pump not over) but the 1h/4h MACD has
+      // flipped negative at the upper band. Requiring higherTfAllowsSell
       // or weeklyAllowsBbrSell kills every short on pumping coins in bull markets,
       // which is exactly when BB_REJECTION has edge (HYPE, PENGU, DYDX type shorts).
-      // The bbrSellMacd gate (3 bars of declining positive histogram) is the real
-      // filter — a BB-walking coin won't have 3 bars of declining MACD.
+      // The bbrSellMacd gate (red histogram + declining) is the real filter.
       if (
         !isLongOnly &&
         !coinAlreadyDumped &&

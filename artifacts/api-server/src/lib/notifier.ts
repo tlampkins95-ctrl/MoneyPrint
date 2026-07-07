@@ -2029,7 +2029,12 @@ async function checkTrendingSymbol(
       // actively BUY. When 4h flips to WAIT, a 1h SELL slips through even if
       // the daily MACD histogram is still green. Block it here.
       // rawDailyForWeekly is always fetched as daily candles when timeframe === "1h".
-      if (!isFilledTrade && timeframe === "1h" && levels.signal === "SELL") {
+      //
+      // DOUBLE_TOP and DOUBLE_BOTTOM are REVERSAL signals — they form specifically
+      // when daily MACD is still trending in the old direction. Gating them on
+      // daily MACD direction blocks every valid distribution/accumulation top/bottom.
+      const isReversalSignalType = levels.signalType === "DOUBLE_TOP" || levels.signalType === "DOUBLE_BOTTOM";
+      if (!isFilledTrade && timeframe === "1h" && levels.signal === "SELL" && !isReversalSignalType) {
         const dailyCandlesForGate = rawDailyForWeekly as typeof candles;
         let dailyMacdAllowsSell = false;
         if (dailyCandlesForGate.length >= 35) {
@@ -2050,7 +2055,7 @@ async function checkTrendingSymbol(
 
       // Symmetric gate for BUY: don't long if daily MACD is red (histogram < 0
       // or uncomputable). Mirrors the SELL gate above.
-      if (!isFilledTrade && timeframe === "1h" && levels.signal === "BUY") {
+      if (!isFilledTrade && timeframe === "1h" && levels.signal === "BUY" && !isReversalSignalType) {
         const dailyCandlesForGate = rawDailyForWeekly as typeof candles;
         let dailyMacdAllowsBuy = false;
         if (dailyCandlesForGate.length >= 35) {
@@ -2081,7 +2086,7 @@ async function checkTrendingSymbol(
           if (levels.signal === "BUY")  dailyMacdOk = isFinite(lastHist) && lastHist > 0;
           if (levels.signal === "SELL") dailyMacdOk = isFinite(lastHist) && lastHist < 0;
         }
-        if (!dailyMacdOk && (levels.signal === "BUY" || levels.signal === "SELL")) {
+        if (!dailyMacdOk && (levels.signal === "BUY" || levels.signal === "SELL") && !isReversalSignalType) {
           logger.info(
             { symbolKey, timeframe, signalType: levels.signalType, signal: levels.signal },
             "Trending 4h signal suppressed — daily MACD not confirmed in signal direction",
