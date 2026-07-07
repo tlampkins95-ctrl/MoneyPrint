@@ -1926,6 +1926,32 @@ async function checkTrendingSymbol(
         }
       }
 
+      // Daily MACD gate for 1h trending SELL signals.
+      // For static symbols, computeLevelsStable gates all 1h SELL paths via
+      // higherTfAllowsSell (daily MACD histogram must be < 0). Trending coins
+      // were missing this gate — higherTfOpposedT only blocks when 4h is
+      // actively BUY. When 4h flips to WAIT, a 1h SELL slips through even if
+      // the daily MACD histogram is still green. Block it here.
+      // rawDailyForWeekly is always fetched as daily candles when timeframe === "1h".
+      if (!isFilledTrade && timeframe === "1h" && levels.signal === "SELL") {
+        const dailyCandlesForGate = rawDailyForWeekly as typeof candles;
+        let dailyMacdAllowsSell = false;
+        if (dailyCandlesForGate.length >= 35) {
+          const dailyCloses = dailyCandlesForGate.map(c => c.close);
+          const dailyHist = calcMACDHist(dailyCloses);
+          const lastHist = dailyHist[dailyHist.length - 1];
+          dailyMacdAllowsSell = isFinite(lastHist) && lastHist < 0;
+        }
+        if (!dailyMacdAllowsSell) {
+          logger.info(
+            { symbolKey, timeframe, signalType: levels.signalType },
+            "Trending 1h SELL suppressed — daily MACD not confirmed negative",
+          );
+          stateMap.set(k, { ...(prev ?? {}), signal: prev?.signal ?? "WAIT", lastAlertAt: prev?.lastAlertAt ?? 0 });
+          return;
+        }
+      }
+
       // BB_REJECTION SELL conflict guard (trending coins): suppress even on
       // direction flips when the daily is actively BUY. Trending coins are on
       // the list because they're pumping — shorting them via mean-reversion
