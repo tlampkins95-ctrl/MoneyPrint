@@ -2,7 +2,7 @@
 - [4h missing higher-TF gate](4h-no-htf-gate.md) — 4h fell through higherTfAllowsSell/Buy to true; now covered by same daily MACD check as 1h.
 - [FIB50_SWING steals BB_REJECTION slot](fib50swing-upper-band-steal.md) — when 50% fib ≈ upper BB, FIB50_SWING wins cascade; fix is pctB30 < 0.85 cap on FIB50_SWING SELL.
 - [BB bandwidth contraction sell gate](bw-contraction-sell-gate.md) — bwContractingForSell blocks all SELL paths when bw1>bw2>bw3 (pump still accelerating).
-- [BB_BREAKOUT signal](bb-breakout-signal.md) — money print: pctB>1.0+macdBuyOk→BUY; pctB<0+macdSellOk→SELL; FIB50_SWING is blocked when pctB is outside the bands so BB_BREAKOUT inherits those setups.
+- [BB_BREAKOUT signal](bb-breakout-signal.md) — pctB>1.0+macdBuyOk→BUY; pctB<0+macdSellOk→SELL. BUY side is PERMANENTLY hard-blocked in executePhemexTrade (buys the top; 0 TP1 hits). SELL side also not in allowlist. Do NOT add BB_BREAKOUT BUY to allowlist or remove the hard block under any circumstances.
 - [Response parse hardening](response-parse-hardening.md) — use safeParse not parse for server-own-output validation; hard parse crashes the entire route on schema lag.
 - [Daily flip cooldown](daily-flip-cooldown.md) — 1d candles are live/incomplete intraday; direction-flip bypass must have a per-TF minimum or a $50 Gold move sends SELL→BUY within minutes.
 - [Signal audit bugs](signal-audit-bugs.md) — 4 bugs from full code audit: sellAllowed/ema200+MACD, trending dedup guard, FIB type whitelist, RowProps union.
@@ -66,4 +66,4 @@
 - [Market IOC slippage cap](market-ioc-slippage-cap.md) — IOC BUY/SELL capped at 3% past signal entry; beyond that the setup is invalidated, do not chase.
 - [minPriceRp is NOT a USD price floor](minpricerp-not-usd-floor.md) — ALLOUSDT minPriceRp=1 yet longs at $0.42 are accepted; tpFloor must be 0 everywhere, not minPriceRp.
 - [Wide-SL auto-leverage reduction](wide-sl-auto-leverage.md) — DOUBLE_TOP/BOTTOM SLs (14%+) exceed liq at max leverage; auto-reduce to floor(0.85/slFrac) instead of skipping the trade.
-- [BB_BREAKOUT SELL in allowlist](bb-breakout-allowlist.md) — BB_BREAKOUT SELL is auto-traded; BUY side blocked by bbBreakoutBuyBlocked gate. User confirmed this is their favorite short setup (LAB dump example).
+

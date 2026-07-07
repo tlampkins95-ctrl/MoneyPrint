@@ -319,6 +319,18 @@ async function executePhemexTrade(
     return;
   }
 
+  // BB_BREAKOUT BUY is PERMANENTLY blocked regardless of allowlist.
+  // These signals fire when price is ABOVE the upper band — buying the top.
+  // 0 TP1 hits historically. A temporary allowlist change caused a ZEC long
+  // at $505 during a catch-up restart. This hard block prevents it ever again.
+  if (levels.signalType === "BB_BREAKOUT" && levels.signal === "BUY") {
+    logger.info(
+      { symbol, timeframe, signalType: levels.signalType },
+      "phemex-trader: BB_BREAKOUT BUY permanently blocked — buying the top",
+    );
+    return;
+  }
+
   // Per-signal-type auto-trade gate. PHEMEX_AUTOTRADER_SIGNAL_TYPES overrides
   // the default allowlist. Unset = use the hardcoded default below.
   // Alerts still fire for blocked types — only Phemex order placement is suppressed.
