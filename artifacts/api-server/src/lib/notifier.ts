@@ -33,6 +33,7 @@ import {
   checkExistingOrder,
   getAllOpenPhemexPositions,
   marketClosePosition,
+  fetchLastExitPrice,
 } from "./phemex-trader";
 
 type SignalKind = "BUY" | "SELL" | "WAIT";
@@ -2959,13 +2960,16 @@ export async function reconcilePhemexPositions(): Promise<void> {
 
     if (existingPos === null) {
       // Position is gone — it closed while the server was down.
-      // Use stopLoss as exit price proxy so outcome auto-derives correctly:
-      // a losing trade records as SL, a breakeven-trailed trade as BE_TRAIL.
+      // Fetch the real exit price from Phemex trade history.  Only fall back
+      // to stopLoss if the history query fails, so we don't mis-label a TP
+      // close as an SL hit in closed_trades.
+      const actualExitPrice = await fetchLastExitPrice(phemexSymbol, posSide);
+      const exitPrice = actualExitPrice ?? trade.stopLoss;
       logger.info(
-        { symbolKey, timeframe, phemexSymbol, signal: trade.signal, entryPrice: trade.entryPrice, stopLoss: trade.stopLoss },
+        { symbolKey, timeframe, phemexSymbol, signal: trade.signal, entryPrice: trade.entryPrice, actualExitPrice, fallbackToSl: !actualExitPrice },
         "reconcile: triggered position no longer on Phemex — logging as closed and clearing active trade",
       );
-      logClosedTrade(trade, symbolKey, timeframe, trade.stopLoss);
+      logClosedTrade(trade, symbolKey, timeframe, exitPrice);
       clearActiveTrade(symbolKey, timeframe);
     } else {
       logger.info(

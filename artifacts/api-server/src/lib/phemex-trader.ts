@@ -714,6 +714,38 @@ export async function cancelOrder(
 }
 
 /**
+ * Fetches the actual exit price from Phemex account trade history.
+ * Used by reconcilePhemexPositions to record the real close price instead
+ * of falling back to stopLoss (which makes every reconciled close look like an SL).
+ *
+ * Phemex /g-trades/accountTrades returns fills newest-first.
+ * Closing a Short means a Buy-side fill; closing a Long means a Sell-side fill.
+ */
+export async function fetchLastExitPrice(
+  phemexSymbol: string,
+  posSide: "Long" | "Short",
+): Promise<number | null> {
+  try {
+    // Look back 7 days to cover any prolonged hold.
+    const start = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    const data = await phemexRequest<{ rows: Array<Record<string, unknown>> }>(
+      "GET", "/g-trades/accountTrades",
+      { symbol: phemexSymbol, start: String(start), limit: "100" },
+    );
+    // Closing side is opposite to position side.
+    const closingSide = posSide === "Short" ? "Buy" : "Sell";
+    const closingFills = (data.rows ?? []).filter(t => t["side"] === closingSide);
+    if (closingFills.length === 0) return null;
+    // Rows come newest-first — take the most recent fill as the exit price.
+    const price = parseFloat(closingFills[0]["execPriceRp"] as string ?? "0");
+    return isFinite(price) && price > 0 ? price : null;
+  } catch (err) {
+    logger.warn({ err, phemexSymbol, posSide }, "phemex-trader: fetchLastExitPrice failed — will fallback to SL");
+    return null;
+  }
+}
+
+/**
  * Cancels ALL open orders for a symbol.
  * Used when a signal flips direction mid-session.
  */

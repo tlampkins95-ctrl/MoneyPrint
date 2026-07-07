@@ -571,7 +571,7 @@ export function calcMACDHist(closes: number[], fast = 12, slow = 26, sig = 9): n
   return out;
 }
 
-function calcBollingerBands(
+export function calcBollingerBands(
   closes: number[],
   period = 20,
   multiplier = 2,

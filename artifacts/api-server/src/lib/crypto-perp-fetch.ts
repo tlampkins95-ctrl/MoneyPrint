@@ -114,6 +114,41 @@ export async function fetchOkxPerpCandles(
   }
 }
 
+/**
+ * Fetches only the most recent N candles for a symbol+timeframe.
+ * Much faster than fetchOkxPerpCandles for one-off computations (e.g.
+ * BB30 midline lookup) because it never paginates history.
+ * Returns candles ascending (oldest first), live candle included at the end.
+ */
+export async function fetchOkxPerpCandlesRecent(
+  instId: string,
+  timeframe: string,
+  limit = 50,
+): Promise<CandleRaw[]> {
+  const cfg = PERP_TIMEFRAME_MAP[timeframe];
+  if (!cfg) throw new Error(`Unsupported perp timeframe: ${timeframe}`);
+  const rows = await okxGet(
+    `/market/candles?instId=${encodeURIComponent(instId)}&bar=${cfg.bar}&limit=${Math.min(limit, 300)}`,
+  );
+  // OKX returns newest-first — reverse to ascending, convert.
+  return rows
+    .slice()
+    .reverse()
+    .map((row) => {
+      const ts = Number(row[0]);
+      const iso = new Date(ts).toISOString();
+      return {
+        date:   cfg.isIntraday ? iso : iso.split("T")[0],
+        open:   parseFloat(row[1]),
+        high:   parseFloat(row[2]),
+        low:    parseFloat(row[3]),
+        close:  parseFloat(row[4]),
+        volume: parseFloat(row[5] ?? "0"),
+      };
+    })
+    .filter((c) => isFinite(c.open) && isFinite(c.close));
+}
+
 async function _fetchOkxPerpCandles(
   instId: string,
   timeframe: string,
