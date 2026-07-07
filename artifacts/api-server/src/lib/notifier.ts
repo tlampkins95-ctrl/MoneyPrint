@@ -1973,6 +1973,28 @@ async function checkTrendingSymbol(
         }
       }
 
+      // Same daily MACD gates for 4h signals.
+      // For 4h, higherCandles ARE the daily candles (HIGHER_TIMEFRAME["4h"] = "1d").
+      if (!isFilledTrade && timeframe === "4h") {
+        const dailyCandlesForGate = higherCandles as typeof candles;
+        let dailyMacdOk = false;
+        if (dailyCandlesForGate.length >= 35) {
+          const dailyCloses = dailyCandlesForGate.map(c => c.close);
+          const dailyHist = calcMACDHist(dailyCloses);
+          const lastHist = dailyHist[dailyHist.length - 1];
+          if (levels.signal === "BUY")  dailyMacdOk = isFinite(lastHist) && lastHist > 0;
+          if (levels.signal === "SELL") dailyMacdOk = isFinite(lastHist) && lastHist < 0;
+        }
+        if (!dailyMacdOk && (levels.signal === "BUY" || levels.signal === "SELL")) {
+          logger.info(
+            { symbolKey, timeframe, signalType: levels.signalType, signal: levels.signal },
+            "Trending 4h signal suppressed — daily MACD not confirmed in signal direction",
+          );
+          stateMap.set(k, { ...(prev ?? {}), signal: prev?.signal ?? "WAIT", lastAlertAt: prev?.lastAlertAt ?? 0 });
+          return;
+        }
+      }
+
       // BB_REJECTION SELL conflict guard (trending coins): suppress even on
       // direction flips when the daily is actively BUY. Trending coins are on
       // the list because they're pumping — shorting them via mean-reversion
