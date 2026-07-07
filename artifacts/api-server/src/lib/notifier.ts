@@ -322,7 +322,7 @@ async function executePhemexTrade(
   // Per-signal-type auto-trade gate. PHEMEX_AUTOTRADER_SIGNAL_TYPES overrides
   // the default allowlist. Unset = use the hardcoded default below.
   // Alerts still fire for blocked types — only Phemex order placement is suppressed.
-  const DEFAULT_ALLOWED_SIGNAL_TYPES = "FIB50_SWING,BB_REJECTION,DOUBLE_BOTTOM,DOUBLE_TOP,MACD_DIP_LONG,BB_BREAKOUT";
+  const DEFAULT_ALLOWED_SIGNAL_TYPES = "FIB50_SWING,BB_REJECTION,DOUBLE_BOTTOM,DOUBLE_TOP,MACD_DIP_LONG";
   const allowedSignalTypes = (process.env.PHEMEX_AUTOTRADER_SIGNAL_TYPES ?? "").trim() || DEFAULT_ALLOWED_SIGNAL_TYPES;
   const allowed = allowedSignalTypes.split(",").map(s => s.trim()).filter(Boolean);
   if (levels.signalType && !allowed.includes(levels.signalType)) {
@@ -2063,7 +2063,14 @@ async function checkTrendingSymbol(
       // DOUBLE_TOP and DOUBLE_BOTTOM are REVERSAL signals — they form specifically
       // when daily MACD is still trending in the old direction. Gating them on
       // daily MACD direction blocks every valid distribution/accumulation top/bottom.
-      const isReversalSignalType = levels.signalType === "DOUBLE_TOP" || levels.signalType === "DOUBLE_BOTTOM";
+      // BB_REJECTION is also a counter-trend signal — it fires when price reaches
+      // the upper/lower band with MACD fading, which happens while the daily MACD
+      // is still green (the pump hasn't reversed on the daily yet). Gating it on
+      // daily MACD direction kills every valid upper-band short in a bull market.
+      const isReversalSignalType =
+        levels.signalType === "DOUBLE_TOP" ||
+        levels.signalType === "DOUBLE_BOTTOM" ||
+        levels.signalType === "BB_REJECTION";
       if (!isFilledTrade && timeframe === "1h" && levels.signal === "SELL" && !isReversalSignalType) {
         const dailyCandlesForGate = rawDailyForWeekly as typeof candles;
         let dailyMacdAllowsSell = false;
