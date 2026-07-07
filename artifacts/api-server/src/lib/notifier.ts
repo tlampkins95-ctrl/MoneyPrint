@@ -2778,18 +2778,56 @@ async function detectOrphanedPositions(): Promise<void> {
           if (isTelegramEnabled()) void sendTelegramMessage(msg);
         }
       } else {
-        // No stored signal data — nothing to compute TPs from.
-        const msg =
-          `⚠️ <b>ORPHANED POSITION — NO SIGNAL DATA</b>\n\n` +
-          `<b>${phemexSymbol} ${posSideFmt}</b>\n` +
-          `Size: ${size}  |  Entry: ${entryStr}\n\n` +
-          `<i>Signal data fully expired — no TP levels available.\nSet TPs/SL manually on Phemex.</i>`;
+        // No stored signal data — place a protective 5% emergency SL so the
+        // position at least has a stop. We cannot compute TPs without signal
+        // data, but an unprotected position is worse than an imperfect SL.
+        try {
+          // Derive price precision from the magnitude of the entry price.
+          const pxDecimals = entryPrice <= 0 ? 4
+            : entryPrice < 0.1  ? 6
+            : entryPrice < 1    ? 5
+            : entryPrice < 10   ? 4
+            : entryPrice < 100  ? 3
+            : entryPrice < 1000 ? 2
+            : 1;
 
-        logger.warn(
-          { phemexSymbol, posSide, size },
-          "phemex-trader: orphaned position — no signal data, cannot auto-set TPs",
-        );
-        if (isTelegramEnabled()) void sendTelegramMessage(msg);
+          const emergencySl = posSide === "Short"
+            ? entryPrice * 1.05
+            : entryPrice * 0.95;
+
+          await cancelExistingStopOrders(phemexSymbol, posSide);
+          const slId = await placeStopOrder({
+            phemexSymbol,
+            posSide,
+            stopPx:     parseFloat(emergencySl.toFixed(pxDecimals)),
+            qtyRq:      size.toString(),
+            pxDecimals,
+          });
+
+          const slStr = emergencySl.toFixed(pxDecimals);
+          logger.warn(
+            { phemexSymbol, posSide, size, emergencySl: slStr, slId },
+            "phemex-trader: orphaned position — no signal data, placed emergency SL",
+          );
+          const msg =
+            `⚠️ <b>ORPHANED POSITION — EMERGENCY SL PLACED</b>\n\n` +
+            `<b>${phemexSymbol} ${posSideFmt}</b>\n` +
+            `Size: ${size}  |  Entry: ${entryStr}\n` +
+            `Emergency SL: ${slStr} (5% buffer)\n\n` +
+            `<i>No signal data found. Emergency stop placed to protect capital.\nSet proper TP levels manually on Phemex.</i>`;
+          if (isTelegramEnabled()) void sendTelegramMessage(msg);
+        } catch (slErr) {
+          logger.warn(
+            { phemexSymbol, posSide, size, slErr },
+            "phemex-trader: orphaned position — no signal data, emergency SL placement failed",
+          );
+          const msg =
+            `🚨 <b>ORPHANED POSITION — UNPROTECTED</b>\n\n` +
+            `<b>${phemexSymbol} ${posSideFmt}</b>\n` +
+            `Size: ${size}  |  Entry: ${entryStr}\n\n` +
+            `<i>Signal data expired AND emergency SL failed.\nSet SL manually on Phemex immediately.</i>`;
+          if (isTelegramEnabled()) void sendTelegramMessage(msg);
+        }
       }
     }
   } catch (err) {
