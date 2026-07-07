@@ -870,18 +870,27 @@ async function executePhemexTrade(
   const ref    = levels.currentPrice ?? 0;
   const pct24h = levels.priceChangePct ?? 0;
 
+  // Market-entry signal types set entryPrice = currentPrice at signal-fire time.
+  // Placing a Limit at a stale currentPrice when the live price has since moved
+  // results in a buy limit sitting above market — which fills immediately at the
+  // wrong price. These signals must always use Market IOC.
+  const MARKET_ENTRY_SIGNAL_TYPES = new Set(["BB_WALK", "BB_BREAKOUT", "DUMP_RECOVERY", "MACD_DIP_LONG"]);
+  const isMarketEntrySignalType = MARKET_ENTRY_SIGNAL_TYPES.has(levels.signalType ?? "");
+
   // Market IOC when:
   //  (a) Entry is below Phemex minPriceRp floor (order would be rejected), OR
   //  (b) Price has already run past the limit entry by >0.5% — a resting limit
   //      at the original fib/band level will never fill if price has blown through.
   //      Enter at market now and re-anchor SL/TP to current price preserving R:R.
+  //  (c) Signal is a market-entry type (entry = currentPrice at fire time) — a
+  //      limit at a stale price is always wrong regardless of direction moved.
   const priceRunPastEntryBuy  = side === "Buy"  && ref > levels.entryPrice * 1.005;
   const priceRunPastEntrySell = side === "Sell" && ref < levels.entryPrice * 0.995;
   const isMarketIocSell = side === "Sell" && (
     (minPx > 0 && levels.entryPrice < minPx) || priceRunPastEntrySell
   );
   const isMarketIocBuy = side === "Buy" && (
-    (minPx > 0 && levels.entryPrice < minPx) || priceRunPastEntryBuy
+    (minPx > 0 && levels.entryPrice < minPx) || priceRunPastEntryBuy || isMarketEntrySignalType
   );
   let effectiveSL  = levels.stopLoss;
   let effectiveTP  = levels.takeProfit1;
@@ -901,13 +910,15 @@ async function executePhemexTrade(
       "phemex-trader: Market IOC SELL — SL/TP re-anchored to current price",
     );
   } else if (isMarketIocBuy) {
-    // Only re-anchor to market if the coin is actually pumping:
-    //  1. currentPrice > signalEntry — price broke above the fib/band entry
-    //  2. priceChangePct > 0        — coin is positive on the day
-    // If either fails, the fib entry hasn't been reached from above, or the
-    // coin is declining — a market fill at a higher price makes no sense.
+    // For limit-entry signals that ran past their entry (e.g. fib/band entries),
+    // only re-anchor if the coin is actually pumping — entering a momentum
+    // breakout on a declining coin at a higher-than-signal price makes no sense.
+    //
+    // For market-entry signal types (MACD_DIP_LONG, BB_WALK, etc.) the entry IS
+    // currentPrice at fire time — the coin was at that price when the signal
+    // fired, so there is no "pump" requirement. Always re-anchor to current price.
     const isPumping = ref > levels.entryPrice && pct24h > 0;
-    if (!isPumping) {
+    if (!isPumping && !isMarketEntrySignalType) {
       logger.warn(
         { symbol, phemexSymbol, signalEntry: levels.entryPrice, currentPrice: ref, priceChangePct: pct24h },
         "phemex-trader: Market IOC BUY skipped — coin not pumping (price not above fib entry or negative 24h)",
@@ -927,7 +938,7 @@ async function executePhemexTrade(
       { symbol, phemexSymbol, signalEntry: levels.entryPrice, currentPrice: ref, priceChangePct: pct24h,
         origSL: levels.stopLoss, origTP: levels.takeProfit1,
         newSL: effectiveSL, newTP: effectiveTP, newTP2: effectiveTP2,
-        reason: priceRunPastEntryBuy ? "price-ran-past-entry" : "min-price-floor" },
+        reason: isMarketEntrySignalType ? "market-entry-signal" : priceRunPastEntryBuy ? "price-ran-past-entry" : "min-price-floor" },
       "phemex-trader: Market IOC BUY — SL/TP re-anchored to current price",
     );
   }
