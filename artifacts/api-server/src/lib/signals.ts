@@ -2076,36 +2076,27 @@ export function computeLevels(
         volFading &&
         closedAtUpperBand
       ) {
-        // Find most-recent structural swing HIGH (pump top) + swing LOW before it (pump base)
-        const sellHighs = [...bbrSwingHighs].reverse();
-        const sellLows  = [...bbrSwingLows].reverse();
-        let swingTop: number | null  = null;
-        let swingBase: number | null = null;
-        for (const sh of sellHighs) {
-          const base = sellLows.find((sl) => sl.idx < sh.idx);
-          if (!base) continue;
-          if (sh.price - base.price < MIN_SWING_ATR * atr) continue;
-          swingTop  = sh.price;
-          swingBase = base.price;
-          break;
-        }
-        if (swingTop !== null && swingBase !== null) {
-          const tp1Raw = (swingTop + swingBase) / 2; // 50% retracement midpoint
-          const ep     = round(bb30r.upper);
-          if (tp1Raw < ep) {
-            const tp1 = round(tp1Raw);
-            const sl  = round(ep + 0.5 * (ep - tp1));   // 2:1 R:R
-            const tp2 = round(floorTarget(ep, sl, tp1 - (ep - tp1), MIN_RR_TP2, "SELL"));
-            signal      = "SELL";
-            signalType  = "BB_REJECTION";
-            entryPrice  = ep;
-            stopLoss    = sl;
-            takeProfit1 = tp1;
-            takeProfit2 = tp2;
-            dca1        = undefined;
-            patternResult = null;
-            signalReason = `[${tfLabel}] BB REJECTION SELL: Price at upper BB30 ${fmt(bb30r.upper)}, MACD fading 2 bars (${histPrev3.toFixed(4)}→${histPrev2.toFixed(4)}→${histPrev1.toFixed(4)}), volume declining. Swing ${fmt(swingBase)}–${fmt(swingTop)}. Entry ${fmt(ep)}, TP1 ${fmt(tp1)} (50% fib), SL ${fmt(sl)} (2:1 R:R), TP2 ${fmt(tp2)}.`;
-          }
+        // TP1 = BB30 middle band (30-period SMA) — the natural mean-reversion
+        // target when price touches the upper band. Using swing 50% fib produced
+        // TPs $100+ away on volatile coins that price could never realistically hit.
+        // The BB midline is always visible on the chart and price regularly reverts
+        // there after an upper-band touch.
+        // TP2 = extends the same distance past TP1 (toward the lower band), floored
+        // at MIN_RR_TP2 to ensure at least a minimum reward.
+        const ep  = round(bb30r.upper);
+        const tp1 = round(bb30r.middle);
+        if (tp1 < ep) {
+          const sl  = round(ep + 0.5 * (ep - tp1));   // 2:1 R:R
+          const tp2 = round(floorTarget(ep, sl, tp1 - (ep - tp1), MIN_RR_TP2, "SELL"));
+          signal      = "SELL";
+          signalType  = "BB_REJECTION";
+          entryPrice  = ep;
+          stopLoss    = sl;
+          takeProfit1 = tp1;
+          takeProfit2 = tp2;
+          dca1        = undefined;
+          patternResult = null;
+          signalReason = `[${tfLabel}] BB REJECTION SELL: Price at upper BB30 ${fmt(bb30r.upper)}, MACD fading 2 bars (${histPrev3.toFixed(4)}→${histPrev2.toFixed(4)}→${histPrev1.toFixed(4)}), volume declining. Entry ${fmt(ep)}, TP1 ${fmt(tp1)} (BB middle), SL ${fmt(sl)} (2:1 R:R), TP2 ${fmt(tp2)}.`;
         }
       }
 
@@ -2125,44 +2116,36 @@ export function computeLevels(
         histPrev2 > histPrev3 &&   // bar 2 already recovering from bar 3
         histPrev1 > histPrev2 &&   // bar 1 still recovering from bar 2
         (!meta.goldApi || histPrev1 > 0);  // metals: must be green; crypto: red-ok
+      // Symmetric close-confirmation check for BUY: last completed candle must have
+      // CLOSED at or below the lower BB — not just ticked near it mid-candle.
+      const lastCompletedCloseBuy = bbrCompleted[bbrCompleted.length - 1]?.close ?? Infinity;
+      const closedAtLowerBand     = lastCompletedCloseBuy <= bb30r.lower;
       if (
         signal === "WAIT" &&
         higherTfAllowsBuy &&
         trend !== "DOWNTREND" &&
         bbrBuyMacd &&
         volFading &&
-        Math.abs(currentPrice - bb30r.lower) <= BBR_TOL_ATR * atr
+        closedAtLowerBand
       ) {
-        // Find most-recent structural swing LOW (dump bottom) + swing HIGH before it (dump origin)
-        const buyLows  = [...bbrSwingLows].reverse();
-        const buyHighs = [...bbrSwingHighs].reverse();
-        let swingBottom: number | null = null;
-        let swingCeiling: number | null = null;
-        for (const sl of buyLows) {
-          const top = buyHighs.find((sh) => sh.idx < sl.idx);
-          if (!top) continue;
-          if (top.price - sl.price < MIN_SWING_ATR * atr) continue;
-          swingBottom  = sl.price;
-          swingCeiling = top.price;
-          break;
-        }
-        if (swingBottom !== null && swingCeiling !== null) {
-          const tp1Raw = (swingCeiling + swingBottom) / 2; // 50% fib midpoint
-          if (tp1Raw > currentPrice) {
-            const ep  = round(bb30r.lower);
-            const tp1 = round(tp1Raw);
-            const sl  = round(ep - 0.5 * (tp1 - ep));   // 2:1 R:R
-            const tp2 = round(floorTarget(ep, sl, tp1 + (tp1 - ep), MIN_RR_TP2, "BUY"));
-            signal      = "BUY";
-            signalType  = "BB_REJECTION";
-            entryPrice  = ep;
-            stopLoss    = sl;
-            takeProfit1 = tp1;
-            takeProfit2 = tp2;
-            dca1        = undefined;
-            patternResult = null;
-            signalReason = `[${tfLabel}] BB REJECTION BUY: Price at lower BB30 ${fmt(bb30r.lower)}, MACD recovering 2 bars (${histPrev3.toFixed(4)}→${histPrev2.toFixed(4)}→${histPrev1.toFixed(4)}), volume declining. Swing ${fmt(swingBottom)}–${fmt(swingCeiling)}. Entry ${fmt(ep)}, TP1 ${fmt(tp1)} (50% fib), SL ${fmt(sl)} (2:1 R:R), TP2 ${fmt(tp2)}.`;
-          }
+        // TP1 = BB30 middle band — the natural mean-reversion target when price
+        // touches the lower band. Symmetric to SELL: swing-based 50% fib can be
+        // unrealistically far in weak conditions; the midline is always achievable.
+        // TP2 = extends the same distance past TP1 (toward the upper band).
+        const ep  = round(bb30r.lower);
+        const tp1 = round(bb30r.middle);
+        if (tp1 > ep) {
+          const sl  = round(ep - 0.5 * (tp1 - ep));   // 2:1 R:R
+          const tp2 = round(floorTarget(ep, sl, tp1 + (tp1 - ep), MIN_RR_TP2, "BUY"));
+          signal      = "BUY";
+          signalType  = "BB_REJECTION";
+          entryPrice  = ep;
+          stopLoss    = sl;
+          takeProfit1 = tp1;
+          takeProfit2 = tp2;
+          dca1        = undefined;
+          patternResult = null;
+          signalReason = `[${tfLabel}] BB REJECTION BUY: Price at lower BB30 ${fmt(bb30r.lower)}, MACD recovering 2 bars (${histPrev3.toFixed(4)}→${histPrev2.toFixed(4)}→${histPrev1.toFixed(4)}), volume declining. Entry ${fmt(ep)}, TP1 ${fmt(tp1)} (BB middle), SL ${fmt(sl)} (2:1 R:R), TP2 ${fmt(tp2)}.`;
         }
       }
     }

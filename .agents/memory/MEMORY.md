@@ -1,4 +1,5 @@
 - [BB_REJECTION SELL candle-close gate](bbr-sell-candle-close.md) — close must be ≥ bb30r.upper (not currentPrice proximity); histPrev1 < 0 must stay in bbrSellMacd or green-MACD shorts fire.
+- [BB_REJECTION TP targets](bbr-tp-targets.md) — TP1 = bb30r.middle (BB midline), TP2 = extended same distance past TP1. Swing-based 50% fib was producing $100+ unreachable TPs on volatile coins.
 - [OpenAPI enum completeness](openapi-enum-completeness.md) — ActiveSignalsEntry has a 4th enum location with different YAML structure; replace_all misses it; always verify all 4 after codegen.
 - [4h missing higher-TF gate](4h-no-htf-gate.md) — 4h fell through higherTfAllowsSell/Buy to true; now covered by same daily MACD check as 1h.
 - [FIB50_SWING steals BB_REJECTION slot](fib50swing-upper-band-steal.md) — when 50% fib ≈ upper BB, FIB50_SWING wins cascade; fix is pctB30 < 0.85 cap on FIB50_SWING SELL.
