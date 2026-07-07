@@ -2046,16 +2046,14 @@ export function computeLevels(
       const coinAlreadyDumped = pct24hChange < -15;
 
       // ── SELL: upper band rejection ──────────────────────────────────────
-      // MACD: 2 consecutive bars of declining histogram, starting from positive
-      // territory. Histogram does NOT need to have crossed to red yet —
-      // "light green and fading" is the correct entry per the strategy.
-      // "Solid green" (histogram still growing) = pump running = do NOT short.
-      // "Light green" (histogram peaked and declining) = momentum fading = short.
+      // MACD: histogram must be RED (negative) on the last completed bar AND still
+      // declining. Strategy rule: never short when MACD is green. Waiting for the
+      // histogram to cross to negative ensures the momentum flip has actually
+      // occurred — not just fading but still-bullish.
       const bbrSellMacd =
         Number.isFinite(histPrev3) &&
-        histPrev3 > 0 &&           // histogram started from positive (real pump, not noise)
-        histPrev3 > histPrev2 &&   // first confirmed bar of decline from peak
-        histPrev2 > histPrev1;     // second confirmed bar of decline (momentum fading)
+        histPrev1 < 0 &&           // MACD histogram MUST be red — no shorting on green MACD
+        histPrev1 < histPrev2;     // and still declining (confirming direction)
 
       // Price check: the last COMPLETED candle must have CLOSED at or above the
       // upper BB. Firing on a live mid-candle tick that is merely "near" the band
