@@ -1078,6 +1078,43 @@ async function executePhemexTrade(
         orderId, tp1OrderId, tp2OrderId, accountSize },
       "phemex-trader: order + split-TP tracked",
     );
+
+    // ── Post-execution audit ────────────────────────────────────────────────
+    // Re-checks every placed trade against basic structural rules.
+    // Logs INFO when all pass, WARN with full breakdown when anything flags.
+    {
+      const _isBuy    = side === "Buy";
+      const _rrTP1    = Math.abs(effectiveTP  - actualEntryPx) / Math.abs(actualEntryPx - effectiveSL);
+      const _rrTP2    = Math.abs(effectiveTP2 - actualEntryPx) / Math.abs(actualEntryPx - effectiveSL);
+      const _slPct    = (Math.abs(actualEntryPx - effectiveSL) / actualEntryPx) * 100;
+      const _driftPct = (Math.abs(levels.currentPrice - actualEntryPx) / actualEntryPx) * 100;
+      const auditChecks = {
+        slCorrectSide:   _isBuy ? effectiveSL < actualEntryPx  : effectiveSL > actualEntryPx,
+        tp1CorrectSide:  _isBuy ? effectiveTP  > actualEntryPx : effectiveTP  < actualEntryPx,
+        tp2BeyondTp1:    _isBuy ? effectiveTP2 > effectiveTP   : effectiveTP2 < effectiveTP,
+        tp1Positive:     effectiveTP  > 0,
+        tp2Positive:     effectiveTP2 > 0,
+        rrTP1Ok:         _rrTP1 >= 1.5,
+        slNotTooTight:   _slPct >= 0.3,
+        slNotTooWide:    _slPct <= 25,
+        entryNotChasing: _driftPct <= 5 || isMarketIoc,
+      };
+      const auditPass = Object.values(auditChecks).every(Boolean);
+      const auditData = {
+        symbol, timeframe,
+        signal: levels.signal, signalType: levels.signalType,
+        entry: actualEntryPx, sl: effectiveSL, tp1: effectiveTP, tp2: effectiveTP2,
+        currentPrice: levels.currentPrice, isMarketIoc,
+        rrTP1: +_rrTP1.toFixed(2), rrTP2: +_rrTP2.toFixed(2),
+        slPct: +_slPct.toFixed(2), entryDriftPct: +_driftPct.toFixed(2),
+        checks: auditChecks,
+      };
+      if (auditPass) {
+        logger.info(auditData, "phemex-trader: post-trade audit PASSED");
+      } else {
+        logger.warn(auditData, "phemex-trader: post-trade audit FLAGGED — review this trade");
+      }
+    }
   } else {
     failedOrderAt.set(k, Date.now());
   }
