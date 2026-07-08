@@ -2683,6 +2683,13 @@ export function computeLevels(
         bosLastHigh = lastHigh.price;
         bosLastLow  = lastLow.price;
       }
+      // Structure invalidation guard: the downtrend claim above is only based on
+      // historical confirmed swing points. If price has since rallied back above
+      // the confirmed lower high, that structure is stale — the "downtrend" may
+      // already be over (or reversing), so the signal must not fire.
+      if (downtrendConfirmed && bosLastHigh > 0 && currentPrice > bosLastHigh) {
+        downtrendConfirmed = false;
+      }
       const prevDayClose = bosCompleted[bosCompleted.length - 1].close;
       const todayLive = candles[candles.length - 1];
       const retestedAboveLevel = todayLive.high > prevDayClose;
@@ -2752,6 +2759,14 @@ export function computeLevels(
         uptrendConfirmed = lastHigh.price > prevHigh.price && lastLow.price > prevLow.price;
         bosLastHigh = lastHigh.price;
         bosLastLow  = lastLow.price;
+      }
+      // Structure invalidation guard: the uptrend claim above is only based on
+      // historical confirmed swing points. If price has since broken below the
+      // confirmed higher low, that structure is stale — the uptrend is already
+      // broken, so the signal must not fire (this is exactly what happened on
+      // GRASSUSDT: price crashed well below the cited higher low).
+      if (uptrendConfirmed && bosLastLow > 0 && currentPrice < bosLastLow) {
+        uptrendConfirmed = false;
       }
       const prevDayClose = bosCompleted[bosCompleted.length - 1].close;
       const todayLive = candles[candles.length - 1];
