@@ -701,14 +701,11 @@ function findDaggerBullSetup(
     if (candles[j].close >= bClose) return null;
   }
 
-  // A = candle with lowest close before B; level = wick low
-  const aStart = Math.max(0, bIdx - DAGGER_TREND_LOOKBACK);
-  if (aStart >= bIdx) return null;
-  let aIdx = aStart;
-  for (let j = aStart + 1; j < bIdx; j++) {
-    if (candles[j].close < candles[aIdx].close) aIdx = j;
-  }
-  const aPrice = candles[aIdx].low;
+  // A = most recent structural swing LOW before B (not the absolute min in the window)
+  const swingLowsBeforeB = findSwingLows(candles.slice(0, bIdx + 1), 3, DAGGER_TREND_LOOKBACK);
+  if (swingLowsBeforeB.length === 0) return null;
+  const aPoint = swingLowsBeforeB[swingLowsBeforeB.length - 1]; // most recent
+  const aPrice = aPoint.price; // candle.low (set by findSwingLows)
 
   // Wave 1 (A low → B high) must be a significant move
   if (bPrice - aPrice < DAGGER_MIN_TREND_ATR * atr) return null;
@@ -765,14 +762,11 @@ function findDaggerBearSetup(
     if (candles[j].close <= bClose) return null;
   }
 
-  const aStart = Math.max(0, bIdx - DAGGER_TREND_LOOKBACK);
-  if (aStart >= bIdx) return null;
-  // A = candle with highest close before B; level = wick high
-  let aIdx = aStart;
-  for (let j = aStart + 1; j < bIdx; j++) {
-    if (candles[j].close > candles[aIdx].close) aIdx = j;
-  }
-  const aPrice = candles[aIdx].high;
+  // A = most recent structural swing HIGH before B (not the absolute max in the window)
+  const swingHighsBeforeB = findSwingHighs(candles.slice(0, bIdx + 1), 3, DAGGER_TREND_LOOKBACK);
+  if (swingHighsBeforeB.length === 0) return null;
+  const aPointBear = swingHighsBeforeB[swingHighsBeforeB.length - 1]; // most recent
+  const aPrice = aPointBear.price; // candle.high (set by findSwingHighs)
 
   if (aPrice - bPrice < DAGGER_MIN_TREND_ATR * atr) return null;
   if (i - bIdx > DAGGER_MAX_REACTION_BARS) return null;
