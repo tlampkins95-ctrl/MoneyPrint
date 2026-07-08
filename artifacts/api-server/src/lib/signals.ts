@@ -2354,24 +2354,25 @@ export function computeLevels(
   // Common scenario: altcoin pumps on no fundamental news, exits the band,
   // then dumps immediately as retail buyers run out.
   //
-  // Entry:  limit at pre-pump upper BB (so we short into any dead-cat bounce)
+  // Entry:  current price (first forming red candle — buyer exhaustion)
   // TP1:    BB midline (mean reversion target)
   // SL:     above spike high + 0.5×ATR buffer (enforces minimum 2:1 R:R)
   // macdWarm ensures MACD values are reliable (needs 26+9 bars of history).
+  // BB is computed on all completed candles INCLUDING the pump candle, matching
+  // exactly what is rendered on a TradingView chart with BB(30,2).
   if (signal === "WAIT" && !isLongOnly && macdWarm && higherTfAllowsSell && bwContractingForSell) {
     const overextCompleted = candles.slice(0, candles.length - 1);
-    if (overextCompleted.length >= 32) { // need at least 30 for BB + 1 prior candle
+    if (overextCompleted.length >= 31) { // need at least 30 for BB
       const lastCandle  = overextCompleted[overextCompleted.length - 1];
-      // Pre-pump BB: calculated on all candles EXCEPT the last completed one,
-      // so the band width isn't inflated by the spike itself.
-      const prePumpCloses = overextCompleted.slice(0, -1).map((c) => c.close);
-      const prePumpBB = calcBollingerBands(prePumpCloses, 30, 2);
+      // Standard BB on all completed closes including the pump candle itself —
+      // matches what TradingView renders; price must visibly close above this band.
+      const allCompleteCloses = overextCompleted.map((c) => c.close);
+      const actualBB = calcBollingerBands(allCompleteCloses, 30, 2);
 
-      if (prePumpBB) {
-        const closeAboveBand = lastCandle.close > prePumpBB.upper;
-        // Require a meaningful overextension: at least 1% above the pre-pump band.
-        // Hairline closes above the band are noise; genuine pump-exits are obvious.
-        const overextPct = (lastCandle.close - prePumpBB.upper) / prePumpBB.upper;
+      if (actualBB) {
+        const closeAboveBand = lastCandle.close > actualBB.upper;
+        // Require a meaningful overextension: at least 1% above the upper band.
+        const overextPct = (lastCandle.close - actualBB.upper) / actualBB.upper;
         const meaningfulBreak = overextPct >= 0.01;
 
         // Volume spike: last candle volume > 1.5× the 20-bar average before it.
@@ -2381,28 +2382,22 @@ export function computeLevels(
 
         // RSI overbought on completed candles: RSI > 70 at the time of the pump
         // close confirms the move is genuinely extreme, not just a normal candle.
-        const overextRSI = calcRSI(overextCompleted.map((c) => c.close));
+        const overextRSI = calcRSI(allCompleteCloses);
         const rsiOverbought = overextRSI > 70;
 
         // MACD was positive before the last bar (histPrev2 > 0): confirms the pump
         // had real upward momentum rather than being a dead-cat in a downtrend.
-        // We do NOT require MACD to already be declining — the pump candle itself
-        // often has a still-rising histogram; the reversal signal comes from the
-        // overextension + RSI, not from MACD timing.
         const macdHadMomentum = histPrev2 > 0;
 
         // Entry confirmation: the forming candle must be trading BELOW the pump
-        // candle's close — i.e. the current candle is going red relative to the
-        // pump. This avoids placing a limit at the upper band where a retest wick
-        // could stop us out before the real reversal begins.
+        // candle's close — i.e. the current candle is going red relative to the pump.
         const formingRed = currentPrice < lastCandle.close;
         // Don't enter if the move to midline is already mostly done.
-        const notOverdone = currentPrice > prePumpBB.middle;
+        const notOverdone = currentPrice > actualBB.middle;
 
         if (closeAboveBand && meaningfulBreak && volumeSpike && rsiOverbought && macdHadMomentum && formingRed && notOverdone) {
-          // Entry at current price (first red candle confirmation — buyer exhaustion).
           const ep  = round(currentPrice);
-          const tp1 = round(prePumpBB.middle);
+          const tp1 = round(actualBB.middle);
           if (tp1 < ep) { // sanity: TP must be below entry for a SELL
             // SL above the spike high of the last 5 candles + 0.5×ATR buffer.
             const recentHigh = Math.max(...overextCompleted.slice(-5).map((c) => c.close));
@@ -2419,7 +2414,7 @@ export function computeLevels(
             takeProfit2  = tp2;
             dca1         = undefined;
             patternResult = null;
-            signalReason = `[${tfLabel}] BB OVEREXTENSION SELL: Last close ${fmt(lastCandle.close)} above pre-pump upper BB ${fmt(prePumpBB.upper)} (+${(overextPct * 100).toFixed(1)}%), volume spike ${(lastCandle.volume / avgVol20).toFixed(1)}×, RSI ${overextRSI.toFixed(0)}. Entry ${fmt(ep)} (first red candle close), TP1 ${fmt(tp1)} (midline), SL ${fmt(sl)} (above spike high ${fmt(recentHigh)}).`;
+            signalReason = `[${tfLabel}] BB OVEREXTENSION SELL: Last close ${fmt(lastCandle.close)} above upper BB ${fmt(actualBB.upper)} (+${(overextPct * 100).toFixed(1)}%), volume spike ${(lastCandle.volume / avgVol20).toFixed(1)}×, RSI ${overextRSI.toFixed(0)}. Entry ${fmt(ep)}, TP1 ${fmt(tp1)} (midline), SL ${fmt(sl)} (above spike high ${fmt(recentHigh)}).`;
           }
         }
       }
