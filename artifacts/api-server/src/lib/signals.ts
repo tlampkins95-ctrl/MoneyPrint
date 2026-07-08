@@ -1942,7 +1942,8 @@ export function computeLevels(
           const rawMeasured = neckline - (resistance - neckline);
           const tp1 = round(rawMeasured);
           const tp2 = round(floorTarget(ep, sl, rawMeasured, MIN_RR_TP2, "SELL"));
-          if (tp1 < ep && tp2 < tp1) {
+          const rrAtTp1 = (ep - tp1) / risk;
+          if (tp1 < ep && tp2 < tp1 && rrAtTp1 >= 1.5) {
             signal        = "SELL";
             signalType    = "DOUBLE_TOP";
             entryPrice    = ep;
@@ -1990,15 +1991,19 @@ export function computeLevels(
           const tp1         = round(neckline);
           const rawMeasured = neckline + (neckline - support);
           const tp2         = round(floorTarget(ep, sl, rawMeasured, MIN_RR_TP2, "BUY"));
-          signal        = "BUY";
-          signalType    = "DOUBLE_BOTTOM";
-          entryPrice    = ep;
-          stopLoss      = sl;
-          takeProfit1   = tp1;
-          takeProfit2   = tp2;
-          dca1          = undefined;
-          patternResult = dbResult;
-          signalReason  = `[${tfLabel}] DOUBLE BOTTOM BUY (forming): Support ${fmt(support)}, Neckline ${fmt(neckline)}. Entry ${fmt(ep)}, SL ${fmt(sl)} (below troughs), TP1 ${fmt(tp1)} (neckline), TP2 ${fmt(tp2)} (measured move).`;
+          const dbRisk      = ep - sl;
+          const rrAtTp1     = dbRisk > 0 ? (tp1 - ep) / dbRisk : 0;
+          if (rrAtTp1 >= 1.5) {
+            signal        = "BUY";
+            signalType    = "DOUBLE_BOTTOM";
+            entryPrice    = ep;
+            stopLoss      = sl;
+            takeProfit1   = tp1;
+            takeProfit2   = tp2;
+            dca1          = undefined;
+            patternResult = dbResult;
+            signalReason  = `[${tfLabel}] DOUBLE BOTTOM BUY (forming): Support ${fmt(support)}, Neckline ${fmt(neckline)}. Entry ${fmt(ep)}, SL ${fmt(sl)} (below troughs), TP1 ${fmt(tp1)} (neckline), TP2 ${fmt(tp2)} (measured move).`;
+          }
         }
       } else {
         // Confirmed: neckline already broken — enter near neckline, TP = measured move
@@ -2007,15 +2012,19 @@ export function computeLevels(
           const rawMeasured = neckline + (neckline - support);
           const tp1         = round(floorTarget(ep, sl, rawMeasured, MIN_RR_TP2, "BUY"));
           const tp2         = tp1; // measured move is already TP in confirmed mode
-          signal        = "BUY";
-          signalType    = "DOUBLE_BOTTOM";
-          entryPrice    = ep;
-          stopLoss      = sl;
-          takeProfit1   = tp1;
-          takeProfit2   = tp2;
-          dca1          = undefined;
-          patternResult = dbResult;
-          signalReason  = `[${tfLabel}] DOUBLE BOTTOM BUY (neckline broken): Support ${fmt(support)}, Neckline ${fmt(neckline)}. Entry ${fmt(ep)}, SL ${fmt(sl)} (below troughs), TP1 ${fmt(tp1)} (measured move).`;
+          const dbRisk      = ep - sl;
+          const rrAtTp1     = dbRisk > 0 ? (tp1 - ep) / dbRisk : 0;
+          if (rrAtTp1 >= 1.5) {
+            signal        = "BUY";
+            signalType    = "DOUBLE_BOTTOM";
+            entryPrice    = ep;
+            stopLoss      = sl;
+            takeProfit1   = tp1;
+            takeProfit2   = tp2;
+            dca1          = undefined;
+            patternResult = dbResult;
+            signalReason  = `[${tfLabel}] DOUBLE BOTTOM BUY (neckline broken): Support ${fmt(support)}, Neckline ${fmt(neckline)}. Entry ${fmt(ep)}, SL ${fmt(sl)} (below troughs), TP1 ${fmt(tp1)} (measured move).`;
+          }
         }
       }
     }

@@ -73,3 +73,4 @@
 - [FIB50_SWING price-action MACD alternative](fib50swing-price-action-macd-alt.md) — 2 consecutive higher/lower closes now OR'd with macdBuyOk/histPrev-decline to catch fast V-bounces MACD lags on.
 - [BOS daily signal HTF gate](bos-htf-gate-wrong-timeframe.md) — daily-only signals must compute MACD from their own candles; higherTfAllowsBuy/Sell secretly checks WEEKLY MACD when timeframe==="1d".
 - [BB_OVEREXTENSION uses actual BB](bb-overextension-actual-bb.md) — must use standard BB(30,2) including the pump candle; old "pre-pump" BB (excluding spike) gave artificially low upper rail, firing signals invisible on any real chart.
+- [DOUBLE_TOP/BOTTOM R:R gate + pre-trade block](double-pattern-rr-gate.md) — DOUBLE_TOP and DOUBLE_BOTTOM had no R:R check before firing; shallow patterns produce 1:1 or worse; now require rrAtTp1 >= 1.5 in signals.ts AND hard pre-trade abort in notifier.ts before placeOrder.

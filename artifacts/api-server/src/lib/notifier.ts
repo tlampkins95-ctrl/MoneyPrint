@@ -1016,6 +1016,24 @@ async function executePhemexTrade(
 
   await setSymbolLeverage(phemexSymbol, effectiveLeverage);
 
+  // ── Pre-trade R:R guard ────────────────────────────────────────────────────
+  // Block trades where TP1 R:R < 1.5 BEFORE placing the order.
+  // This catches signals that slipped through without an in-signal R:R check
+  // (e.g. DOUBLE_TOP/BOTTOM with very shallow patterns or large ATR-based SLs).
+  {
+    const _isBuy   = side === "Buy";
+    const _rrTP1   = Math.abs(effectiveTP - levels.entryPrice) / Math.abs(levels.entryPrice - effectiveSL);
+    if (_rrTP1 < 1.5) {
+      logger.warn(
+        { symbol, timeframe, signalType: levels.signalType, entry: levels.entryPrice, sl: effectiveSL, tp1: effectiveTP, rrTP1: +_rrTP1.toFixed(2) },
+        "phemex-trader: pre-trade R:R check failed — order blocked (TP1 R:R < 1.5)",
+      );
+      openPhemexOrders.set(k, { orderId: `rr-blocked-${Date.now()}`, phemexSymbol, posSide: posSideForCheck });
+      return;
+    }
+    void _isBuy; // used indirectly via side
+  }
+
   const entryTs = Date.now();
   const isMarketIoc = isMarketIocSell || isMarketIocBuy;
   const orderId = await placeOrder({
