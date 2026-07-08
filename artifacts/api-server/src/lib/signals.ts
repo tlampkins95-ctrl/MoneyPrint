@@ -2463,20 +2463,24 @@ export function computeLevels(
         const twoBarWalkSell = pctBkPrev < 0.1 || singleBarDump;
         if (signal === "WAIT" && pctBk < 0 && bbkSellMacd && higherTfAllowsSell && !isLongOnly && twoBarWalkSell) {
           const ep   = round(currentPrice);
-          const sl   = round(bbkBands.lower + 1.0 * atr);
-          const risk = sl - ep;
+          // SL anchored to entry (ep + ATR), not to the lower band.
+          // When price gaps far below the band, lower_band + ATR produces a huge
+          // SL that makes TP1 go negative. ep + ATR keeps risk proportional.
+          const sl   = round(ep + 1.0 * atr);
+          const risk = sl - ep; // = 1 ATR
           if (risk > 0) {
             const tp1 = round(ep - 1.5 * risk);
             const tp2 = round(ep - 2.5 * risk);
+            if (tp1 <= 0) break; // can't set a target at a negative price
             signal       = "SELL";
             signalType   = "BB_BREAKOUT";
             entryPrice   = ep;
             stopLoss     = sl;
             takeProfit1  = tp1;
-            takeProfit2  = tp2;
+            takeProfit2  = Math.max(0.00001, tp2);
             dca1         = undefined;
             patternResult = null;
-            signalReason = `[${tfLabel}] BB BREAKOUT SELL: Price ${fmt(ep)} below lower BB30 ${fmt(bbkBands.lower)} (%B ${pctBk.toFixed(2)}), MACD negative+falling${singleBarDump ? ` — gap dump ${(((prevCompletedClose - lastCompletedClose) / prevCompletedClose) * 100).toFixed(1)}% bypasses 2-bar walk` : " — 2-bar band walk confirmed"}. SL ${fmt(sl)} (above band), TP1 ${fmt(tp1)}, TP2 ${fmt(tp2)}.`;
+            signalReason = `[${tfLabel}] BB BREAKOUT SELL: Price ${fmt(ep)} below lower BB30 ${fmt(bbkBands.lower)} (%B ${pctBk.toFixed(2)}), MACD negative+falling${singleBarDump ? ` — gap dump ${(((prevCompletedClose - lastCompletedClose) / prevCompletedClose) * 100).toFixed(1)}% bypasses 2-bar walk` : " — 2-bar band walk confirmed"}. SL ${fmt(sl)} (${atr.toFixed(4)} ATR above entry), TP1 ${fmt(tp1)}, TP2 ${fmt(Math.max(0.00001, tp2))}.`;
           }
         }
       }
