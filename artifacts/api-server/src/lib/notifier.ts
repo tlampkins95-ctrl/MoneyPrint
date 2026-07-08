@@ -1012,23 +1012,8 @@ async function executePhemexTrade(
       }
       return;
     }
-    const slDistanceFrac = ref > 0 ? Math.abs(effectiveSL - ref) / ref : 1;
-    const maxSlFrac = 0.85 / Math.max(phemexMaxLeverage(), 1);
-    if (slDistanceFrac > maxSlFrac) {
-      // SL is wider than max-leverage liq distance. Auto-reduce leverage so liq
-      // is further away than the SL (e.g. DOUBLE_TOP 14% SL → 6x instead of 20x).
-      // Risk sizing (qty = dollarRisk / slDistance) is unchanged.
-      const safeLev = Math.max(1, Math.floor(0.85 / slDistanceFrac));
-      effectiveLeverage = safeLev;
-      logger.info(
-        { symbol, timeframe, effectiveSL, currentPrice: ref, slDistanceFrac: slDistanceFrac.toFixed(4), maxSlFrac: maxSlFrac.toFixed(4), reducedLeverage: safeLev },
-        "phemex-trader: Market IOC — SL wider than max-leverage liq; auto-reducing leverage to fit SL",
-      );
-    }
   }
 
-  // Set leverage on Phemex. effectiveLeverage == phemexMaxLeverage() normally,
-  // but is auto-reduced when the SL is wider than the liq distance at max leverage.
   await setSymbolLeverage(phemexSymbol, effectiveLeverage);
 
   const entryTs = Date.now();
