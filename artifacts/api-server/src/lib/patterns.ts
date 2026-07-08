@@ -237,12 +237,22 @@ export function detectDoubleTop(candles: CandleRaw[]): PatternResult | null {
   const lows  = findSwingLows(candles,  3, 60);
   if (highs.length < 2) return null;
 
+  // Both peaks must sit at the actual top of the recent range — otherwise the
+  // "swing highs" are just noise inside a bigger trend, not a real resistance
+  // test. Backtested: this is what separates real double tops from false
+  // positives that fired on minor local wiggles mid-trend.
+  const ddtWindowStart = Math.max(0, candles.length - 60);
+  const ddtMaxHigh = Math.max(...candles.slice(ddtWindowStart).map(c => c.high));
+
   for (let i = highs.length - 1; i >= 1; i--) {
     const H2 = highs[i], H1 = highs[i - 1];
     // Two peaks within 3% of each other.
     if (Math.abs(H1.price - H2.price) / Math.max(H1.price, H2.price) > 0.03) continue;
     // Must be at least 10 bars apart so the two peaks are visually distinct
     if (H2.idx - H1.idx < 10) continue;
+    // Both peaks must be within 1% of the window's real high — the top of the move.
+    if ((ddtMaxHigh - H1.price) / ddtMaxHigh > 0.01) continue;
+    if ((ddtMaxHigh - H2.price) / ddtMaxHigh > 0.01) continue;
     const valleys = lows.filter(l => l.idx > H1.idx && l.idx < H2.idx);
     if (!valleys.length) continue;
     const valley = valleys.reduce((a, b) => b.price < a.price ? b : a);
@@ -283,10 +293,16 @@ export function detectFastDoubleTop(candles: CandleRaw[]): PatternResult | null 
   const lows  = findSwingLows(candles,  2, 40);
   if (highs.length < 2) return null;
 
+  // Same top-of-range requirement as detectDoubleTop — see comment there.
+  const dftWindowStart = Math.max(0, candles.length - 40);
+  const dftMaxHigh = Math.max(...candles.slice(dftWindowStart).map(c => c.high));
+
   for (let i = highs.length - 1; i >= 1; i--) {
     const H2 = highs[i], H1 = highs[i - 1];
     if (Math.abs(H1.price - H2.price) / Math.max(H1.price, H2.price) > 0.03) continue;
     if (H2.idx - H1.idx < 8) continue;
+    if ((dftMaxHigh - H1.price) / dftMaxHigh > 0.01) continue;
+    if ((dftMaxHigh - H2.price) / dftMaxHigh > 0.01) continue;
     const valleys = lows.filter(l => l.idx > H1.idx && l.idx < H2.idx);
     if (!valleys.length) continue;
     const valley = valleys.reduce((a, b) => b.price < a.price ? b : a);
