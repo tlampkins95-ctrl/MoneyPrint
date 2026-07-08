@@ -74,10 +74,10 @@ export function findSwingHighs(
   if (end < start) return [];
   const pts: SwingPoint[] = [];
   for (let i = start; i <= end; i++) {
-    const h = candles[i].high;
+    const h = candles[i].close;
     let ok = true;
     for (let j = i - strength; j <= i + strength; j++) {
-      if (j !== i && candles[j].high >= h) { ok = false; break; }
+      if (j !== i && candles[j].close >= h) { ok = false; break; }
     }
     if (ok) pts.push({ idx: i, price: h });
   }
@@ -95,10 +95,10 @@ export function findSwingLows(
   if (end < start) return [];
   const pts: SwingPoint[] = [];
   for (let i = start; i <= end; i++) {
-    const l = candles[i].low;
+    const l = candles[i].close;
     let ok = true;
     for (let j = i - strength; j <= i + strength; j++) {
-      if (j !== i && candles[j].low <= l) { ok = false; break; }
+      if (j !== i && candles[j].close <= l) { ok = false; break; }
     }
     if (ok) pts.push({ idx: i, price: l });
   }
@@ -240,9 +240,6 @@ export function detectDoubleTop(candles: CandleRaw[]): PatternResult | null {
     const H2 = highs[i], H1 = highs[i - 1];
     // Two peaks within 3% of each other.
     if (Math.abs(H1.price - H2.price) / Math.max(H1.price, H2.price) > 0.03) continue;
-    // H2 must NOT be higher than H1 by more than 1% — a higher second high is
-    // a higher high (uptrend intact), not a double top. Equal or lower only.
-    if (H2.price > H1.price * 1.01) continue;
     // Must be at least 10 bars apart so the two peaks are visually distinct
     if (H2.idx - H1.idx < 10) continue;
     const valleys = lows.filter(l => l.idx > H1.idx && l.idx < H2.idx);
@@ -287,9 +284,6 @@ export function detectFastDoubleTop(candles: CandleRaw[]): PatternResult | null 
   for (let i = highs.length - 1; i >= 1; i--) {
     const H2 = highs[i], H1 = highs[i - 1];
     if (Math.abs(H1.price - H2.price) / Math.max(H1.price, H2.price) > 0.03) continue;
-    // H2 must NOT be higher than H1 by more than 1% — a higher second peak
-    // is a higher high (uptrend intact), not a distribution top.
-    if (H2.price > H1.price * 1.01) continue;
     if (H2.idx - H1.idx < 8) continue;
     const valleys = lows.filter(l => l.idx > H1.idx && l.idx < H2.idx);
     if (!valleys.length) continue;
@@ -541,8 +535,8 @@ function detectWedges(candles: CandleRaw[]): PatternResult | null {
 
   // Returns true when no candle between a1 and a2 (exclusive) pierces the
   // trendline connecting them.
-  // "lower": candle.low must stay >= line - TOL  (lower rail = support)
-  // "upper": candle.high must stay <= line + TOL (upper rail = resistance)
+  // "lower": candle.close must stay >= line - TOL  (lower rail = support)
+  // "upper": candle.close must stay <= line + TOL (upper rail = resistance)
   const isClean = (
     a1: SwingPoint, a2: SwingPoint, side: "lower" | "upper",
   ): boolean => {
@@ -551,8 +545,8 @@ function detectWedges(candles: CandleRaw[]): PatternResult | null {
     const slope = (a2.price - a1.price) / span;
     for (let k = a1.idx + 1; k < a2.idx; k++) {
       const line = a1.price + slope * (k - a1.idx);
-      if (side === "lower" && candles[k].low  < line - TOL) return false;
-      if (side === "upper" && candles[k].high > line + TOL) return false;
+      if (side === "lower" && candles[k].close < line - TOL) return false;
+      if (side === "upper" && candles[k].close > line + TOL) return false;
     }
     return true;
   };

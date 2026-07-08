@@ -515,13 +515,13 @@ function calcSwingRhythm(
   const slice = candles.slice(-lookback);
   if (slice.length < 10) return null;
 
-  // 1-bar pivot confirmation: high[i] is higher than both neighbours → pivot high.
+  // 1-bar pivot confirmation: close[i] is higher/lower than both neighbours.
   const pivots: { idx: number; price: number }[] = [];
   for (let i = 1; i < slice.length - 1; i++) {
-    if (slice[i].high > slice[i - 1].high && slice[i].high > slice[i + 1].high) {
-      pivots.push({ idx: i, price: slice[i].high });
-    } else if (slice[i].low < slice[i - 1].low && slice[i].low < slice[i + 1].low) {
-      pivots.push({ idx: i, price: slice[i].low });
+    if (slice[i].close > slice[i - 1].close && slice[i].close > slice[i + 1].close) {
+      pivots.push({ idx: i, price: slice[i].close });
+    } else if (slice[i].close < slice[i - 1].close && slice[i].close < slice[i + 1].close) {
+      pivots.push({ idx: i, price: slice[i].close });
     }
   }
 
@@ -683,27 +683,27 @@ function findDaggerBullSetup(
 ): DaggerSetup | null {
   if (i < DAGGER_WARMUP + 4 || atr <= 0) return null;
 
-  // B = highest high in lookback, settled ≥ 3 bars before i
+  // B = highest close in lookback, settled ≥ 3 bars before i
   const bEnd   = i - 3;
   const bStart = Math.max(0, i - DAGGER_TREND_LOOKBACK);
   if (bEnd <= bStart) return null;
 
-  let bIdx = bStart, bPrice = candles[bStart].high;
+  let bIdx = bStart, bPrice = candles[bStart].close;
   for (let j = bStart + 1; j <= bEnd; j++) {
-    if (candles[j].high > bPrice) { bPrice = candles[j].high; bIdx = j; }
+    if (candles[j].close > bPrice) { bPrice = candles[j].close; bIdx = j; }
   }
 
-  // No new high after B through bar i-1 (wave 1 complete, wave 2 in progress)
+  // No new close high after B through bar i-1 (wave 1 complete, wave 2 in progress)
   for (let j = bIdx + 1; j < i; j++) {
-    if (candles[j].high >= bPrice) return null;
+    if (candles[j].close >= bPrice) return null;
   }
 
-  // A = lowest low before B (wave 1 base)
+  // A = lowest close before B (wave 1 base)
   const aStart = Math.max(0, bIdx - DAGGER_TREND_LOOKBACK);
   if (aStart >= bIdx) return null;
-  let aPrice = candles[aStart].low;
+  let aPrice = candles[aStart].close;
   for (let j = aStart + 1; j < bIdx; j++) {
-    if (candles[j].low < aPrice) aPrice = candles[j].low;
+    if (candles[j].close < aPrice) aPrice = candles[j].close;
   }
 
   // Wave 1 (A→B) must be a significant move
@@ -712,11 +712,11 @@ function findDaggerBullSetup(
   // Wave 2 can't drag on forever
   if (i - bIdx > DAGGER_MAX_REACTION_BARS) return null;
 
-  // C = deepest low between B and bar i-1 (wave 2 low)
+  // C = deepest close between B and bar i-1 (wave 2 low)
   if (bIdx + 1 > i - 1) return null;
-  let cIdx = bIdx + 1, cPrice = candles[bIdx + 1].low;
+  let cIdx = bIdx + 1, cPrice = candles[bIdx + 1].close;
   for (let j = bIdx + 2; j <= i - 1; j++) {
-    if (candles[j].low < cPrice) { cPrice = candles[j].low; cIdx = j; }
+    if (candles[j].close < cPrice) { cPrice = candles[j].close; cIdx = j; }
   }
 
   // Wave 2 pullback must be meaningful
@@ -747,29 +747,29 @@ function findDaggerBearSetup(
   const bStart = Math.max(0, i - DAGGER_TREND_LOOKBACK);
   if (bEnd <= bStart) return null;
 
-  let bIdx = bStart, bPrice = candles[bStart].low;
+  let bIdx = bStart, bPrice = candles[bStart].close;
   for (let j = bStart + 1; j <= bEnd; j++) {
-    if (candles[j].low < bPrice) { bPrice = candles[j].low; bIdx = j; }
+    if (candles[j].close < bPrice) { bPrice = candles[j].close; bIdx = j; }
   }
 
   for (let j = bIdx + 1; j < i; j++) {
-    if (candles[j].low <= bPrice) return null;
+    if (candles[j].close <= bPrice) return null;
   }
 
   const aStart = Math.max(0, bIdx - DAGGER_TREND_LOOKBACK);
   if (aStart >= bIdx) return null;
-  let aPrice = candles[aStart].high;
+  let aPrice = candles[aStart].close;
   for (let j = aStart + 1; j < bIdx; j++) {
-    if (candles[j].high > aPrice) aPrice = candles[j].high;
+    if (candles[j].close > aPrice) aPrice = candles[j].close;
   }
 
   if (aPrice - bPrice < DAGGER_MIN_TREND_ATR * atr) return null;
   if (i - bIdx > DAGGER_MAX_REACTION_BARS) return null;
 
   if (bIdx + 1 > i - 1) return null;
-  let cIdx = bIdx + 1, cPrice = candles[bIdx + 1].high;
+  let cIdx = bIdx + 1, cPrice = candles[bIdx + 1].close;
   for (let j = bIdx + 2; j <= i - 1; j++) {
-    if (candles[j].high > cPrice) { cPrice = candles[j].high; cIdx = j; }
+    if (candles[j].close > cPrice) { cPrice = candles[j].close; cIdx = j; }
   }
 
   if (cPrice - bPrice < DAGGER_MIN_REACTION_ATR * atr) return null;
@@ -2409,7 +2409,7 @@ export function computeLevels(
           const tp1 = round(prePumpBB.middle);
           if (tp1 < ep) { // sanity: TP must be below entry for a SELL
             // SL above the spike high of the last 5 candles + 0.5×ATR buffer.
-            const recentHigh = Math.max(...overextCompleted.slice(-5).map((c) => c.high));
+            const recentHigh = Math.max(...overextCompleted.slice(-5).map((c) => c.close));
             const slFromSpike = round(recentHigh + 0.5 * atr);
             // Also enforce a minimum 2:1 R:R from entry.
             const minSl = round(ep + 0.5 * (ep - tp1));
@@ -2615,11 +2615,11 @@ export function computeLevels(
       // Find dip low: lowest low since MACD went negative.
       // Start from the cross bar (closes.length-2) and walk back through all
       // bars where MACD was negative, stopping when we reach a positive bar.
-      let dipLow = candles.length >= 2 ? candles[candles.length - 2].low : Infinity;
+      let dipLow = candles.length >= 2 ? candles[candles.length - 2].close : Infinity;
       for (let i = closes.length - 3; i >= Math.max(0, closes.length - 60); i--) {
         const h = macdHist[i];
         if (Number.isFinite(h) && h >= 0) break;
-        dipLow = Math.min(dipLow, candles[i].low);
+        dipLow = Math.min(dipLow, candles[i].close);
       }
       if (Number.isFinite(dipLow) && dipLow < currentPrice) {
         const sl   = round(dipLow - 0.5 * atr);
@@ -2713,9 +2713,9 @@ export function computeLevels(
           const ep       = round(currentPrice);
           const sl       = round(csPattern.necklinePrice + 0.3 * atr);
           const risk     = sl - ep;
-          const engulfH  = pbCompleted[pbCompleted.length - 2]?.high ?? ep;
-          const engulfL  = pbCompleted[pbCompleted.length - 2]?.low  ?? ep;
-          const measured = engulfH - engulfL;
+          const engulfC  = pbCompleted[pbCompleted.length - 2]?.close ?? ep;
+          const engulfO  = pbCompleted[pbCompleted.length - 2]?.open  ?? ep;
+          const measured = Math.abs(engulfC - engulfO);
           if (risk > 0) {
             const tp1 = round(ep - 2 * risk);
             const tp2 = round(floorTarget(ep, sl, ep - measured, MIN_RR_TP2, "SELL"));
@@ -2733,9 +2733,9 @@ export function computeLevels(
           const ep       = round(currentPrice);
           const sl       = round(csPattern.necklinePrice - 0.3 * atr);
           const risk     = ep - sl;
-          const engulfH  = pbCompleted[pbCompleted.length - 2]?.high ?? ep;
-          const engulfL  = pbCompleted[pbCompleted.length - 2]?.low  ?? ep;
-          const measured = engulfH - engulfL;
+          const engulfC  = pbCompleted[pbCompleted.length - 2]?.close ?? ep;
+          const engulfO  = pbCompleted[pbCompleted.length - 2]?.open  ?? ep;
+          const measured = Math.abs(engulfC - engulfO);
           if (risk > 0) {
             const tp1 = round(ep + 2 * risk);
             const tp2 = round(floorTarget(ep, sl, ep + measured, MIN_RR_TP2, "BUY"));
@@ -3338,41 +3338,17 @@ function isInvalidated(trade: ActiveTrade, currentPrice: number): boolean {
 function wasEntryTagged(trade: ActiveTrade, candles: CandleRaw[]): boolean {
   for (const c of candles) {
     const ts = Date.parse(c.date);
-    if (Number.isNaN(ts)) continue;
-    if (ts > trade.openedCandleStartTs) {
-      if (trade.signal === "BUY" && c.low <= trade.entryPrice) return true;
-      if (trade.signal === "SELL" && c.high >= trade.entryPrice) return true;
-    } else if (ts === trade.openedCandleStartTs) {
-      if (
-        trade.signal === "BUY" &&
-        c.low < trade.openedCandleLow &&
-        c.low <= trade.entryPrice
-      ) {
-        return true;
-      }
-      if (
-        trade.signal === "SELL" &&
-        c.high > trade.openedCandleHigh &&
-        c.high >= trade.entryPrice
-      ) {
-        return true;
-      }
-    }
+    if (Number.isNaN(ts) || ts < trade.openedCandleStartTs) continue;
+    if (trade.signal === "BUY"  && c.close <= trade.entryPrice) return true;
+    if (trade.signal === "SELL" && c.close >= trade.entryPrice) return true;
   }
   return false;
 }
 
-// Scan all candles since the trade was triggered to detect whether price wicked
-// through SL, TP1, or TP2 on a closed candle and has since recovered. This
-// catches poll-gap misses that the live-spot isInvalidated check can't see.
+// Scan all candles since the trade was triggered to detect whether price closed
+// through SL, TP1, or TP2 and has since recovered. Uses closes only — no wicks.
 //
-// Candle classes (identical baseline logic to wasEntryTagged):
-//   ts > openedCandleStartTs  — fully post-snapshot: check wick directly.
-//   ts === openedCandleStartTs — containing candle: only count wick extensions
-//     past the snapshot baseline (same anti-false-positive guard as entry).
-//   ts < openedCandleStartTs  — skip (trade didn't exist yet).
-//
-// Ambiguous candle (wicks both SL and TP2 simultaneously): treat as SL hit
+// Ambiguous candle (closes both SL and TP2 simultaneously): treat as SL hit
 // first — the more conservative / safer outcome for the trader.
 function scanExitWicks(
   trade: ActiveTrade,
@@ -3387,37 +3363,14 @@ function scanExitWicks(
     const ts = Date.parse(c.date);
     if (Number.isNaN(ts) || ts < trade.openedCandleStartTs) continue;
 
-    if (ts > trade.openedCandleStartTs) {
-      // Fully post-snapshot candle: check wicks directly.
-      if (isBuy) {
-        if (c.high >= trade.takeProfit2) hitTp2 = true;
-        if (c.high >= trade.takeProfit1) hitTp1 = true;
-        if (c.low <= trade.stopLoss) hitSl = true;
-      } else {
-        if (c.low <= trade.takeProfit2) hitTp2 = true;
-        if (c.low <= trade.takeProfit1) hitTp1 = true;
-        if (c.high >= trade.stopLoss) hitSl = true;
-      }
+    if (isBuy) {
+      if (c.close >= trade.takeProfit2) hitTp2 = true;
+      if (c.close >= trade.takeProfit1) hitTp1 = true;
+      if (c.close <= trade.stopLoss)    hitSl  = true;
     } else {
-      // Containing candle (ts === openedCandleStartTs): only count wick
-      // extensions past the snapshot baseline so pre-snapshot wicks are ignored.
-      if (isBuy) {
-        // Upward extensions (TP1/TP2 are above entry for BUY)
-        if (c.high > trade.openedCandleHigh) {
-          if (c.high >= trade.takeProfit2) hitTp2 = true;
-          if (c.high >= trade.takeProfit1) hitTp1 = true;
-        }
-        // Downward extensions (SL is below entry for BUY)
-        if (c.low < trade.openedCandleLow && c.low <= trade.stopLoss) hitSl = true;
-      } else {
-        // Downward extensions (TP1/TP2 are below entry for SELL)
-        if (c.low < trade.openedCandleLow) {
-          if (c.low <= trade.takeProfit2) hitTp2 = true;
-          if (c.low <= trade.takeProfit1) hitTp1 = true;
-        }
-        // Upward extensions (SL is above entry for SELL)
-        if (c.high > trade.openedCandleHigh && c.high >= trade.stopLoss) hitSl = true;
-      }
+      if (c.close <= trade.takeProfit2) hitTp2 = true;
+      if (c.close <= trade.takeProfit1) hitTp1 = true;
+      if (c.close >= trade.stopLoss)    hitSl  = true;
     }
   }
 
