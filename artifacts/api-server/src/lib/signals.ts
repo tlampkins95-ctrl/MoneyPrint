@@ -2471,16 +2471,17 @@ export function computeLevels(
           if (risk > 0) {
             const tp1 = round(ep - 1.5 * risk);
             const tp2 = round(ep - 2.5 * risk);
-            if (tp1 <= 0) break; // can't set a target at a negative price
-            signal       = "SELL";
-            signalType   = "BB_BREAKOUT";
-            entryPrice   = ep;
-            stopLoss     = sl;
-            takeProfit1  = tp1;
-            takeProfit2  = Math.max(0.00001, tp2);
-            dca1         = undefined;
-            patternResult = null;
-            signalReason = `[${tfLabel}] BB BREAKOUT SELL: Price ${fmt(ep)} below lower BB30 ${fmt(bbkBands.lower)} (%B ${pctBk.toFixed(2)}), MACD negative+falling${singleBarDump ? ` — gap dump ${(((prevCompletedClose - lastCompletedClose) / prevCompletedClose) * 100).toFixed(1)}% bypasses 2-bar walk` : " — 2-bar band walk confirmed"}. SL ${fmt(sl)} (${atr.toFixed(4)} ATR above entry), TP1 ${fmt(tp1)}, TP2 ${fmt(Math.max(0.00001, tp2))}.`;
+            if (tp1 > 0) {
+              signal       = "SELL";
+              signalType   = "BB_BREAKOUT";
+              entryPrice   = ep;
+              stopLoss     = sl;
+              takeProfit1  = tp1;
+              takeProfit2  = Math.max(0.00001, tp2);
+              dca1         = undefined;
+              patternResult = null;
+              signalReason = `[${tfLabel}] BB BREAKOUT SELL: Price ${fmt(ep)} below lower BB30 ${fmt(bbkBands.lower)} (%B ${pctBk.toFixed(2)}), MACD negative+falling${singleBarDump ? ` — gap dump ${(((prevCompletedClose - lastCompletedClose) / prevCompletedClose) * 100).toFixed(1)}% bypasses 2-bar walk` : " — 2-bar band walk confirmed"}. SL ${fmt(sl)} (${atr.toFixed(4)} ATR above entry), TP1 ${fmt(tp1)}, TP2 ${fmt(Math.max(0.00001, tp2))}.`;
+            }
           }
         }
       }
