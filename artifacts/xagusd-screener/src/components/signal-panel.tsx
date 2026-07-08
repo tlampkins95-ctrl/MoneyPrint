@@ -289,6 +289,12 @@ export function SignalPanel({
                   ↗ PUMP FADE
                 </span>
               );
+            if (st === "BOS_SELL")
+              return (
+                <span className="mt-1 px-3 py-0.5 text-[10px] font-bold tracking-widest rounded-full bg-red-500/20 text-red-300 border border-red-500/40">
+                  ⤵ BOS SELL
+                </span>
+              );
             // Default: FIB50_SWING
             return (
               <span className="mt-1 px-3 py-0.5 text-[10px] font-bold tracking-widest rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40">

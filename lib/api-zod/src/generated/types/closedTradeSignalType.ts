@@ -21,4 +21,5 @@ export const ClosedTradeSignalType = {
   DUMP_RECOVERY: "DUMP_RECOVERY",
   SWING_BREAK: "SWING_BREAK",
   MACD_DIP_LONG: "MACD_DIP_LONG",
+  BOS_SELL: "BOS_SELL",
 } as const;
