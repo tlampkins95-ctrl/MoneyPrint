@@ -1887,8 +1887,7 @@ export function computeLevels(
   //   2. Volume higher on the left peak, lower on the right peak.
   //   3. 1 or 2 candles trending down (declining closes) after the second peak.
   //   4. MACD confirms: same-TF histogram negative and declining (macdSellOk).
-  //   5. Daily trend gate: higher-TF MACD must be bearish (higherTfAllowsSell).
-  if (signal === "WAIT" && !isLongOnly && macdSellOk && higherTfAllowsSell) {
+  if (signal === "WAIT" && !isLongOnly && macdSellOk) {
     const dtBars = candles.slice(0, candles.length - 1);
     const dtResult = detectFastDoubleTop(dtBars) ?? detectDoubleTop(dtBars);
     if (
