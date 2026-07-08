@@ -1395,6 +1395,22 @@ export function computeLevels(
   const macdBuyOk  = macdWarm && histPrev1 > 0 && histPrev1 > histPrev2; // histogram positive (green) AND ticking up
   const macdSellOk = macdWarm && histPrev1 < 0 && histPrev1 < histPrev2; // histogram negative (red) AND ticking down
 
+  // Price-action alternative to the MACD sign-flip requirement for FIB50_SWING.
+  // On a fast V-shaped bounce off the golden pocket, MACD histogram often doesn't
+  // turn positive/negative until AFTER price has already left the fib zone (lagging
+  // indicator). Two consecutive higher/lower closes off the swing extreme is a
+  // direct price-action confirmation that fires while price is still at the level.
+  // Used as an OR alternative alongside macdBuyOk/histPrev1<histPrev2 — either
+  // condition is sufficient, neither replaces the other.
+  const twoConsecutiveHigherCloses =
+    closes.length >= 4 &&
+    closes[closes.length - 2] > closes[closes.length - 3] &&
+    closes[closes.length - 3] > closes[closes.length - 4];
+  const twoConsecutiveLowerCloses =
+    closes.length >= 4 &&
+    closes[closes.length - 2] < closes[closes.length - 3] &&
+    closes[closes.length - 3] < closes[closes.length - 4];
+
   // ─── Bollinger Bands (20, 2) ──────────────────────────────────────────────
   // Used as two gates:
   //   bbBuyOk  — block BUY when price is near/above the upper band (overbought)
@@ -1648,7 +1664,7 @@ export function computeLevels(
     // pctB30 >= 0 lets it steal the lower-band slot and mislabel the trade as
     // FIB50_SWING, which permits catch-up re-entry after a restart at the wrong price.
     const fibBuyBbOk = !bb || (currentPrice < bb.middle && pctB30 > 0.15);
-    if (signal === "WAIT" && higherTfAllowsBuy && macdBuyOk && fibBuyBbOk) {
+    if (signal === "WAIT" && higherTfAllowsBuy && (macdBuyOk || twoConsecutiveHigherCloses) && fibBuyBbOk) {
       const swingLows        = findSwingLows(completed, 3, SWING_LOOKBACK);
       const swingHighsForBuy = findSwingHighs(completed, 3, SWING_LOOKBACK);
       buySearch: for (let j = swingLows.length - 1; j >= 0; j--) {
@@ -1765,7 +1781,7 @@ export function computeLevels(
     // labelled FIB50_SWING, bypassing the catch-up guard that blocks
     // BB_REJECTION re-entries.
     const fibSellBbOk = !bb || (currentPrice > bb.middle && pctB30 < 0.85);
-    if (signal === "WAIT" && !isLongOnly && higherTfAllowsSell && bwContractingForSell && (histPrev1 < histPrev2) && fibSellBbOk) {
+    if (signal === "WAIT" && !isLongOnly && higherTfAllowsSell && bwContractingForSell && ((histPrev1 < histPrev2) || twoConsecutiveLowerCloses) && fibSellBbOk) {
       const swingHighs        = findSwingHighs(completed, 3, SWING_LOOKBACK);
       const swingLowsForSell  = findSwingLows(completed, 3, SWING_LOOKBACK);
       sellSearch: for (let j = swingHighs.length - 1; j >= 0; j--) {

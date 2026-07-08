@@ -69,3 +69,4 @@
 - [minPriceRp is NOT a USD price floor](minpricerp-not-usd-floor.md) — ALLOUSDT minPriceRp=1 yet longs at $0.42 are accepted; tpFloor must be 0 everywhere, not minPriceRp.
 - [Wide-SL auto-leverage reduction](wide-sl-auto-leverage.md) — DOUBLE_TOP/BOTTOM SLs (14%+) exceed liq at max leverage; auto-reduce to floor(0.85/slFrac) instead of skipping the trade.
 
+- [FIB50_SWING price-action MACD alternative](fib50swing-price-action-macd-alt.md) — 2 consecutive higher/lower closes now OR'd with macdBuyOk/histPrev-decline to catch fast V-bounces MACD lags on.
