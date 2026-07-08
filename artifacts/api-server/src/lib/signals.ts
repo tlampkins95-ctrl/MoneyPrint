@@ -1745,6 +1745,9 @@ export function computeLevels(
             const sl  = round(timeframe === "1d"
               ? Math.min(slFormula, ep - 1.5 * swingAtr)
               : slFormula);
+            // After potentially widening the 1d SL, verify R:R at TP1 is still ≥ 1.5.
+            // On narrow swings the 1.5×ATR floor can push SL far enough to drop below 1.5:1.
+            if (ep - sl <= 0 || (tp1 - ep) / (ep - sl) < 1.5) continue buySearch;
             const tp2 = round(floorTarget(ep, sl, swingBHigh, MIN_RR_TP2, "BUY")); // swing high
             signal       = "BUY";
             signalType   = "FIB50_SWING"; // explicit — do not rely on let-initializer default
@@ -1860,6 +1863,8 @@ export function computeLevels(
             const sl  = round(timeframe === "1d"
               ? Math.max(slFormula, ep + 1.5 * swingAtr)
               : slFormula);
+            // After potentially widening the 1d SL, verify R:R at TP1 is still ≥ 1.5.
+            if (sl - ep <= 0 || (ep - tp1) / (sl - ep) < 1.5) continue sellSearch;
             const tp2 = round(floorTarget(ep, sl, swingBLow, MIN_RR_TP2, "SELL")); // swing low
             signal       = "SELL";
             signalType   = "FIB50_SWING"; // explicit — do not rely on let-initializer default
@@ -2414,6 +2419,11 @@ export function computeLevels(
             // Also enforce a minimum 2:1 R:R from entry.
             const minSl = round(ep + 0.5 * (ep - tp1));
             const sl  = Math.max(slFromSpike, minSl);
+            // After taking the wider of the two SLs, verify the final R:R is still
+            // acceptable. If the spike high is very close to entry, slFromSpike can
+            // produce < 1.5 R:R even when minSl would have been fine.
+            const bboRr = (ep - tp1) / (sl - ep);
+            if (bboRr >= 1.5) {
             const tp2 = round(floorTarget(ep, sl, tp1 - (ep - tp1), MIN_RR_TP2, "SELL"));
             signal       = "SELL";
             signalType   = "BB_OVEREXTENSION";
@@ -2424,6 +2434,7 @@ export function computeLevels(
             dca1         = undefined;
             patternResult = null;
             signalReason = `[${tfLabel}] BB OVEREXTENSION SELL: Last close ${fmt(lastCandle.close)} above upper BB ${fmt(actualBB.upper)} (+${(overextPct * 100).toFixed(1)}%), volume spike ${(lastCandle.volume / avgVol20).toFixed(1)}×, RSI ${overextRSI.toFixed(0)}. Entry ${fmt(ep)}, TP1 ${fmt(tp1)} (midline), SL ${fmt(sl)} (above spike high ${fmt(recentHigh)}).`;
+            } // end if (bboRr >= 1.5)
           }
         }
       }
@@ -2558,8 +2569,8 @@ export function computeLevels(
           const sl   = round(recentHigh.price - 1.0 * atr);
           const risk = ep - sl;
           if (risk > 0) {
-            const tp1 = round(ep + 1.0 * risk);
-            const tp2 = round(ep + 1.5 * risk);
+            const tp1 = round(ep + 1.5 * risk);
+            const tp2 = round(ep + 2.5 * risk);
             signal      = "BUY";
             signalType  = "SWING_BREAK";
             entryPrice  = ep;
@@ -2568,7 +2579,7 @@ export function computeLevels(
             takeProfit2 = tp2;
             dca1        = undefined;
             patternResult = null;
-            signalReason = `[${tfLabel}] SWING BREAK BUY: Price ${fmt(currentPrice)} broke above resistance ${fmt(recentHigh.price)} — limit entry at level. SL ${fmt(sl)}, TP1 ${fmt(tp1)}, TP2 ${fmt(tp2)}.`;
+            signalReason = `[${tfLabel}] SWING BREAK BUY: Price ${fmt(currentPrice)} broke above resistance ${fmt(recentHigh.price)} — limit entry at level. SL ${fmt(sl)}, TP1 ${fmt(tp1)} (1.5:1 R:R), TP2 ${fmt(tp2)}.`;
           }
         }
       }
@@ -2589,8 +2600,8 @@ export function computeLevels(
           const sl   = round(recentLow.price + 1.0 * atr);
           const risk = sl - ep;
           if (risk > 0) {
-            const tp1 = round(ep - 1.0 * risk);
-            const tp2 = round(ep - 1.5 * risk);
+            const tp1 = round(ep - 1.5 * risk);
+            const tp2 = round(ep - 2.5 * risk);
             signal      = "SELL";
             signalType  = "SWING_BREAK";
             entryPrice  = ep;
@@ -2599,7 +2610,7 @@ export function computeLevels(
             takeProfit2 = tp2;
             dca1        = undefined;
             patternResult = null;
-            signalReason = `[${tfLabel}] SWING BREAK SELL: Price ${fmt(currentPrice)} broke below support ${fmt(recentLow.price)} — limit entry at level. SL ${fmt(sl)}, TP1 ${fmt(tp1)}, TP2 ${fmt(tp2)}.`;
+            signalReason = `[${tfLabel}] SWING BREAK SELL: Price ${fmt(currentPrice)} broke below support ${fmt(recentLow.price)} — limit entry at level. SL ${fmt(sl)}, TP1 ${fmt(tp1)} (1.5:1 R:R), TP2 ${fmt(tp2)}.`;
           }
         }
       }
@@ -2717,15 +2728,18 @@ export function computeLevels(
           if (risk > 0) {
             const tp2 = round(nextSupport);
             const tp1 = round(ep - (ep - tp2) / 2);
-            signal        = "SELL";
-            signalType    = "BOS_SELL";
-            entryPrice    = ep;
-            stopLoss      = sl;
-            takeProfit1   = tp1;
-            takeProfit2   = tp2;
-            dca1          = undefined;
-            patternResult = null;
-            signalReason  = `[${tfLabel}] BOS SELL: daily downtrend confirmed (lower high ${fmt(bosLastHigh)}, lower low ${fmt(bosLastLow)}). Price broke below prior close ${fmt(prevDayClose)}, retested above intraday, and rejected back below — break of structure continuation. Entry ${fmt(ep)} (market), SL ${fmt(sl)} (reclaim of broken level), TP1 ${fmt(tp1)} (halfway to next support), TP2 ${fmt(tp2)} (next confirmed support).`;
+            const bosRr = risk > 0 ? (ep - tp1) / risk : 0;
+            if (bosRr >= 1.5) {
+              signal        = "SELL";
+              signalType    = "BOS_SELL";
+              entryPrice    = ep;
+              stopLoss      = sl;
+              takeProfit1   = tp1;
+              takeProfit2   = tp2;
+              dca1          = undefined;
+              patternResult = null;
+              signalReason  = `[${tfLabel}] BOS SELL: daily downtrend confirmed (lower high ${fmt(bosLastHigh)}, lower low ${fmt(bosLastLow)}). Price broke below prior close ${fmt(prevDayClose)}, retested above intraday, and rejected back below — break of structure continuation. Entry ${fmt(ep)} (market), SL ${fmt(sl)} (reclaim of broken level), TP1 ${fmt(tp1)} (halfway to next support), TP2 ${fmt(tp2)} (next confirmed support).`;
+            }
           }
         }
       }
@@ -2802,15 +2816,18 @@ export function computeLevels(
           if (risk > 0) {
             const tp2 = round(nextResistance);
             const tp1 = round(ep + (tp2 - ep) / 2);
-            signal        = "BUY";
-            signalType    = "BOS_BUY";
-            entryPrice    = ep;
-            stopLoss      = sl;
-            takeProfit1   = tp1;
-            takeProfit2   = tp2;
-            dca1          = undefined;
-            patternResult = null;
-            signalReason  = `[${tfLabel}] BOS BUY: daily uptrend confirmed (higher high ${fmt(bosLastHigh)}, higher low ${fmt(bosLastLow)}). Price broke above prior close ${fmt(prevDayClose)}, retested below intraday, and rejected back above — break of structure continuation. Entry ${fmt(ep)} (market), SL ${fmt(sl)} (breakdown of broken level), TP1 ${fmt(tp1)} (halfway to next resistance), TP2 ${fmt(tp2)} (next confirmed resistance).`;
+            const bosBuyRr = (tp1 - ep) / risk;
+            if (bosBuyRr >= 1.5) {
+              signal        = "BUY";
+              signalType    = "BOS_BUY";
+              entryPrice    = ep;
+              stopLoss      = sl;
+              takeProfit1   = tp1;
+              takeProfit2   = tp2;
+              dca1          = undefined;
+              patternResult = null;
+              signalReason  = `[${tfLabel}] BOS BUY: daily uptrend confirmed (higher high ${fmt(bosLastHigh)}, higher low ${fmt(bosLastLow)}). Price broke above prior close ${fmt(prevDayClose)}, retested below intraday, and rejected back above — break of structure continuation. Entry ${fmt(ep)} (market), SL ${fmt(sl)} (breakdown of broken level), TP1 ${fmt(tp1)} (halfway to next resistance), TP2 ${fmt(tp2)} (next confirmed resistance).`;
+            }
           }
         }
       }
