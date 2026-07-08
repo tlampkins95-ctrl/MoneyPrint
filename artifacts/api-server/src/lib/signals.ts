@@ -1599,7 +1599,7 @@ export function computeLevels(
   const SWING_SL_BUFFER_ATR = 0.5;  // extra buffer below/above swing extreme for SL
 
   let signal: "BUY" | "SELL" | "WAIT" = "WAIT";
-  let signalType: "FIB50_SWING" | "DOUBLE_TOP" | "DOUBLE_BOTTOM" | "BB_REJECTION" | "BB_WALK" | "BB_BREAKOUT" | "BB_OVEREXTENSION" | "PATTERN_BREAKOUT" | "DUMP_RECOVERY" | "SWING_BREAK" | "MACD_DIP_LONG" | "BOS_SELL" = "FIB50_SWING";
+  let signalType: "FIB50_SWING" | "DOUBLE_TOP" | "DOUBLE_BOTTOM" | "BB_REJECTION" | "BB_WALK" | "BB_BREAKOUT" | "BB_OVEREXTENSION" | "PATTERN_BREAKOUT" | "DUMP_RECOVERY" | "SWING_BREAK" | "MACD_DIP_LONG" | "BOS_SELL" | "BOS_BUY" = "FIB50_SWING";
   let signalReason = "";
   let patternResult: PatternResult | null = null;
   let entryPrice = currentPrice;
@@ -2714,6 +2714,76 @@ export function computeLevels(
     }
   }
 
+  // ── BOS_BUY: daily break-of-structure continuation long ────────────────────
+  // Daily timeframe only. Mirror of BOS_SELL. Confirms the daily is already in
+  // an established uptrend (a confirmed higher swing-high followed by a
+  // confirmed higher swing-low), then watches for a break-retest-reject of the
+  // PREVIOUS DAY'S CLOSE:
+  //   1. Uptrend context: latest confirmed swing high > prior confirmed swing
+  //      high, AND latest confirmed swing low > prior confirmed swing low.
+  //   2. Break level = previous completed daily candle's close (acting as
+  //      resistance that was broken through).
+  //   3. Retest: today's session (the live, still-forming daily candle) has
+  //      traded back BELOW that level at some point.
+  //   4. Reject: live current price is back ABOVE that level right now.
+  // Entry: market, the instant the reject condition is true — checked against
+  // live price, not the completed daily candle (waiting for daily close would
+  // miss the entire move).
+  // SL: the broken level itself (previous day's close) — a breakdown back
+  // through it invalidates it.
+  // TP1: halfway between entry and the next confirmed swing high above (partial close).
+  // TP2: that next confirmed swing high (final target).
+  // NOT yet added to the Phemex auto-trader allowlist — tracking/display only
+  // until the signal is validated live.
+  if (signal === "WAIT" && timeframe === "1d" && higherTfAllowsBuy) {
+    const bosCompleted = candles.slice(0, candles.length - 1);
+    if (bosCompleted.length >= 10) {
+      const bosLookback  = SWING_LOOKBACK_BY_TF["1d"] ?? 30;
+      const bosSwingHighs = findSwingHighs(bosCompleted, 3, bosLookback);
+      const bosSwingLows  = findSwingLows(bosCompleted, 3, bosLookback);
+      let uptrendConfirmed = false;
+      let bosLastHigh = 0;
+      let bosLastLow = 0;
+      if (bosSwingHighs.length >= 2 && bosSwingLows.length >= 2) {
+        const lastHigh = bosSwingHighs[bosSwingHighs.length - 1];
+        const prevHigh = bosSwingHighs[bosSwingHighs.length - 2];
+        const lastLow  = bosSwingLows[bosSwingLows.length - 1];
+        const prevLow  = bosSwingLows[bosSwingLows.length - 2];
+        uptrendConfirmed = lastHigh.price > prevHigh.price && lastLow.price > prevLow.price;
+        bosLastHigh = lastHigh.price;
+        bosLastLow  = lastLow.price;
+      }
+      const prevDayClose = bosCompleted[bosCompleted.length - 1].close;
+      const todayLive = candles[candles.length - 1];
+      const retestedBelowLevel = todayLive.low < prevDayClose;
+      const rejectedAboveLevel = currentPrice > prevDayClose;
+      if (uptrendConfirmed && retestedBelowLevel && rejectedAboveLevel) {
+        const resistancesAbove = bosSwingHighs
+          .map((s) => s.price)
+          .filter((p) => p > currentPrice);
+        const nextResistance = resistancesAbove.length > 0 ? Math.min(...resistancesAbove) : null;
+        if (nextResistance !== null) {
+          const ep   = round(currentPrice);
+          const sl   = round(prevDayClose);
+          const risk = ep - sl;
+          if (risk > 0) {
+            const tp2 = round(nextResistance);
+            const tp1 = round(ep + (tp2 - ep) / 2);
+            signal        = "BUY";
+            signalType    = "BOS_BUY";
+            entryPrice    = ep;
+            stopLoss      = sl;
+            takeProfit1   = tp1;
+            takeProfit2   = tp2;
+            dca1          = undefined;
+            patternResult = null;
+            signalReason  = `[${tfLabel}] BOS BUY: daily uptrend confirmed (higher high ${fmt(bosLastHigh)}, higher low ${fmt(bosLastLow)}). Price broke above prior close ${fmt(prevDayClose)}, retested below intraday, and rejected back above — break of structure continuation. Entry ${fmt(ep)} (market), SL ${fmt(sl)} (breakdown of broken level), TP1 ${fmt(tp1)} (halfway to next resistance), TP2 ${fmt(tp2)} (next confirmed resistance).`;
+          }
+        }
+      }
+    }
+  }
+
   // ── PATTERN_BREAKOUT detection (confirmed chart pattern breakout) ────────────
   // Last in the cascade — fires only when all other signal types are WAIT.
   // Detects confirmed breakouts from triangles, wedges, flags, pennants, H&S/IHS.
@@ -2939,7 +3009,7 @@ type Levels = ReturnType<typeof computeLevels>;
 
 interface ActiveTrade {
   signal: "BUY" | "SELL";
-  signalType?: "FIB50_SWING" | "DOUBLE_TOP" | "DOUBLE_BOTTOM" | "BB_REJECTION" | "BB_WALK" | "BB_BREAKOUT" | "BB_OVEREXTENSION" | "PATTERN_BREAKOUT" | "DUMP_RECOVERY" | "SWING_BREAK" | "MACD_DIP_LONG" | "BOS_SELL";
+  signalType?: "FIB50_SWING" | "DOUBLE_TOP" | "DOUBLE_BOTTOM" | "BB_REJECTION" | "BB_WALK" | "BB_BREAKOUT" | "BB_OVEREXTENSION" | "PATTERN_BREAKOUT" | "DUMP_RECOVERY" | "SWING_BREAK" | "MACD_DIP_LONG" | "BOS_SELL" | "BOS_BUY";
   signalReason: string;
   entryPrice: number;
   stopLoss: number;
@@ -3241,7 +3311,7 @@ async function syncFromDb(): Promise<void> {
       if (activeTrades.has(row.key)) continue; // local file wins for existing keys
       const v = row.data as Partial<ActiveTrade>;
       // Skip trades from previous strategies — they have wrong levels.
-      if (v.signalType !== "FIB50_SWING" && v.signalType !== "DOUBLE_TOP" && v.signalType !== "DOUBLE_BOTTOM" && v.signalType !== "BB_REJECTION" && v.signalType !== "BB_WALK" && v.signalType !== "BB_BREAKOUT" && v.signalType !== "BB_OVEREXTENSION" && v.signalType !== "PATTERN_BREAKOUT" && v.signalType !== "DUMP_RECOVERY" && v.signalType !== "SWING_BREAK" && v.signalType !== "BOS_SELL") continue;
+      if (v.signalType !== "FIB50_SWING" && v.signalType !== "DOUBLE_TOP" && v.signalType !== "DOUBLE_BOTTOM" && v.signalType !== "BB_REJECTION" && v.signalType !== "BB_WALK" && v.signalType !== "BB_BREAKOUT" && v.signalType !== "BB_OVEREXTENSION" && v.signalType !== "PATTERN_BREAKOUT" && v.signalType !== "DUMP_RECOVERY" && v.signalType !== "SWING_BREAK" && v.signalType !== "BOS_SELL" && v.signalType !== "BOS_BUY") continue;
       activeTrades.set(row.key, {
         ...(v as ActiveTrade),
         signalType: v.signalType,
@@ -3282,7 +3352,7 @@ function loadActiveTradesFromDisk(): void {
     let didMigrate = false;
     for (const [k, v] of Object.entries(obj)) {
       // Skip trades from previous strategies — they have wrong levels.
-      if (v.signalType !== "FIB50_SWING" && v.signalType !== "DOUBLE_TOP" && v.signalType !== "DOUBLE_BOTTOM" && v.signalType !== "BB_REJECTION" && v.signalType !== "BB_WALK" && v.signalType !== "BB_BREAKOUT" && v.signalType !== "BB_OVEREXTENSION" && v.signalType !== "PATTERN_BREAKOUT" && v.signalType !== "DUMP_RECOVERY" && v.signalType !== "SWING_BREAK" && v.signalType !== "BOS_SELL") { didMigrate = true; continue; }
+      if (v.signalType !== "FIB50_SWING" && v.signalType !== "DOUBLE_TOP" && v.signalType !== "DOUBLE_BOTTOM" && v.signalType !== "BB_REJECTION" && v.signalType !== "BB_WALK" && v.signalType !== "BB_BREAKOUT" && v.signalType !== "BB_OVEREXTENSION" && v.signalType !== "PATTERN_BREAKOUT" && v.signalType !== "DUMP_RECOVERY" && v.signalType !== "SWING_BREAK" && v.signalType !== "BOS_SELL" && v.signalType !== "BOS_BUY") { didMigrate = true; continue; }
       // Backward-compat for snapshots persisted before fill-tracking existed.
       // Default triggered=false; the next tick's candle scan since openedAt
       // will retroactively flip it to true if price actually did tag entry.
@@ -3691,7 +3761,8 @@ export function computeLevelsStable(
       preTriggerCheck.signalType === "BB_WALK" ||
       preTriggerCheck.signalType === "BB_BREAKOUT" ||
       preTriggerCheck.signalType === "DUMP_RECOVERY" ||
-      preTriggerCheck.signalType === "BOS_SELL"
+      preTriggerCheck.signalType === "BOS_SELL" ||
+      preTriggerCheck.signalType === "BOS_BUY"
     );
     if (isMarketEntryTrade) {
       preTriggerCheck.triggered = true;
@@ -3838,7 +3909,8 @@ export function computeLevelsStable(
       fresh.signalType === "BB_BREAKOUT" ||
       fresh.signalType === "DUMP_RECOVERY" ||
       fresh.signalType === "MACD_DIP_LONG" ||
-      fresh.signalType === "BOS_SELL"
+      fresh.signalType === "BOS_SELL" ||
+      fresh.signalType === "BOS_BUY"
     );
     const triggered = isMarketEntry
       ? true

@@ -107,6 +107,7 @@ export const LevelsDataSignalType = {
   SWING_BREAK: "SWING_BREAK",
   MACD_DIP_LONG: "MACD_DIP_LONG",
   BOS_SELL: "BOS_SELL",
+  BOS_BUY: "BOS_BUY",
 } as const;
 
 /**
@@ -585,6 +586,7 @@ export const ClosedTradeSignalType = {
   SWING_BREAK: "SWING_BREAK",
   MACD_DIP_LONG: "MACD_DIP_LONG",
   BOS_SELL: "BOS_SELL",
+  BOS_BUY: "BOS_BUY",
 } as const;
 
 /**
@@ -663,6 +665,7 @@ export const SignalLogEntrySignalType = {
   SWING_BREAK: "SWING_BREAK",
   MACD_DIP_LONG: "MACD_DIP_LONG",
   BOS_SELL: "BOS_SELL",
+  BOS_BUY: "BOS_BUY",
 } as const;
 
 export interface SignalLogEntry {

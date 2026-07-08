@@ -76,7 +76,7 @@ interface RowProps {
   symbol: string;
   timeframe: Timeframe;
   signal: "BUY" | "SELL";
-  signalType?: "FIB50_SWING" | "DOUBLE_TOP" | "DOUBLE_BOTTOM" | "BB_REJECTION" | "BB_WALK" | "BB_BREAKOUT" | "PATTERN_BREAKOUT" | "DUMP_RECOVERY" | "BOS_SELL";
+  signalType?: "FIB50_SWING" | "DOUBLE_TOP" | "DOUBLE_BOTTOM" | "BB_REJECTION" | "BB_WALK" | "BB_BREAKOUT" | "PATTERN_BREAKOUT" | "DUMP_RECOVERY" | "BOS_SELL" | "BOS_BUY";
   signalReason: string;
   tradeState: LevelsDataTradeState;
   currentPrice: number;
@@ -259,6 +259,11 @@ function SignalRow(p: RowProps) {
         {p.signalType === "BOS_SELL" && (
           <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold tracking-widest bg-red-500/15 text-red-300 border border-red-500/30">
             ⤵ BOS
+          </span>
+        )}
+        {p.signalType === "BOS_BUY" && (
+          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold tracking-widest bg-green-500/15 text-green-300 border border-green-500/30">
+            ⤴ BOS
           </span>
         )}
         {poorWinRate && btData && (
@@ -580,7 +585,7 @@ export function ActiveSignalsOverview({
                             symbol={s.symbol}
                             timeframe={s.timeframe as Timeframe}
                             signal={s.levels.signal as "BUY" | "SELL"}
-                            signalType={s.levels.signalType as "FIB50_SWING" | "DOUBLE_TOP" | "DOUBLE_BOTTOM" | "BB_REJECTION" | "BB_WALK" | "BB_BREAKOUT" | "PATTERN_BREAKOUT" | "DUMP_RECOVERY" | "BOS_SELL" | undefined}
+                            signalType={s.levels.signalType as "FIB50_SWING" | "DOUBLE_TOP" | "DOUBLE_BOTTOM" | "BB_REJECTION" | "BB_WALK" | "BB_BREAKOUT" | "PATTERN_BREAKOUT" | "DUMP_RECOVERY" | "BOS_SELL" | "BOS_BUY" | undefined}
                             signalReason={s.levels.signalReason}
                             tradeState={s.levels.tradeState}
                             currentPrice={s.levels.currentPrice}

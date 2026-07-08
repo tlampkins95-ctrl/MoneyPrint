@@ -295,6 +295,12 @@ export function SignalPanel({
                   ⤵ BOS SELL
                 </span>
               );
+            if (st === "BOS_BUY")
+              return (
+                <span className="mt-1 px-3 py-0.5 text-[10px] font-bold tracking-widest rounded-full bg-green-500/20 text-green-300 border border-green-500/40">
+                  ⤴ BOS BUY
+                </span>
+              );
             // Default: FIB50_SWING
             return (
               <span className="mt-1 px-3 py-0.5 text-[10px] font-bold tracking-widest rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40">
