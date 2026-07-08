@@ -238,10 +238,11 @@ export function detectDoubleTop(candles: CandleRaw[]): PatternResult | null {
 
   for (let i = highs.length - 1; i >= 1; i--) {
     const H2 = highs[i], H1 = highs[i - 1];
-    // Two peaks within 3% of each other — crypto tops are rarely identical;
-    // 1.5% was too tight and rejected valid patterns where one peak wick was
-    // slightly higher than the other.
+    // Two peaks within 3% of each other.
     if (Math.abs(H1.price - H2.price) / Math.max(H1.price, H2.price) > 0.03) continue;
+    // H2 must NOT be higher than H1 by more than 1% — a higher second high is
+    // a higher high (uptrend intact), not a double top. Equal or lower only.
+    if (H2.price > H1.price * 1.01) continue;
     // Must be at least 10 bars apart so the two peaks are visually distinct
     if (H2.idx - H1.idx < 10) continue;
     const valleys = lows.filter(l => l.idx > H1.idx && l.idx < H2.idx);
@@ -251,17 +252,18 @@ export function detectDoubleTop(candles: CandleRaw[]): PatternResult | null {
     // Valley must be at least 4% below the tops — shallow dips are just noise
     if ((avgTop - valley.price) / avgTop < 0.04) continue;
     // 60-bar staleness window: on 1h that's 2.5 days; on 4h it's 10 days.
-    // Keeps the pattern actionable without chasing ancient history.
     if (H2.idx < candles.length - 60) continue;
-    // Compute vol/20MA ratios for both peaks and expose them in the result.
-    // The volume gate (right ≥ left) is enforced in signals.ts, not here, so
-    // the detector returns the pattern regardless of volume direction.
     const ma1 = vol20MA(candles, H1.idx), ma2 = vol20MA(candles, H2.idx);
     const leftVolume  = ma1 > 0 ? volAtPeak(candles, H1.idx) / ma1 : undefined;
     const rightVolume = ma2 > 0 ? volAtPeak(candles, H2.idx) / ma2 : undefined;
+    // Confirmed: last completed close must be at least 0.5% below the neckline.
+    // A marginal 1-tick close through the neckline is just ranging noise —
+    // a real breakdown closes meaningfully below.
+    const lastClose = candles[candles.length - 1].close;
+    const confirmed = lastClose < valley.price * 0.995;
     return {
       pattern: "DOUBLE_TOP", direction: "bearish", category: "reversal",
-      confirmed: candles[candles.length - 1].close < valley.price,
+      confirmed,
       necklinePrice:   +valley.price.toFixed(10),
       upperBound:      +avgTop.toFixed(10),
       patternStartDate: candles[H1.idx]?.date,
@@ -274,7 +276,7 @@ export function detectDoubleTop(candles: CandleRaw[]): PatternResult | null {
 }
 
 // Fast double-top detector for same-day pump-and-dump coins (e.g. CMC trending).
-// Looser params: 5-bar minimum separation catches intraday formations;
+// Looser params: 8-bar minimum separation catches intraday formations;
 // 3% price tolerance handles imperfect peaks on high-volatility tokens;
 // H2 must be within the last 8 bars so the setup is still actionable.
 export function detectFastDoubleTop(candles: CandleRaw[]): PatternResult | null {
@@ -285,7 +287,10 @@ export function detectFastDoubleTop(candles: CandleRaw[]): PatternResult | null 
   for (let i = highs.length - 1; i >= 1; i--) {
     const H2 = highs[i], H1 = highs[i - 1];
     if (Math.abs(H1.price - H2.price) / Math.max(H1.price, H2.price) > 0.03) continue;
-    if (H2.idx - H1.idx < 5) continue;
+    // H2 must NOT be higher than H1 by more than 1% — a higher second peak
+    // is a higher high (uptrend intact), not a distribution top.
+    if (H2.price > H1.price * 1.01) continue;
+    if (H2.idx - H1.idx < 8) continue;
     const valleys = lows.filter(l => l.idx > H1.idx && l.idx < H2.idx);
     if (!valleys.length) continue;
     const valley = valleys.reduce((a, b) => b.price < a.price ? b : a);
@@ -295,9 +300,12 @@ export function detectFastDoubleTop(candles: CandleRaw[]): PatternResult | null 
     const ma1 = vol20MA(candles, H1.idx), ma2 = vol20MA(candles, H2.idx);
     const leftVolume  = ma1 > 0 ? volAtPeak(candles, H1.idx) / ma1 : undefined;
     const rightVolume = ma2 > 0 ? volAtPeak(candles, H2.idx) / ma2 : undefined;
+    // Confirmed: close must be at least 0.5% below the neckline — not just any tick.
+    const lastClose = candles[candles.length - 1].close;
+    const confirmed = lastClose < valley.price * 0.995;
     return {
       pattern: "DOUBLE_TOP", direction: "bearish", category: "reversal",
-      confirmed: candles[candles.length - 1].close < valley.price,
+      confirmed,
       necklinePrice:   +valley.price.toFixed(10),
       upperBound:      +avgTop.toFixed(10),
       patternStartDate: candles[H1.idx]?.date,
