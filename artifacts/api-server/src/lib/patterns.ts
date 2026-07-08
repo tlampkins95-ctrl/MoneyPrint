@@ -57,6 +57,7 @@ export interface PatternResult {
   // Absent for all other pattern types.
   leftVolume?:   number; // vol/20MA ratio at the left peak (DOUBLE_TOP) or left trough (DOUBLE_BOTTOM)
   rightVolume?:  number; // vol/20MA ratio at the right peak or right trough
+  rightPeakIdx?: number; // candle index of the right peak (H2) — used to check post-peak candles
 }
 
 interface SwingPoint { idx: number; price: number; }
@@ -267,6 +268,7 @@ export function detectDoubleTop(candles: CandleRaw[]): PatternResult | null {
       patternEndDate:   candles[H2.idx]?.date,
       leftVolume,
       rightVolume,
+      rightPeakIdx: H2.idx,
     };
   }
   return null;
@@ -306,6 +308,7 @@ export function detectFastDoubleTop(candles: CandleRaw[]): PatternResult | null 
       patternEndDate:   candles[H2.idx]?.date,
       leftVolume,
       rightVolume,
+      rightPeakIdx: H2.idx,
     };
   }
   return null;
