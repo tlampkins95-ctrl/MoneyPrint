@@ -335,7 +335,7 @@ async function executePhemexTrade(
   // Per-signal-type auto-trade gate. PHEMEX_AUTOTRADER_SIGNAL_TYPES overrides
   // the default allowlist. Unset = use the hardcoded default below.
   // Alerts still fire for blocked types — only Phemex order placement is suppressed.
-  const DEFAULT_ALLOWED_SIGNAL_TYPES = "FIB50_SWING,BB_REJECTION,DOUBLE_BOTTOM,DOUBLE_TOP,MACD_DIP_LONG";
+  const DEFAULT_ALLOWED_SIGNAL_TYPES = "FIB50_SWING,BB_REJECTION,DOUBLE_BOTTOM,DOUBLE_TOP,MACD_DIP_LONG,BB_OVEREXTENSION";
   const allowedSignalTypes = (process.env.PHEMEX_AUTOTRADER_SIGNAL_TYPES ?? "").trim() || DEFAULT_ALLOWED_SIGNAL_TYPES;
   const allowed = allowedSignalTypes.split(",").map(s => s.trim()).filter(Boolean);
   if (levels.signalType && !allowed.includes(levels.signalType)) {
