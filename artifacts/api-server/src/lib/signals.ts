@@ -2325,7 +2325,12 @@ export function computeLevels(
   // TP1:    BB midline (mean reversion target)
   // SL:     above spike high + 0.5×ATR buffer (enforces minimum 2:1 R:R)
   // macdWarm ensures MACD values are reliable (needs 26+9 bars of history).
-  if (signal === "WAIT" && !isLongOnly && macdWarm && higherTfAllowsSell && bwContractingForSell) {
+  // BB_OVEREXTENSION fires specifically when the daily MACD is STILL green and
+  // bandwidth is STILL expanding — requiring higherTfAllowsSell or
+  // bwContractingForSell here kills the signal at the exact moment it has edge.
+  // The 7 inner conditions (closeAboveBand, volumeSpike, rsiOverbought,
+  // macdHadMomentum, formingRed, notOverdone) are the real filters.
+  if (signal === "WAIT" && !isLongOnly && macdWarm) {
     const overextCompleted = candles.slice(0, candles.length - 1);
     if (overextCompleted.length >= 32) { // need at least 30 for BB + 1 prior candle
       const lastCandle  = overextCompleted[overextCompleted.length - 1];
