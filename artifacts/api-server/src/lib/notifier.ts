@@ -1113,6 +1113,33 @@ async function executePhemexTrade(
         logger.info(auditData, "phemex-trader: post-trade audit PASSED");
       } else {
         logger.warn(auditData, "phemex-trader: post-trade audit FLAGGED — review this trade");
+        if (isTelegramEnabled()) {
+          const failedChecks = Object.entries(auditChecks)
+            .filter(([, v]) => !v)
+            .map(([k]) => {
+              const details: Record<string, string> = {
+                slCorrectSide:   `SL on wrong side of entry`,
+                tp1CorrectSide:  `TP1 on wrong side of entry`,
+                tp2BeyondTp1:    `TP2 not beyond TP1`,
+                tp1Positive:     `TP1 is zero or negative`,
+                tp2Positive:     `TP2 is zero or negative`,
+                rrTP1Ok:         `R:R at TP1 = ${+_rrTP1.toFixed(2)} (min 1.5)`,
+                slNotTooTight:   `SL only ${+_slPct.toFixed(2)}% from entry (min 0.3%)`,
+                slNotTooWide:    `SL is ${+_slPct.toFixed(2)}% from entry (max 25%)`,
+                entryNotChasing: `Entry drifted ${+_driftPct.toFixed(2)}% from current price`,
+              };
+              return `❌ ${details[k] ?? k}`;
+            })
+            .join("\n");
+          const dir = side === "Buy" ? "BUY" : "SELL";
+          const msg =
+            `⚠️ <b>POST-TRADE AUDIT FLAGGED</b>\n\n` +
+            `<b>${symbol} ${timeframe} — ${levels.signalType ?? ""} ${dir}</b>\n` +
+            `Entry: ${actualEntryPx}  |  SL: ${effectiveSL}\n` +
+            `TP1: ${effectiveTP}  |  TP2: ${effectiveTP2}\n\n` +
+            `${failedChecks}`;
+          void sendTelegramMessage(msg);
+        }
       }
     }
   } else {
