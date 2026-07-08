@@ -1881,89 +1881,59 @@ export function computeLevels(
     }
   }
 
-  // ── DOUBLE_TOP detection (pump-and-dump short) ─────────────────────────────
-  // Two entry modes:
-  //
-  // 1. PEAK ENTRY (forming, !confirmed): Enter SHORT at the right peak when
-  //    volume divergence confirms buyer exhaustion. Right peak volume < left peak
-  //    volume means the second attempt at resistance failed on lower conviction —
-  //    sellers are absorbing supply. Price must still be near the resistance level
-  //    (neckline not yet broken). This is the preferred entry — catches the top
-  //    before the breakdown, with tight SL just above peaks.
-  //
-  // 2. NECKLINE RETEST (confirmed): Fallback when peak entry was missed. Enter at
-  //    the neckline level, waiting for a dead-cat bounce back to resistance after
-  //    the breakdown. Only fires if price hasn't run too far below the neckline.
-  //
-  // Gates (both modes):
-  //   • macdSellOk — same-TF histogram negative AND declining.
-  //     (No higher-TF MACD gate — double top IS a reversal; it forms before
-  //     the daily/weekly trend has turned. higherTfAllowsSell would block
-  //     every valid distribution top by definition.)
-  //   • isLongOnly guard prevents shorts on spot-only instruments.
-  if (signal === "WAIT" && !isLongOnly && macdSellOk) {
+  // ── DOUBLE_TOP detection ────────────────────────────────────────────────────
+  // Criteria (exactly as specified):
+  //   1. Classic M pattern — two peaks at similar levels with valley between.
+  //   2. Volume higher on the left peak, lower on the right peak.
+  //   3. 1 or 2 candles trending down (declining closes) after the second peak.
+  //   4. MACD confirms: same-TF histogram negative and declining (macdSellOk).
+  //   5. Daily timeframe only.
+  if (signal === "WAIT" && !isLongOnly && macdSellOk && timeframe === "1d") {
     const dtBars = candles.slice(0, candles.length - 1);
     const dtResult = detectFastDoubleTop(dtBars) ?? detectDoubleTop(dtBars);
-    if (dtResult?.upperBound != null && dtResult.necklinePrice != null) {
+    if (
+      dtResult?.upperBound != null &&
+      dtResult.necklinePrice != null &&
+      dtResult.rightPeakIdx != null
+    ) {
       const resistance = dtResult.upperBound;
       const neckline   = dtResult.necklinePrice;
+      const h2Idx      = dtResult.rightPeakIdx;
 
-      if (!dtResult.confirmed) {
-        // ── Mode 1: Peak entry on volume divergence ─────────────────────────
-        // rightVolume < leftVolume: second peak formed on lower volume = buyers
-        // exhausted at resistance. Price still above neckline and within ATR of
-        // the peak (setup is fresh, not stale).
-        const volDivergence =
-          dtResult.rightVolume != null &&
-          dtResult.leftVolume  != null &&
-          dtResult.rightVolume < dtResult.leftVolume;
-        const nearPeak = currentPrice >= neckline && currentPrice >= resistance - atr;
-        if (volDivergence && nearPeak) {
-          const ep   = round(resistance);           // SELL limit at right peak
-          const sl   = round(resistance + atr * 0.5);
-          const risk = sl - ep;
-          if (risk > 0) {
-            const rawMeasured = neckline - (resistance - neckline); // measured move
-            const tp1 = round(neckline);
-            const tp2 = round(floorTarget(ep, sl, rawMeasured, MIN_RR_TP2, "SELL"));
-            if (tp1 < ep && tp2 < tp1) {
-              signal       = "SELL";
-              signalType   = "DOUBLE_TOP";
-              entryPrice   = ep;
-              stopLoss     = sl;
-              takeProfit1  = tp1;
-              takeProfit2  = tp2;
-              dca1         = undefined;
-              patternResult = dtResult;
-              signalReason = `[${tfLabel}] DOUBLE TOP SELL (peak entry, vol divergence): Resistance ${fmt(resistance)}, Neckline ${fmt(neckline)}. Right peak vol ${dtResult.rightVolume?.toFixed(2)}× vs left ${dtResult.leftVolume?.toFixed(2)}× — buyers exhausted. Entry ${fmt(ep)} (limit at peaks), SL ${fmt(sl)}, TP1 ${fmt(tp1)} (neckline), TP2 ${fmt(tp2)} (measured move).`;
-            }
-          }
+      // Volume divergence: left peak had higher volume than right peak.
+      const volDivergence =
+        dtResult.rightVolume != null &&
+        dtResult.leftVolume  != null &&
+        dtResult.rightVolume < dtResult.leftVolume;
+
+      // 1 or 2 completed candles after the second peak, each closing lower.
+      const barsAfterPeak = dtBars.length - 1 - h2Idx;
+      let postPeakDown = false;
+      if (barsAfterPeak >= 1 && barsAfterPeak <= 2) {
+        postPeakDown = dtBars[h2Idx + 1].close < dtBars[h2Idx].close;
+        if (barsAfterPeak === 2) {
+          postPeakDown = postPeakDown && dtBars[h2Idx + 2].close < dtBars[h2Idx + 1].close;
         }
-      } else {
-        // ── Mode 2: Neckline retest after confirmed breakdown ───────────────
-        // Neckline broken — enter at neckline waiting for a dead-cat bounce.
-        // Too extended (>10 ATR below neckline) = move is over, skip.
-        const belowNeckline = currentPrice < neckline;
-        const tooExtended   = belowNeckline && (neckline - currentPrice) > 10 * atr;
-        if (!tooExtended) {
-          const ep   = round(neckline);
-          const sl   = round(resistance + atr * 0.5);
-          const risk = sl - ep;
-          if (risk > 0) {
-            const rawMeasured = neckline - (resistance - neckline);
-            const tp1 = round(neckline - risk);
-            const tp2 = round(floorTarget(ep, sl, rawMeasured, MIN_RR_TP2, "SELL"));
-            if (tp1 < ep && tp2 < tp1) {
-              signal       = "SELL";
-              signalType   = "DOUBLE_TOP";
-              entryPrice   = ep;
-              stopLoss     = sl;
-              takeProfit1  = tp1;
-              takeProfit2  = tp2;
-              dca1         = undefined;
-              patternResult = dtResult;
-              signalReason = `[${tfLabel}] DOUBLE TOP SELL (neckline broken): Resistance ${fmt(resistance)}, Neckline ${fmt(neckline)}. Entry ${fmt(ep)} (neckline retest), SL ${fmt(sl)} (above peaks), TP1 ${fmt(tp1)}, TP2 ${fmt(tp2)} (measured move).`;
-            }
+      }
+
+      if (volDivergence && postPeakDown) {
+        const ep   = round(neckline);
+        const sl   = round(resistance + atr * 0.5);
+        const risk = sl - ep;
+        if (risk > 0) {
+          const rawMeasured = neckline - (resistance - neckline);
+          const tp1 = round(rawMeasured);
+          const tp2 = round(floorTarget(ep, sl, rawMeasured, MIN_RR_TP2, "SELL"));
+          if (tp1 < ep && tp2 < tp1) {
+            signal        = "SELL";
+            signalType    = "DOUBLE_TOP";
+            entryPrice    = ep;
+            stopLoss      = sl;
+            takeProfit1   = tp1;
+            takeProfit2   = tp2;
+            dca1          = undefined;
+            patternResult = dtResult;
+            signalReason  = `[${tfLabel}] DOUBLE TOP SELL: M pattern — resistance ${fmt(resistance)}, neckline ${fmt(neckline)}. Left vol ${dtResult.leftVolume?.toFixed(2)}× > right vol ${dtResult.rightVolume?.toFixed(2)}× (bearish divergence). ${barsAfterPeak} candle(s) down after right peak. Entry ${fmt(ep)}, SL ${fmt(sl)}, TP1 ${fmt(tp1)}, TP2 ${fmt(tp2)}.`;
           }
         }
       }
