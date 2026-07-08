@@ -2665,9 +2665,16 @@ export function computeLevels(
   // TP2: that next confirmed swing low (final target).
   // NOT yet added to the Phemex auto-trader allowlist — tracking/display only
   // until the signal is validated live.
-  if (signal === "WAIT" && timeframe === "1d" && !isLongOnly && higherTfAllowsSell) {
+  // Gate: daily MACD histogram (last completed daily bar) must be RED (< 0).
+  // BOS is a daily-only signal, so this reads the daily MACD directly off
+  // `candles` — it must NOT reuse higherTfAllowsSell, which for timeframe
+  // "1d" checks WEEKLY MACD instead (wrong timeframe for this signal).
+  if (signal === "WAIT" && timeframe === "1d" && !isLongOnly) {
     const bosCompleted = candles.slice(0, candles.length - 1);
-    if (bosCompleted.length >= 10) {
+    const bosDailyHist = bosCompleted.length >= 35 ? calcMACDHist(bosCompleted.map((c) => c.close)) : null;
+    const bosLastDailyHist = bosDailyHist ? bosDailyHist[bosDailyHist.length - 1] : NaN;
+    const dailyMacdAllowsSell = Number.isFinite(bosLastDailyHist) && bosLastDailyHist < 0;
+    if (dailyMacdAllowsSell && bosCompleted.length >= 10) {
       const bosLookback  = SWING_LOOKBACK_BY_TF["1d"] ?? 30;
       const bosSwingHighs = findSwingHighs(bosCompleted, 3, bosLookback);
       const bosSwingLows  = findSwingLows(bosCompleted, 3, bosLookback);
@@ -2742,9 +2749,16 @@ export function computeLevels(
   // TP2: that next confirmed swing high (final target).
   // NOT yet added to the Phemex auto-trader allowlist — tracking/display only
   // until the signal is validated live.
-  if (signal === "WAIT" && timeframe === "1d" && higherTfAllowsBuy) {
+  // Gate: daily MACD histogram (last completed daily bar) must be GREEN (> 0).
+  // BOS is a daily-only signal, so this reads the daily MACD directly off
+  // `candles` — it must NOT reuse higherTfAllowsBuy, which for timeframe
+  // "1d" checks WEEKLY MACD instead (wrong timeframe for this signal).
+  if (signal === "WAIT" && timeframe === "1d") {
     const bosCompleted = candles.slice(0, candles.length - 1);
-    if (bosCompleted.length >= 10) {
+    const bosDailyHist = bosCompleted.length >= 35 ? calcMACDHist(bosCompleted.map((c) => c.close)) : null;
+    const bosLastDailyHist = bosDailyHist ? bosDailyHist[bosDailyHist.length - 1] : NaN;
+    const dailyMacdAllowsBuy = Number.isFinite(bosLastDailyHist) && bosLastDailyHist > 0;
+    if (dailyMacdAllowsBuy && bosCompleted.length >= 10) {
       const bosLookback  = SWING_LOOKBACK_BY_TF["1d"] ?? 30;
       const bosSwingHighs = findSwingHighs(bosCompleted, 3, bosLookback);
       const bosSwingLows  = findSwingLows(bosCompleted, 3, bosLookback);
