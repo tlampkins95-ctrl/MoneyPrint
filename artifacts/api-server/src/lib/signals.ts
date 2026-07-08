@@ -1894,7 +1894,7 @@ export function computeLevels(
   //   SL:     resistance + 0.5 × ATR (just above peaks)
   //   TP1:    neckline − risk (1:1)
   //   TP2:    neckline − (resistance − neckline)  [measured move]
-  if (signal === "WAIT" && !isLongOnly && macdSellOk) {
+  if (signal === "WAIT" && !isLongOnly && macdSellOk && higherTfAllowsSell) {
     const dtBars = candles.slice(0, candles.length - 1); // exclude live bar, same as FIB50_SWING
     const dtResult = detectFastDoubleTop(dtBars) ?? detectDoubleTop(dtBars);
     // Volume gate removed: classical TA says LOWER volume on the second peak is
