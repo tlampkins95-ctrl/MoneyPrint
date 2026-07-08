@@ -1884,17 +1884,17 @@ export function computeLevels(
   //   • Confirmation required — neckline must be broken (dtResult.confirmed).
   //     "Forming" double tops are theoretical patterns, not actionable shorts.
   //   • macdSellOk — same-TF histogram must be negative AND ticking down.
-  //   • higherTfAllowsSell — daily MACD histogram must also be negative.
-  //     User rule: never short with a green daily MACD, no exceptions.
-  //     A double top forming while the daily is still green is a lower-TF
-  //     counter-move inside a larger uptrend — not a valid short.
+  //     User rule: never short when MACD is green/positive or recovering.
+  //     (No higher-TF MACD gate — double top IS a reversal; it forms before
+  //     the daily/weekly trend has turned. higherTfAllowsSell would block
+  //     every valid distribution top by definition.)
   //   • isLongOnly guard prevents shorts on spot-only instruments.
   //
   //   Entry:  neckline (retest after confirmed breakdown)
   //   SL:     resistance + 0.5 × ATR (just above peaks)
   //   TP1:    neckline − risk (1:1)
   //   TP2:    neckline − (resistance − neckline)  [measured move]
-  if (signal === "WAIT" && !isLongOnly && macdSellOk && higherTfAllowsSell) {
+  if (signal === "WAIT" && !isLongOnly && macdSellOk) {
     const dtBars = candles.slice(0, candles.length - 1); // exclude live bar, same as FIB50_SWING
     const dtResult = detectFastDoubleTop(dtBars) ?? detectDoubleTop(dtBars);
     // Volume gate removed: classical TA says LOWER volume on the second peak is
