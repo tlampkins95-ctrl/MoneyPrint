@@ -74,12 +74,12 @@ export function findSwingHighs(
   if (end < start) return [];
   const pts: SwingPoint[] = [];
   for (let i = start; i <= end; i++) {
-    const h = candles[i].close;
+    const c = candles[i].close;      // compare using close
     let ok = true;
     for (let j = i - strength; j <= i + strength; j++) {
-      if (j !== i && candles[j].close >= h) { ok = false; break; }
+      if (j !== i && candles[j].close >= c) { ok = false; break; }
     }
-    if (ok) pts.push({ idx: i, price: h });
+    if (ok) pts.push({ idx: i, price: candles[i].high }); // level = wick high
   }
   return pts;
 }
@@ -95,12 +95,12 @@ export function findSwingLows(
   if (end < start) return [];
   const pts: SwingPoint[] = [];
   for (let i = start; i <= end; i++) {
-    const l = candles[i].close;
+    const c = candles[i].close;      // compare using close
     let ok = true;
     for (let j = i - strength; j <= i + strength; j++) {
-      if (j !== i && candles[j].close <= l) { ok = false; break; }
+      if (j !== i && candles[j].close <= c) { ok = false; break; }
     }
-    if (ok) pts.push({ idx: i, price: l });
+    if (ok) pts.push({ idx: i, price: candles[i].low }); // level = wick low
   }
   return pts;
 }

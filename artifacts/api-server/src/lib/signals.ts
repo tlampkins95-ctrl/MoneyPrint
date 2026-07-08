@@ -683,41 +683,46 @@ function findDaggerBullSetup(
 ): DaggerSetup | null {
   if (i < DAGGER_WARMUP + 4 || atr <= 0) return null;
 
-  // B = highest close in lookback, settled ≥ 3 bars before i
+  // B = candle with highest close in lookback (close identifies the candle,
+  //     high is the actual swing level used for fib calculation)
   const bEnd   = i - 3;
   const bStart = Math.max(0, i - DAGGER_TREND_LOOKBACK);
   if (bEnd <= bStart) return null;
 
-  let bIdx = bStart, bPrice = candles[bStart].close;
+  let bIdx = bStart;
   for (let j = bStart + 1; j <= bEnd; j++) {
-    if (candles[j].close > bPrice) { bPrice = candles[j].close; bIdx = j; }
+    if (candles[j].close > candles[bIdx].close) bIdx = j;
   }
+  const bClose = candles[bIdx].close; // for "no new high" gate
+  const bPrice = candles[bIdx].high;  // actual level
 
-  // No new close high after B through bar i-1 (wave 1 complete, wave 2 in progress)
+  // No new close above B's close after B (wave 1 complete, wave 2 in progress)
   for (let j = bIdx + 1; j < i; j++) {
-    if (candles[j].close >= bPrice) return null;
+    if (candles[j].close >= bClose) return null;
   }
 
-  // A = lowest close before B (wave 1 base)
+  // A = candle with lowest close before B; level = wick low
   const aStart = Math.max(0, bIdx - DAGGER_TREND_LOOKBACK);
   if (aStart >= bIdx) return null;
-  let aPrice = candles[aStart].close;
+  let aIdx = aStart;
   for (let j = aStart + 1; j < bIdx; j++) {
-    if (candles[j].close < aPrice) aPrice = candles[j].close;
+    if (candles[j].close < candles[aIdx].close) aIdx = j;
   }
+  const aPrice = candles[aIdx].low;
 
-  // Wave 1 (A→B) must be a significant move
+  // Wave 1 (A low → B high) must be a significant move
   if (bPrice - aPrice < DAGGER_MIN_TREND_ATR * atr) return null;
 
   // Wave 2 can't drag on forever
   if (i - bIdx > DAGGER_MAX_REACTION_BARS) return null;
 
-  // C = deepest close between B and bar i-1 (wave 2 low)
+  // C = candle with deepest close in wave 2 pullback; level = wick low
   if (bIdx + 1 > i - 1) return null;
-  let cIdx = bIdx + 1, cPrice = candles[bIdx + 1].close;
+  let cIdx = bIdx + 1;
   for (let j = bIdx + 2; j <= i - 1; j++) {
-    if (candles[j].close < cPrice) { cPrice = candles[j].close; cIdx = j; }
+    if (candles[j].close < candles[cIdx].close) cIdx = j;
   }
+  const cPrice = candles[cIdx].low;
 
   // Wave 2 pullback must be meaningful
   if (bPrice - cPrice < DAGGER_MIN_REACTION_ATR * atr) return null;
@@ -747,30 +752,38 @@ function findDaggerBearSetup(
   const bStart = Math.max(0, i - DAGGER_TREND_LOOKBACK);
   if (bEnd <= bStart) return null;
 
-  let bIdx = bStart, bPrice = candles[bStart].close;
+  // B = candle with lowest close; level = wick low
+  let bIdx = bStart;
   for (let j = bStart + 1; j <= bEnd; j++) {
-    if (candles[j].close < bPrice) { bPrice = candles[j].close; bIdx = j; }
+    if (candles[j].close < candles[bIdx].close) bIdx = j;
   }
+  const bClose = candles[bIdx].close;
+  const bPrice = candles[bIdx].low;
 
+  // No new close below B's close after B
   for (let j = bIdx + 1; j < i; j++) {
-    if (candles[j].close <= bPrice) return null;
+    if (candles[j].close <= bClose) return null;
   }
 
   const aStart = Math.max(0, bIdx - DAGGER_TREND_LOOKBACK);
   if (aStart >= bIdx) return null;
-  let aPrice = candles[aStart].close;
+  // A = candle with highest close before B; level = wick high
+  let aIdx = aStart;
   for (let j = aStart + 1; j < bIdx; j++) {
-    if (candles[j].close > aPrice) aPrice = candles[j].close;
+    if (candles[j].close > candles[aIdx].close) aIdx = j;
   }
+  const aPrice = candles[aIdx].high;
 
   if (aPrice - bPrice < DAGGER_MIN_TREND_ATR * atr) return null;
   if (i - bIdx > DAGGER_MAX_REACTION_BARS) return null;
 
+  // C = candle with highest close in bounce; level = wick high
   if (bIdx + 1 > i - 1) return null;
-  let cIdx = bIdx + 1, cPrice = candles[bIdx + 1].close;
+  let cIdx = bIdx + 1;
   for (let j = bIdx + 2; j <= i - 1; j++) {
-    if (candles[j].close > cPrice) { cPrice = candles[j].close; cIdx = j; }
+    if (candles[j].close > candles[cIdx].close) cIdx = j;
   }
+  const cPrice = candles[cIdx].high;
 
   if (cPrice - bPrice < DAGGER_MIN_REACTION_ATR * atr) return null;
 
