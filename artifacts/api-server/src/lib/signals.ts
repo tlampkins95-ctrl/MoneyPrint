@@ -2050,6 +2050,21 @@ export function computeLevels(
       const volPrior = bbrCompleted[bbrCompleted.length - 2]?.volume ?? 0;
       const volFading = volLast < volPrior;
 
+      // Price-action alternative to the MACD gate, evaluated strictly on closed
+      // candles (mirrors closedAtUpperBand/closedAtLowerBand below — no live-tick
+      // triggers). 2 consecutive lower/higher closes off the band touch confirms
+      // the rejection even when MACD hasn't caught up yet. OR'd alongside the
+      // existing MACD condition — neither replaces the other.
+      const bbrCloses = bbrCompleted.map((c) => c.close);
+      const twoConsecutiveLowerClosesBbr =
+        bbrCloses.length >= 3 &&
+        bbrCloses[bbrCloses.length - 1] < bbrCloses[bbrCloses.length - 2] &&
+        bbrCloses[bbrCloses.length - 2] < bbrCloses[bbrCloses.length - 3];
+      const twoConsecutiveHigherClosesBbr =
+        bbrCloses.length >= 3 &&
+        bbrCloses[bbrCloses.length - 1] > bbrCloses[bbrCloses.length - 2] &&
+        bbrCloses[bbrCloses.length - 2] > bbrCloses[bbrCloses.length - 3];
+
       const bbrSwingHighs = findSwingHighs(bbrCompleted, 3, BBR_LOOKBACK);
       const bbrSwingLows  = findSwingLows(bbrCompleted,  3, BBR_LOOKBACK);
 
@@ -2094,7 +2109,7 @@ export function computeLevels(
         !isLongOnly &&
         !coinAlreadyDumped &&
         bwContractingForSell &&
-        bbrSellMacd &&
+        (bbrSellMacd || twoConsecutiveLowerClosesBbr) &&
         volFading &&
         closedAtUpperBand
       ) {
@@ -2146,7 +2161,7 @@ export function computeLevels(
         signal === "WAIT" &&
         higherTfAllowsBuy &&
         trend !== "DOWNTREND" &&
-        bbrBuyMacd &&
+        (bbrBuyMacd || twoConsecutiveHigherClosesBbr) &&
         volFading &&
         closedAtLowerBand
       ) {
