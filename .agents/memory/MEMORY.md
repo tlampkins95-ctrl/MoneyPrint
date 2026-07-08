@@ -1,3 +1,4 @@
+- [Per-trade $15 drawdown cap](drawdown-cap-loss.md) — force-closes open Phemex positions at -$15 unrealized loss, before the original SL; per-trade, fixed, forward-only.
 - [BB_REJECTION SELL candle-close gate](bbr-sell-candle-close.md) — close must be ≥ bb30r.upper (not currentPrice proximity); histPrev1 < 0 must stay in bbrSellMacd or green-MACD shorts fire.
 - [BB_REJECTION TP targets](bbr-tp-targets.md) — TP1 = bb30r.middle (BB midline), TP2 = extended same distance past TP1. Swing-based 50% fib was producing $100+ unreachable TPs on volatile coins.
 - [OpenAPI enum completeness](openapi-enum-completeness.md) — ActiveSignalsEntry has a 4th enum location with different YAML structure; replace_all misses it; always verify all 4 after codegen.

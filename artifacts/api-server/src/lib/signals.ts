@@ -3045,7 +3045,7 @@ function insertSignalLog(trade: ActiveTrade, symbolKey: string, timeframe: Timef
 // "TP1" is a milestone outcome (trade stays open, stop is trailed to BE).
 // It is used exclusively to notify the notifier so the SL streak can reset
 // on a partial win — the trade is NOT closed and activeTrades is NOT modified.
-export type ClosedOutcome = "SL" | "BE_TRAIL" | "TP2" | "TP1" | "REVERSED" | "MISSED" | "PROFIT_LOCK";
+export type ClosedOutcome = "SL" | "BE_TRAIL" | "TP2" | "TP1" | "REVERSED" | "MISSED" | "PROFIT_LOCK" | "DRAWDOWN_CAP";
 
 // Call before activeTrades.delete() to record the outcome in the DB.
 // forceOutcome is used for REVERSED and MISSED paths; the isInvalidated path

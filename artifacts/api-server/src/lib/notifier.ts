@@ -2592,10 +2592,63 @@ async function lockProfits(): Promise<void> {
   }
 }
 
+// Hard drawdown cap: trades that go $15 underwater tend not to recover
+// (per user's observed experience) — close them at market rather than
+// riding them down to the original SL. Per-trade, fixed threshold, always
+// on (no runtime toggle — this is a strategy rule, not a tunable).
+const DRAWDOWN_CAP_USD = 15;
+
+/**
+ * Scans every open Phemex position each poll cycle. If unrealized PnL is a
+ * loss of $15 or more, cancel all pending TP/SL orders and market-close the
+ * position immediately rather than letting it ride to the original SL.
+ */
+async function closeDrawdownCapLosses(): Promise<void> {
+  if (!isPhemexTradingEnabled()) return;
+  try {
+    const positions = await getAllOpenPhemexPositions();
+    for (const pos of positions) {
+      if (!isFinite(pos.unrealisedPnl) || pos.unrealisedPnl > -DRAWDOWN_CAP_USD) continue;
+      logger.info(
+        { symbol: pos.phemexSymbol, posSide: pos.posSide, unrealisedPnl: pos.unrealisedPnl, cap: -DRAWDOWN_CAP_USD },
+        "phemex-trader: drawdown cap triggered — closing position",
+      );
+      // Cancel TPs and SL so they don't interfere with the market close
+      await Promise.allSettled([
+        cancelExistingTpOrders(pos.phemexSymbol, pos.posSide),
+        cancelExistingStopOrders(pos.phemexSymbol, pos.posSide),
+      ]);
+      const spec = getMinPriceRp(pos.phemexSymbol);
+      const tickSize = spec > 0 ? spec : 0.01;
+      const pxDecimals = Math.max(0, -Math.floor(Math.log10(tickSize)));
+      await marketClosePosition({
+        phemexSymbol: pos.phemexSymbol,
+        posSide:      pos.posSide,
+        qtyRq:        pos.size.toFixed(pxDecimals),
+      });
+      // Record to closed_trades so drawdown-cap closes aren't invisible
+      const matches = findActiveTradesByPhemexSymbol(pos.phemexSymbol, pos.posSide);
+      for (const { symbolKey, timeframe, trade } of matches) {
+        logClosedTrade(trade, symbolKey, timeframe, pos.markPrice, "DRAWDOWN_CAP");
+        clearActiveTrade(symbolKey, timeframe);
+        logger.info(
+          { symbolKey, timeframe, signalType: trade.signalType, signal: trade.signal, exitPrice: pos.markPrice, pnl: pos.unrealisedPnl },
+          "phemex-trader: drawdown-cap close recorded to closed_trades",
+        );
+      }
+    }
+  } catch (err) {
+    logger.warn({ err }, "phemex-trader: closeDrawdownCapLosses scan failed (non-fatal)");
+  }
+}
+
 async function tick(): Promise<void> {
   // Profit-lock runs first — if any position is up ≥ $30, close it before
   // the signal checks can interfere.
   await lockProfits();
+  // Drawdown cap runs next — if any position is down ≥ $15, close it before
+  // the signal checks can interfere.
+  await closeDrawdownCapLosses();
 
   const tasks: Promise<void>[] = [];
   for (const symbol of ALL_SYMBOLS) {
