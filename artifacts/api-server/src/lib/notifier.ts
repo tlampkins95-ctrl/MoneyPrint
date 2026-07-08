@@ -3086,8 +3086,24 @@ export function startSignalNotifier(): void {
     },
     "Signal notifier started",
   );
-  void tick();
-  setInterval(() => {
-    void tick();
-  }, POLL_INTERVAL_MS);
+  let isTicking = false;
+  const runTick = () => {
+    if (isTicking) {
+      logger.warn(
+        { intervalMs: POLL_INTERVAL_MS },
+        "Skipped poll tick — previous tick still in progress (prevents overlapping/duplicate alerts)",
+      );
+      return;
+    }
+    isTicking = true;
+    tick()
+      .catch((err) => {
+        logger.warn({ err }, "Notifier tick failed");
+      })
+      .finally(() => {
+        isTicking = false;
+      });
+  };
+  runTick();
+  setInterval(runTick, POLL_INTERVAL_MS);
 }
