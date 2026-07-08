@@ -335,12 +335,21 @@ export function detectDoubleBottom(candles: CandleRaw[]): PatternResult | null {
   const highs = findSwingHighs(candles, 3, 60);
   if (lows.length < 2) return null;
 
+  // Both troughs must sit at the actual bottom of the recent range — mirrors
+  // the ddtMaxHigh check in detectDoubleTop. Without this, two random minor
+  // dips mid-pullback (not the real bottom) can pass as a "double bottom".
+  const ddbWindowStart = Math.max(0, candles.length - 60);
+  const ddbMinLow = Math.min(...candles.slice(ddbWindowStart).map(c => c.low));
+
   for (let i = lows.length - 1; i >= 1; i--) {
     const L2 = lows[i], L1 = lows[i - 1];
     // Two troughs within 1.5% of each other
     if (Math.abs(L1.price - L2.price) / Math.max(L1.price, L2.price) > 0.015) continue;
     // Must be at least 20 bars apart so the two troughs are visually distinct
     if (L2.idx - L1.idx < 20) continue;
+    // Both troughs must be within 1% of the window's real low — the bottom of the move.
+    if ((L1.price - ddbMinLow) / ddbMinLow > 0.01) continue;
+    if ((L2.price - ddbMinLow) / ddbMinLow > 0.01) continue;
     const peaks = highs.filter(h => h.idx > L1.idx && h.idx < L2.idx);
     if (!peaks.length) continue;
     const peak = peaks.reduce((a, b) => b.price > a.price ? b : a);
