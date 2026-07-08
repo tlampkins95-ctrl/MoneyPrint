@@ -2224,50 +2224,6 @@ export function computeLevels(
       }
     }
 
-    // ── SELL: pump fade ────────────────────────────────────────────────────────
-    // MACD: requires 2 consecutive completed bars of decline while histogram is
-    // still positive — not just a single-bar dip (MET 0.0032→0.0017 on a coin
-    // still up 8.85% is a noise tick, not exhaustion). histPrev3>histPrev2 and
-    // histPrev2>histPrev1, both positive, confirms the fade is established.
-    const drSellMacd =
-      Number.isFinite(histPrev3) &&
-      histPrev3 > 0 &&
-      histPrev2 > 0 &&
-      histPrev2 < histPrev3 &&   // first bar of decline confirmed
-      histPrev1 < histPrev2;     // second bar still declining
-    if (signal === "WAIT" && !isLongOnly && higherTfAllowsSell && bwContractingForSell && drSellMacd) {
-      const highs = [...drSwingHighs].reverse();
-      const lows  = [...drSwingLows].reverse();
-      for (const swingHigh of highs) {
-        // Find the nearest structural swingLow BEFORE (older than) this swingHigh
-        const swingLowPoint = lows.find((sl) => sl.idx < swingHigh.idx);
-        if (!swingLowPoint) continue;
-        const range = swingHigh.price - swingLowPoint.price;
-        if (range < MIN_SWING_ATR * atr) continue; // not a significant pump
-        // Price must be consolidating near the high — within 1 ATR, not yet retracing.
-        if (currentPrice < swingHigh.price - atr) break; // too far below high; stop scanning
-        if (currentPrice > swingHigh.price + 0.2 * atr) continue; // gapped far above — parabolic, not a fade
-        const ep  = round(currentPrice);
-        const tp1 = round((swingHigh.price + swingLowPoint.price) / 2); // 50% fib midpoint
-        if (tp1 >= ep) continue; // TP1 must be below entry
-        const tp2Raw = swingLowPoint.price + 0.214 * range;              // 78.6% fib from top
-        const slFormula = ep + (ep - tp1) / 2;                           // 2:1 R:R
-        // 1d candles have 3-4× ATR intraday wicks; enforce a 1.5 ATR minimum buffer.
-        const sl  = round(timeframe === "1d" ? Math.max(slFormula, ep + 1.5 * atr) : slFormula);
-        if (sl <= ep) continue;
-        const tp2 = round(floorTarget(ep, sl, tp2Raw, MIN_RR_TP2, "SELL"));
-        signal      = "SELL";
-        signalType  = "DUMP_RECOVERY";
-        entryPrice  = ep;
-        stopLoss    = sl;
-        takeProfit1 = tp1;
-        takeProfit2 = tp2;
-        dca1        = undefined;
-        patternResult = null;
-        signalReason = `[${tfLabel}] PUMP FADE SELL: Pump ${fmt(swingLowPoint.price)}→${fmt(swingHigh.price)} (${(range / atr).toFixed(1)}× ATR). Price ${fmt(ep)} consolidating near highs. MACD turning (${histPrev2.toFixed(4)}→${histPrev1.toFixed(4)}). Entry ${fmt(ep)}, TP1 ${fmt(tp1)} (50% fib), TP2 ${fmt(tp2)} (78.6% fib), SL ${fmt(sl)} (2:1 R:R).`;
-        break;
-      }
-    }
   }
 
   // ── BB_WALK BUY: upper-band trend continuation in a confirmed bull market ─────
