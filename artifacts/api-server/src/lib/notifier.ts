@@ -335,7 +335,7 @@ async function executePhemexTrade(
   // Per-signal-type auto-trade gate. PHEMEX_AUTOTRADER_SIGNAL_TYPES overrides
   // the default allowlist. Unset = use the hardcoded default below.
   // Alerts still fire for blocked types — only Phemex order placement is suppressed.
-  const DEFAULT_ALLOWED_SIGNAL_TYPES = "FIB50_SWING,BB_REJECTION,DOUBLE_BOTTOM,DOUBLE_TOP,MACD_DIP_LONG";
+  const DEFAULT_ALLOWED_SIGNAL_TYPES = "FIB50_SWING,BB_REJECTION,DOUBLE_BOTTOM,DOUBLE_TOP";
   const allowedSignalTypes = (process.env.PHEMEX_AUTOTRADER_SIGNAL_TYPES ?? "").trim() || DEFAULT_ALLOWED_SIGNAL_TYPES;
   const allowed = allowedSignalTypes.split(",").map(s => s.trim()).filter(Boolean);
   if (levels.signalType && !allowed.includes(levels.signalType)) {
@@ -1408,7 +1408,7 @@ async function checkSymbol(
       // after the breakout bar. Filled trades bypass this: a fill notification is
       // always actionable regardless of what signal type originally opened the position.
       if (!isFilledTrade) {
-        const signalTypeAllowed = levels.signalType === "FIB50_SWING" || levels.signalType === "DOUBLE_TOP" || levels.signalType === "DOUBLE_BOTTOM" || levels.signalType === "BB_REJECTION" || levels.signalType === "BB_WALK" || levels.signalType === "DUMP_RECOVERY" || levels.signalType === "BB_BREAKOUT" || levels.signalType === "BB_OVEREXTENSION" || levels.signalType === "MACD_DIP_LONG";
+        const signalTypeAllowed = levels.signalType === "FIB50_SWING" || levels.signalType === "DOUBLE_TOP" || levels.signalType === "DOUBLE_BOTTOM" || levels.signalType === "BB_REJECTION" || levels.signalType === "BB_WALK" || levels.signalType === "BB_BREAKOUT" || levels.signalType === "BB_OVEREXTENSION";
         if (!signalTypeAllowed) {
           logger.info(
             { symbol, timeframe, signalType: levels.signalType },
@@ -1428,7 +1428,6 @@ async function checkSymbol(
       // Filled trades and direction flips are always exempt.
       const isTrendFollowing =
         levels.signalType === "FIB50_SWING" ||
-        levels.signalType === "DUMP_RECOVERY" ||
         levels.signalType === "BB_BREAKOUT" ||
         levels.signalType === "BB_WALK";
       if (!isFilledTrade && !isDirectionFlip && isTrendFollowing && (levels.signal === "BUY" || levels.signal === "SELL")) {
@@ -2007,7 +2006,7 @@ async function checkTrendingSymbol(
       // Filled trades bypass this: fills are always actionable regardless of
       // what signal type originally opened the position.
       if (!isFilledTrade) {
-        const trendingTypeAllowed = levels.signalType === "FIB50_SWING" || levels.signalType === "DOUBLE_TOP" || levels.signalType === "DOUBLE_BOTTOM" || levels.signalType === "BB_REJECTION" || levels.signalType === "BB_WALK" || levels.signalType === "BB_BREAKOUT" || levels.signalType === "BB_OVEREXTENSION" || levels.signalType === "MACD_DIP_LONG";
+        const trendingTypeAllowed = levels.signalType === "FIB50_SWING" || levels.signalType === "DOUBLE_TOP" || levels.signalType === "DOUBLE_BOTTOM" || levels.signalType === "BB_REJECTION" || levels.signalType === "BB_WALK" || levels.signalType === "BB_BREAKOUT" || levels.signalType === "BB_OVEREXTENSION";
         if (!trendingTypeAllowed) {
           logger.info(
             { symbolKey, timeframe, signalType: levels.signalType, signal: levels.signal },
@@ -2046,7 +2045,6 @@ async function checkTrendingSymbol(
       // Filled trades and direction flips are always exempt.
       const isTrendFollowingT =
         levels.signalType === "FIB50_SWING" ||
-        levels.signalType === "DUMP_RECOVERY" ||
         levels.signalType === "BB_BREAKOUT" ||
         levels.signalType === "BB_WALK";
       if (!isFilledTrade && !isDirectionFlip && isTrendFollowingT && (levels.signal === "BUY" || levels.signal === "SELL")) {

@@ -1570,6 +1570,13 @@ export function computeLevels(
     "1w": 16,   // ~4 months  — recent weekly swing structure
   };
   const SWING_LOOKBACK = SWING_LOOKBACK_BY_TF[timeframe] ?? 40;
+  // Kill switches for DUMP_RECOVERY and MACD_DIP_LONG, disabled per user
+  // request (11 of last 13 trades across these two types were losers).
+  // `boolean`-typed (not literal `false`) so TS doesn't treat the gated
+  // blocks below as unreachable dead code and narrow signalType's inferred
+  // type away from these two values elsewhere in the file.
+  const DUMP_RECOVERY_ENABLED: boolean = false;
+  const MACD_DIP_LONG_ENABLED: boolean = false;
   const MIN_SWING_ATR       = 2.5;  // swing height must be ≥ 2.5 × ATR to be meaningful
   const FIB50_TOLERANCE_ATR = 0.1;  // price must be within ±0.1 × ATR of the 50% fib
   const FIB50_SL_DISTANCE   = 10;   // fixed $10 stop distance from entry
@@ -2173,7 +2180,11 @@ export function computeLevels(
   // the 50% fib — capturing the full mean-reversion leg from the exhaustion point.
   //
   // Fires on 1h, 4h, 1d only (no weekly — too slow; 30m gets too noisy).
+  // DISABLED per user request: 11 of last 13 trades across DUMP_RECOVERY +
+  // MACD_DIP_LONG were losers. Kept in code (not deleted) so historical
+  // DB records with this signalType still type-check and display correctly.
   if (
+    DUMP_RECOVERY_ENABLED &&
     signal === "WAIT" &&
     macdWarm &&
     (timeframe === "1h" || timeframe === "4h" || timeframe === "1d")
@@ -2576,7 +2587,10 @@ export function computeLevels(
   // Entry:  current price (market IOC — momentum is already turning)
   // SL:     below the lowest low during the MACD-negative period − 0.5×ATR
   // TP1/2:  1× / 2× risk (2:1 R:R on TP2)
-  if (signal === "WAIT" && timeframe === "1h" && higherTfAllowsBuy) {
+  // DISABLED per user request: 11 of last 13 trades across DUMP_RECOVERY +
+  // MACD_DIP_LONG were losers. Kept in code (not deleted) so historical
+  // DB records with this signalType still type-check and display correctly.
+  if (MACD_DIP_LONG_ENABLED && signal === "WAIT" && timeframe === "1h" && higherTfAllowsBuy) {
     if (macdWarm && histPrev2 < 0 && histPrev1 >= 0) {
       // Find dip low: lowest low since MACD went negative.
       // Start from the cross bar (closes.length-2) and walk back through all
