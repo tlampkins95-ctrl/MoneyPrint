@@ -1890,8 +1890,10 @@ export function computeLevels(
 
   // ── DOUBLE_TOP detection ────────────────────────────────────────────────────
   // Criteria (exactly as specified):
-  //   1. Classic M pattern — two peaks at similar levels with valley between.
-  //   2. Volume higher on the left peak, lower on the right peak.
+  //   1. Classic M pattern — at least one peak tags/exceeds the upper BB(30,2),
+  //      valley between the two peaks (see detectDoubleTop/detectFastDoubleTop).
+  //   2. Volume: left peak above its own 20-vol-MA, right peak below its own
+  //      20-vol-MA — already enforced inside detectDoubleTop/detectFastDoubleTop.
   //   3. 1 or 2 candles trending down (declining closes) after the second peak.
   //   4. MACD confirms: same-TF histogram negative and declining (macdSellOk).
   if (signal === "WAIT" && !isLongOnly && macdSellOk) {
@@ -1906,12 +1908,6 @@ export function computeLevels(
       const neckline   = dtResult.necklinePrice;
       const h2Idx      = dtResult.rightPeakIdx;
 
-      // Volume divergence: left peak had higher volume than right peak.
-      const volDivergence =
-        dtResult.rightVolume != null &&
-        dtResult.leftVolume  != null &&
-        dtResult.rightVolume < dtResult.leftVolume;
-
       // 1 or 2 completed candles after the second peak, each closing lower.
       const barsAfterPeak = dtBars.length - 1 - h2Idx;
       let postPeakDown = false;
@@ -1922,7 +1918,7 @@ export function computeLevels(
         }
       }
 
-      if (volDivergence && postPeakDown) {
+      if (postPeakDown) {
         const ep   = round(neckline);
         const sl   = round(resistance + atr * 0.5);
         const risk = sl - ep;
@@ -1939,7 +1935,7 @@ export function computeLevels(
             takeProfit2   = tp2;
             dca1          = undefined;
             patternResult = dtResult;
-            signalReason  = `[${tfLabel}] DOUBLE TOP SELL: M pattern — resistance ${fmt(resistance)}, neckline ${fmt(neckline)}. Left vol ${dtResult.leftVolume?.toFixed(2)}× > right vol ${dtResult.rightVolume?.toFixed(2)}× (bearish divergence). ${barsAfterPeak} candle(s) down after right peak. Entry ${fmt(ep)}, SL ${fmt(sl)}, TP1 ${fmt(tp1)}, TP2 ${fmt(tp2)}.`;
+            signalReason  = `[${tfLabel}] DOUBLE TOP SELL: M pattern — resistance ${fmt(resistance)}, neckline ${fmt(neckline)}. Left vol ${dtResult.leftVolume?.toFixed(2)}× > 20MA, right vol ${dtResult.rightVolume?.toFixed(2)}× < 20MA (exhaustion). ${barsAfterPeak} candle(s) down after right peak. Entry ${fmt(ep)}, SL ${fmt(sl)}, TP1 ${fmt(tp1)}, TP2 ${fmt(tp2)}.`;
           }
         }
       }
@@ -1964,12 +1960,9 @@ export function computeLevels(
   if (signal === "WAIT" && macdBuyOk) {
     const dbBars = candles.slice(0, candles.length - 1);
     const dbResult = detectDoubleBottom(dbBars);
-    // Volume gate: right trough must carry at least as much relative volume as the left trough.
-    // Rising right-side volume confirms accumulation is increasing at support.
-    // Fails open when volume data is unavailable.
-    const dbVolOk = dbResult?.leftVolume == null || dbResult?.rightVolume == null ||
-                    dbResult.rightVolume >= dbResult.leftVolume;
-    if (dbResult?.upperBound != null && dbResult.necklinePrice != null && dbVolOk) {
+    // Volume gate (left trough above its own 20-vol-MA, right trough below its
+    // own 20-vol-MA) is already enforced inside detectDoubleBottom.
+    if (dbResult?.upperBound != null && dbResult.necklinePrice != null) {
       const support  = dbResult.upperBound;
       const neckline = dbResult.necklinePrice;
       const sl       = round(support - atr * 0.5);

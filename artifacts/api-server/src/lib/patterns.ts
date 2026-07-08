@@ -223,6 +223,23 @@ function vol20MA(candles: CandleRaw[], idx: number): number {
   return slice.reduce((s, c) => s + c.volume, 0) / slice.length;
 }
 
+// Bollinger Bands(period, multiplier) as of candle `idx` — uses the `period`
+// closes ending at (and including) idx. Returns null if not enough history.
+function bbAt(
+  candles: CandleRaw[],
+  idx: number,
+  period = 30,
+  multiplier = 2,
+): { upper: number; middle: number; lower: number } | null {
+  if (idx + 1 < period) return null;
+  const slice = candles.slice(idx + 1 - period, idx + 1).map((c) => c.close);
+  const mean = slice.reduce((a, b) => a + b, 0) / period;
+  const variance = slice.reduce((sum, v) => sum + (v - mean) ** 2, 0) / period;
+  const stdDev = Math.sqrt(variance);
+  if (stdDev === 0) return null;
+  return { upper: mean + multiplier * stdDev, middle: mean, lower: mean - multiplier * stdDev };
+}
+
 // Average volume in a ±2 bar window centred on `idx` — smooths single-bar spikes.
 function volAtPeak(candles: CandleRaw[], idx: number): number {
   const start = Math.max(0, idx - 2);
@@ -237,22 +254,22 @@ export function detectDoubleTop(candles: CandleRaw[]): PatternResult | null {
   const lows  = findSwingLows(candles,  3, 60);
   if (highs.length < 2) return null;
 
-  // Both peaks must sit at the actual top of the recent range — otherwise the
-  // "swing highs" are just noise inside a bigger trend, not a real resistance
-  // test. Backtested: this is what separates real double tops from false
-  // positives that fired on minor local wiggles mid-trend.
-  const ddtWindowStart = Math.max(0, candles.length - 60);
-  const ddtMaxHigh = Math.max(...candles.slice(ddtWindowStart).map(c => c.high));
-
   for (let i = highs.length - 1; i >= 1; i--) {
     const H2 = highs[i], H1 = highs[i - 1];
     // Two peaks within 3% of each other.
     if (Math.abs(H1.price - H2.price) / Math.max(H1.price, H2.price) > 0.03) continue;
     // Must be at least 10 bars apart so the two peaks are visually distinct
     if (H2.idx - H1.idx < 10) continue;
-    // Both peaks must be within 1% of the window's real high — the top of the move.
-    if ((ddtMaxHigh - H1.price) / ddtMaxHigh > 0.01) continue;
-    if ((ddtMaxHigh - H2.price) / ddtMaxHigh > 0.01) continue;
+    // At least one peak must tag/exceed the upper BB(30,2) as of that bar —
+    // the other peak can sit inside the bands. Real double tops don't always
+    // have both peaks at the window's absolute high (see M-pattern reference
+    // sheet); what matters is at least one genuine band-tag exhaustion test.
+    const bbH1 = bbAt(candles, H1.idx);
+    const bbH2 = bbAt(candles, H2.idx);
+    const bandTagged =
+      (bbH1 != null && H1.price >= bbH1.upper) ||
+      (bbH2 != null && H2.price >= bbH2.upper);
+    if (!bandTagged) continue;
     const valleys = lows.filter(l => l.idx > H1.idx && l.idx < H2.idx);
     if (!valleys.length) continue;
     const valley = valleys.reduce((a, b) => b.price < a.price ? b : a);
@@ -261,9 +278,13 @@ export function detectDoubleTop(candles: CandleRaw[]): PatternResult | null {
     if ((avgTop - valley.price) / avgTop < 0.04) continue;
     // 60-bar staleness window: on 1h that's 2.5 days; on 4h it's 10 days.
     if (H2.idx < candles.length - 60) continue;
+    // Volume must show exhaustion: left peak above its own 20-vol-MA (real
+    // push), right peak below its own 20-vol-MA (buyers/sellers drying up).
     const ma1 = vol20MA(candles, H1.idx), ma2 = vol20MA(candles, H2.idx);
     const leftVolume  = ma1 > 0 ? volAtPeak(candles, H1.idx) / ma1 : undefined;
     const rightVolume = ma2 > 0 ? volAtPeak(candles, H2.idx) / ma2 : undefined;
+    if (leftVolume == null || rightVolume == null) continue;
+    if (!(leftVolume > 1 && rightVolume < 1)) continue;
     // Confirmed: last completed close must be at least 0.5% below the neckline.
     // A marginal 1-tick close through the neckline is just ranging noise —
     // a real breakdown closes meaningfully below.
@@ -293,16 +314,17 @@ export function detectFastDoubleTop(candles: CandleRaw[]): PatternResult | null 
   const lows  = findSwingLows(candles,  2, 40);
   if (highs.length < 2) return null;
 
-  // Same top-of-range requirement as detectDoubleTop — see comment there.
-  const dftWindowStart = Math.max(0, candles.length - 40);
-  const dftMaxHigh = Math.max(...candles.slice(dftWindowStart).map(c => c.high));
-
   for (let i = highs.length - 1; i >= 1; i--) {
     const H2 = highs[i], H1 = highs[i - 1];
     if (Math.abs(H1.price - H2.price) / Math.max(H1.price, H2.price) > 0.03) continue;
     if (H2.idx - H1.idx < 8) continue;
-    if ((dftMaxHigh - H1.price) / dftMaxHigh > 0.01) continue;
-    if ((dftMaxHigh - H2.price) / dftMaxHigh > 0.01) continue;
+    // At least one peak must tag/exceed the upper BB(30,2) — see detectDoubleTop.
+    const bbH1 = bbAt(candles, H1.idx);
+    const bbH2 = bbAt(candles, H2.idx);
+    const bandTagged =
+      (bbH1 != null && H1.price >= bbH1.upper) ||
+      (bbH2 != null && H2.price >= bbH2.upper);
+    if (!bandTagged) continue;
     const valleys = lows.filter(l => l.idx > H1.idx && l.idx < H2.idx);
     if (!valleys.length) continue;
     const valley = valleys.reduce((a, b) => b.price < a.price ? b : a);
@@ -312,6 +334,8 @@ export function detectFastDoubleTop(candles: CandleRaw[]): PatternResult | null 
     const ma1 = vol20MA(candles, H1.idx), ma2 = vol20MA(candles, H2.idx);
     const leftVolume  = ma1 > 0 ? volAtPeak(candles, H1.idx) / ma1 : undefined;
     const rightVolume = ma2 > 0 ? volAtPeak(candles, H2.idx) / ma2 : undefined;
+    if (leftVolume == null || rightVolume == null) continue;
+    if (!(leftVolume > 1 && rightVolume < 1)) continue;
     // Confirmed: close must be at least 0.5% below the neckline — not just any tick.
     const lastClose = candles[candles.length - 1].close;
     const confirmed = lastClose < valley.price * 0.995;
@@ -335,21 +359,20 @@ export function detectDoubleBottom(candles: CandleRaw[]): PatternResult | null {
   const highs = findSwingHighs(candles, 3, 60);
   if (lows.length < 2) return null;
 
-  // Both troughs must sit at the actual bottom of the recent range — mirrors
-  // the ddtMaxHigh check in detectDoubleTop. Without this, two random minor
-  // dips mid-pullback (not the real bottom) can pass as a "double bottom".
-  const ddbWindowStart = Math.max(0, candles.length - 60);
-  const ddbMinLow = Math.min(...candles.slice(ddbWindowStart).map(c => c.low));
-
   for (let i = lows.length - 1; i >= 1; i--) {
     const L2 = lows[i], L1 = lows[i - 1];
     // Two troughs within 1.5% of each other
     if (Math.abs(L1.price - L2.price) / Math.max(L1.price, L2.price) > 0.015) continue;
     // Must be at least 20 bars apart so the two troughs are visually distinct
     if (L2.idx - L1.idx < 20) continue;
-    // Both troughs must be within 1% of the window's real low — the bottom of the move.
-    if ((L1.price - ddbMinLow) / ddbMinLow > 0.01) continue;
-    if ((L2.price - ddbMinLow) / ddbMinLow > 0.01) continue;
+    // At least one trough must tag/exceed the lower BB(30,2) as of that bar —
+    // the other trough can sit inside the bands. Mirrors the double-top logic.
+    const bbL1 = bbAt(candles, L1.idx);
+    const bbL2 = bbAt(candles, L2.idx);
+    const bandTagged =
+      (bbL1 != null && L1.price <= bbL1.lower) ||
+      (bbL2 != null && L2.price <= bbL2.lower);
+    if (!bandTagged) continue;
     const peaks = highs.filter(h => h.idx > L1.idx && h.idx < L2.idx);
     if (!peaks.length) continue;
     const peak = peaks.reduce((a, b) => b.price > a.price ? b : a);
@@ -357,11 +380,13 @@ export function detectDoubleBottom(candles: CandleRaw[]): PatternResult | null {
     // Peak between them must be at least 4% above the troughs
     if ((peak.price - avgBot) / avgBot < 0.04) continue;
     if (L2.idx < candles.length - 40) continue;
-    // Compute vol/20MA ratios for both troughs and expose them in the result.
-    // The volume gate (right ≥ left) is enforced in signals.ts, not here.
+    // Volume must show exhaustion: left trough above its own 20-vol-MA (real
+    // capitulation), right trough below its own 20-vol-MA (sellers drying up).
     const ma1 = vol20MA(candles, L1.idx), ma2 = vol20MA(candles, L2.idx);
     const leftVolume  = ma1 > 0 ? volAtPeak(candles, L1.idx) / ma1 : undefined;
     const rightVolume = ma2 > 0 ? volAtPeak(candles, L2.idx) / ma2 : undefined;
+    if (leftVolume == null || rightVolume == null) continue;
+    if (!(leftVolume > 1 && rightVolume < 1)) continue;
     return {
       pattern: "DOUBLE_BOTTOM", direction: "bullish", category: "reversal",
       confirmed: candles[candles.length - 1].close > peak.price,
