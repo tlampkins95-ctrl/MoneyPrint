@@ -6,7 +6,13 @@ import { type CandleRaw, type Timeframe } from "./yahoo-fetch";
 import { fetchOkxPerpPrice, fetchPhemexPerpPrice } from "./crypto-perp-fetch";
 import { fetchPythPrice } from "./pyth-fetch";
 import { detectChartPattern, detectCandlestickSignal, detectFastDoubleTop, detectDoubleTop, detectDoubleBottom, findSwingHighs, findSwingLows, type PatternResult } from "./patterns";
+import { computePriceActionSignal } from "./price-action-sr";
 import { logger } from "./logger";
+
+export type SignalTypeUnion =
+  | "FIB50_SWING" | "DOUBLE_TOP" | "DOUBLE_BOTTOM" | "BB_REJECTION" | "BB_WALK"
+  | "BB_BREAKOUT" | "BB_OVEREXTENSION" | "PATTERN_BREAKOUT" | "DUMP_RECOVERY"
+  | "SWING_BREAK" | "MACD_DIP_LONG" | "BOS_SELL" | "BOS_BUY" | "PRICE_ACTION_SR";
 
 // ─── Live spot price (per-symbol cache) ──────────────────────────────────────
 
@@ -1337,7 +1343,20 @@ export function computeLevels(
   mt5Lots: number = DEFAULT_MT5_LOTS,
   dailyCandlesForWeekly?: CandleRaw[], // daily candles used to synthesize weekly macro trend (required for 1h signals)
   weeklyCandlesForDaily?: CandleRaw[], // actual weekly candles used to gate 1d signals by weekly EMA trend
+  htf4hCandles?: CandleRaw[], // 4H candles for PRICE_ACTION_SR structure bias (only used when timeframe === "15m")
+  htf1hCandles?: CandleRaw[], // 1H candles for PRICE_ACTION_SR S/R zones (only used when timeframe === "15m")
 ) {
+  // PRICE_ACTION_SR is an isolated signal path — pure price action + S/R +
+  // EMA20/200, running alongside (not replacing) the BB+MACD cascade below.
+  // Dashboard-only for now: not in the auto-trader allowlist.
+  if (timeframe === "15m") {
+    return computePriceActionLevels(
+      candles, spotPrice, symbolKey, meta,
+      htf4hCandles ?? [], htf1hCandles ?? [],
+      accountSize, riskPct, minCollateral, maxLeverage, mt5Lots,
+    );
+  }
+
   const round = makeRounder(meta.decimals);
   const fmt = (n: number) => `${meta.prefix}${round(n).toFixed(meta.decimals)}`;
   // Spot-only symbols (e.g. SKYAIUSDT on Phemex) cannot be shorted.
@@ -1601,7 +1620,7 @@ export function computeLevels(
   const SWING_SL_BUFFER_ATR = 0.5;  // extra buffer below/above swing extreme for SL
 
   let signal: "BUY" | "SELL" | "WAIT" = "WAIT";
-  let signalType: "FIB50_SWING" | "DOUBLE_TOP" | "DOUBLE_BOTTOM" | "BB_REJECTION" | "BB_WALK" | "BB_BREAKOUT" | "BB_OVEREXTENSION" | "PATTERN_BREAKOUT" | "DUMP_RECOVERY" | "SWING_BREAK" | "MACD_DIP_LONG" | "BOS_SELL" | "BOS_BUY" = "FIB50_SWING";
+  let signalType: SignalTypeUnion = "FIB50_SWING";
   let signalReason = "";
   let patternResult: PatternResult | null = null;
   let entryPrice = currentPrice;
@@ -3019,7 +3038,7 @@ export function computeLevels(
     priceChange,
     priceChangePct,
     signal,
-    signalType,
+    signalType: signalType as SignalTypeUnion,
     signalReason,
     tradeState,
     entryPrice,
@@ -3052,6 +3071,100 @@ export function computeLevels(
   };
 }
 
+// ─── PRICE_ACTION_SR — isolated signal path (dashboard-only, Stage 2) ────────
+// Pure price action: 4H market structure → 1H S/R zone → 15m trigger (sweep
+// or EMA20/200 cross). Runs alongside the BB+MACD cascade above, never
+// replacing it. Returns the same Levels shape so it slots into the existing
+// dashboard/API/persistence machinery unchanged. Not in the auto-trader
+// allowlist — read-only for now. Trailing-stop exit logic is Stage 3; TP1/TP2
+// below are both set to the next opposing 1H zone purely for display.
+function computePriceActionLevels(
+  candles15m: CandleRaw[],
+  spotPrice: number | null,
+  symbolKey: string,
+  meta: SymbolMeta,
+  candles4h: CandleRaw[],
+  candles1h: CandleRaw[],
+  accountSize: number,
+  riskPct: number,
+  minCollateral: number,
+  maxLeverage: number,
+  mt5Lots: number,
+) {
+  const round = makeRounder(meta.decimals);
+  const last = candles15m[candles15m.length - 1];
+  const prev = candles15m[candles15m.length - 2];
+  const currentPrice = spotPrice ?? last?.close ?? 0;
+  const priceChange = prev ? round(currentPrice - prev.close) : 0;
+  const priceChangePct = prev && prev.close !== 0 ? Math.round((priceChange / prev.close) * 10000) / 100 : 0;
+
+  const result = computePriceActionSignal(candles4h, candles1h, candles15m);
+
+  const signal = result.signal;
+  const entryPrice = round(result.entryPrice ?? currentPrice);
+  const stopLoss = round(result.stopLoss ?? currentPrice);
+  const takeProfit1 = round(result.target ?? entryPrice);
+  const takeProfit2 = takeProfit1;
+  const riskDist = Math.abs(entryPrice - stopLoss);
+  const rewardDist = Math.abs(takeProfit1 - entryPrice);
+  const riskRewardRatio = riskDist > 0 ? Math.round((rewardDist / riskDist) * 100) / 100 : 0;
+
+  const trend: "UPTREND" | "DOWNTREND" | "RANGING" =
+    result.structure === "up" ? "UPTREND" : result.structure === "down" ? "DOWNTREND" : "RANGING";
+
+  const positionSizing = signal !== "WAIT"
+    ? computePositionSizing(symbolKey, meta, entryPrice, stopLoss, takeProfit1, takeProfit2, accountSize, riskPct, minCollateral, maxLeverage, mt5Lots)
+    : undefined;
+
+  type LevelType = "resistance" | "support" | "pivot";
+  const levels: { label: string; price: number; type: LevelType }[] = [
+    result.zone ? { label: `1H ${result.zone.type === "support" ? "Support" : "Resistance"} Zone`, price: round(result.zone.price), type: result.zone.type as LevelType } : null,
+    result.target != null ? { label: "Next Opposing Zone", price: round(result.target), type: "pivot" as LevelType } : null,
+  ].filter((l): l is { label: string; price: number; type: LevelType } => l !== null)
+    .sort((a, b) => b.price - a.price);
+
+  const tradeState = (signal === "WAIT" ? "WAIT" : "PENDING") as TradeState;
+  const signalReason = `[15m PRICE_ACTION_SR] ${result.reason}`;
+
+  return {
+    symbol: symbolKey,
+    currentPrice: round(currentPrice),
+    priceChange,
+    priceChangePct,
+    signal,
+    signalType: "PRICE_ACTION_SR" as SignalTypeUnion,
+    signalReason,
+    tradeState,
+    entryPrice,
+    stopLoss,
+    takeProfit1,
+    takeProfit2,
+    dca1: undefined as number | undefined,
+    riskRewardRatio,
+    buyZone: signal === "BUY" ? { low: entryPrice, high: entryPrice, label: "Buy Zone" } : { low: 0, high: 0, label: "Buy Zone" },
+    sellZone: signal === "SELL" ? { low: entryPrice, high: entryPrice, label: "Sell Zone" } : { low: 0, high: 0, label: "Sell Zone" },
+    levels,
+    pivot: round(currentPrice),
+    trend,
+    trendStrength: 50,
+    adx: undefined as number | undefined,
+    choppiness: undefined as number | undefined,
+    swingRhythm: undefined as "RHYTHMIC" | "CHOPPY" | undefined,
+    rsi: undefined as number | undefined,
+    detectedPattern: undefined as PatternResult["pattern"] | undefined,
+    patternDirection: undefined as PatternResult["direction"] | undefined,
+    patternConfirmed: undefined as boolean | undefined,
+    patternNeckline: undefined as number | undefined,
+    patternUpperBound: undefined as number | undefined,
+    patternNecklineStart: undefined as number | undefined,
+    patternUpperBoundStart: undefined as number | undefined,
+    patternStartDate: undefined as string | undefined,
+    patternEndDate: undefined as string | undefined,
+    lastUpdated: new Date().toISOString(),
+    positionSizing,
+  };
+}
+
 // ─── Stable signal wrapper ───────────────────────────────────────────────────
 // Once a BUY/SELL signal fires, freeze entry/SL/TP1/TP2/zones until the trade
 // is invalidated. Without this the entry shifts every time a new bar closes
@@ -3070,7 +3183,7 @@ type Levels = ReturnType<typeof computeLevels>;
 
 interface ActiveTrade {
   signal: "BUY" | "SELL";
-  signalType?: "FIB50_SWING" | "DOUBLE_TOP" | "DOUBLE_BOTTOM" | "BB_REJECTION" | "BB_WALK" | "BB_BREAKOUT" | "BB_OVEREXTENSION" | "PATTERN_BREAKOUT" | "DUMP_RECOVERY" | "SWING_BREAK" | "MACD_DIP_LONG" | "BOS_SELL" | "BOS_BUY";
+  signalType?: SignalTypeUnion;
   signalReason: string;
   entryPrice: number;
   stopLoss: number;
@@ -3372,7 +3485,7 @@ async function syncFromDb(): Promise<void> {
       if (activeTrades.has(row.key)) continue; // local file wins for existing keys
       const v = row.data as Partial<ActiveTrade>;
       // Skip trades from previous strategies — they have wrong levels.
-      if (v.signalType !== "FIB50_SWING" && v.signalType !== "DOUBLE_TOP" && v.signalType !== "DOUBLE_BOTTOM" && v.signalType !== "BB_REJECTION" && v.signalType !== "BB_WALK" && v.signalType !== "BB_BREAKOUT" && v.signalType !== "BB_OVEREXTENSION" && v.signalType !== "PATTERN_BREAKOUT" && v.signalType !== "DUMP_RECOVERY" && v.signalType !== "SWING_BREAK" && v.signalType !== "BOS_SELL" && v.signalType !== "BOS_BUY") continue;
+      if (v.signalType !== "FIB50_SWING" && v.signalType !== "DOUBLE_TOP" && v.signalType !== "DOUBLE_BOTTOM" && v.signalType !== "BB_REJECTION" && v.signalType !== "BB_WALK" && v.signalType !== "BB_BREAKOUT" && v.signalType !== "BB_OVEREXTENSION" && v.signalType !== "PATTERN_BREAKOUT" && v.signalType !== "DUMP_RECOVERY" && v.signalType !== "SWING_BREAK" && v.signalType !== "BOS_SELL" && v.signalType !== "BOS_BUY" && v.signalType !== "PRICE_ACTION_SR") continue;
       activeTrades.set(row.key, {
         ...(v as ActiveTrade),
         signalType: v.signalType,
@@ -3413,7 +3526,7 @@ function loadActiveTradesFromDisk(): void {
     let didMigrate = false;
     for (const [k, v] of Object.entries(obj)) {
       // Skip trades from previous strategies — they have wrong levels.
-      if (v.signalType !== "FIB50_SWING" && v.signalType !== "DOUBLE_TOP" && v.signalType !== "DOUBLE_BOTTOM" && v.signalType !== "BB_REJECTION" && v.signalType !== "BB_WALK" && v.signalType !== "BB_BREAKOUT" && v.signalType !== "BB_OVEREXTENSION" && v.signalType !== "PATTERN_BREAKOUT" && v.signalType !== "DUMP_RECOVERY" && v.signalType !== "SWING_BREAK" && v.signalType !== "BOS_SELL" && v.signalType !== "BOS_BUY") { didMigrate = true; continue; }
+      if (v.signalType !== "FIB50_SWING" && v.signalType !== "DOUBLE_TOP" && v.signalType !== "DOUBLE_BOTTOM" && v.signalType !== "BB_REJECTION" && v.signalType !== "BB_WALK" && v.signalType !== "BB_BREAKOUT" && v.signalType !== "BB_OVEREXTENSION" && v.signalType !== "PATTERN_BREAKOUT" && v.signalType !== "DUMP_RECOVERY" && v.signalType !== "SWING_BREAK" && v.signalType !== "BOS_SELL" && v.signalType !== "BOS_BUY" && v.signalType !== "PRICE_ACTION_SR") { didMigrate = true; continue; }
       // Backward-compat for snapshots persisted before fill-tracking existed.
       // Default triggered=false; the next tick's candle scan since openedAt
       // will retroactively flip it to true if price actually did tag entry.
@@ -3716,8 +3829,10 @@ export function computeLevelsStable(
   mt5Lots: number = DEFAULT_MT5_LOTS,
   dailyCandlesForWeekly?: CandleRaw[],
   weeklyCandlesForDaily?: CandleRaw[],
+  htf4hCandles?: CandleRaw[],
+  htf1hCandles?: CandleRaw[],
 ): Levels & { openedAt?: number } {
-  const fresh = computeLevels(candles, spotPrice, timeframe, symbolKey, meta, accountSize, riskPct, minCollateral, maxLeverage, mt5Lots, dailyCandlesForWeekly, weeklyCandlesForDaily);
+  const fresh = computeLevels(candles, spotPrice, timeframe, symbolKey, meta, accountSize, riskPct, minCollateral, maxLeverage, mt5Lots, dailyCandlesForWeekly, weeklyCandlesForDaily, htf4hCandles, htf1hCandles);
   const k = tradeKey(symbolKey, timeframe);
   const existing = activeTrades.get(k);
 

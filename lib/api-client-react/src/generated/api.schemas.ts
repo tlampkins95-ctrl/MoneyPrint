@@ -108,6 +108,7 @@ export const LevelsDataSignalType = {
   MACD_DIP_LONG: "MACD_DIP_LONG",
   BOS_SELL: "BOS_SELL",
   BOS_BUY: "BOS_BUY",
+  PRICE_ACTION_SR: "PRICE_ACTION_SR",
 } as const;
 
 /**
@@ -478,6 +479,7 @@ export type ActiveSignalEntryTimeframe =
   (typeof ActiveSignalEntryTimeframe)[keyof typeof ActiveSignalEntryTimeframe];
 
 export const ActiveSignalEntryTimeframe = {
+  "15m": "15m",
   "1h": "1h",
   "4h": "4h",
   "1d": "1d",
@@ -587,6 +589,7 @@ export const ClosedTradeSignalType = {
   MACD_DIP_LONG: "MACD_DIP_LONG",
   BOS_SELL: "BOS_SELL",
   BOS_BUY: "BOS_BUY",
+  PRICE_ACTION_SR: "PRICE_ACTION_SR",
 } as const;
 
 /**
@@ -666,6 +669,7 @@ export const SignalLogEntrySignalType = {
   MACD_DIP_LONG: "MACD_DIP_LONG",
   BOS_SELL: "BOS_SELL",
   BOS_BUY: "BOS_BUY",
+  PRICE_ACTION_SR: "PRICE_ACTION_SR",
 } as const;
 
 export interface SignalLogEntry {
@@ -792,6 +796,7 @@ export type GetLevelsTimeframe =
   (typeof GetLevelsTimeframe)[keyof typeof GetLevelsTimeframe];
 
 export const GetLevelsTimeframe = {
+  "15m": "15m",
   "1h": "1h",
   "4h": "4h",
   "1d": "1d",
@@ -938,6 +943,7 @@ export type GetPriceHistoryTimeframe =
   (typeof GetPriceHistoryTimeframe)[keyof typeof GetPriceHistoryTimeframe];
 
 export const GetPriceHistoryTimeframe = {
+  "15m": "15m",
   "1h": "1h",
   "4h": "4h",
   "1d": "1d",

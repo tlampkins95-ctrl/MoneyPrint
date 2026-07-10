@@ -10,6 +10,7 @@ export type GetLevelsTimeframe =
   (typeof GetLevelsTimeframe)[keyof typeof GetLevelsTimeframe];
 
 export const GetLevelsTimeframe = {
+  "15m": "15m",
   "1h": "1h",
   "4h": "4h",
   "1d": "1d",

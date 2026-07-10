@@ -26,7 +26,7 @@ import {
 // ──── Category & Confluence helpers ─────────────────────────────────────────
 
 function getCategory(timeframe: string): "SWING" | "POSITION" {
-  if (timeframe === "1h" || timeframe === "4h") return "SWING";
+  if (timeframe === "15m" || timeframe === "1h" || timeframe === "4h") return "SWING";
   return "POSITION";
 }
 
@@ -135,7 +135,7 @@ function detectConfluences(
 }
 
 // Show active signals across all tracked entry timeframes.
-const OVERVIEW_TIMEFRAMES: Timeframe[] = ["1h", "4h", "1d", "1w"];
+const OVERVIEW_TIMEFRAMES: Timeframe[] = ["15m", "1h", "4h", "1d", "1w"];
 
 const router: IRouter = Router();
 
@@ -171,7 +171,7 @@ router.get("/levels", async (req: Request, res: Response) => {
     // Symbol: accept both static enum and dynamic trending keys.
     const rawSymbol = typeof req.query.symbol === "string" ? req.query.symbol : "XAGUSD";
     const rawTf = typeof req.query.timeframe === "string" ? req.query.timeframe : "1d";
-    const VALID_TIMEFRAMES: Timeframe[] = ["1h", "4h", "1d", "1w"];
+    const VALID_TIMEFRAMES: Timeframe[] = ["15m", "1h", "4h", "1d", "1w"];
     if (!VALID_TIMEFRAMES.includes(rawTf as Timeframe)) {
       res.status(400).json({ error: `Invalid timeframe: ${rawTf}. Must be one of: ${VALID_TIMEFRAMES.join(", ")}` });
       return;
@@ -204,6 +204,9 @@ router.get("/levels", async (req: Request, res: Response) => {
     // For 1H, also fetch daily candles so FIB50_SWING can synthesize weekly
     // bars for the macro trend gate. Fetch in parallel with primary candles.
     let dailyForWeekly: Awaited<ReturnType<typeof fetchCandlesForTimeframe>> | undefined;
+    // For 15m (PRICE_ACTION_SR), also fetch 4H (structure) and 1H (S/R zones).
+    let htf4hCandles: Awaited<ReturnType<typeof fetchCandlesForTimeframe>> | undefined;
+    let htf1hCandles: Awaited<ReturnType<typeof fetchCandlesForTimeframe>> | undefined;
 
     if (isStaticSymbol) {
       const symbol = rawSymbol as Symbol;
@@ -212,22 +215,29 @@ router.get("/levels", async (req: Request, res: Response) => {
         fetchSpotPrice(symbol),
       ];
       if (timeframe === "1h" || timeframe === "4h") fetches.push(fetchCandlesForTimeframe(symbol, "1d"));
-      const [c, sp, dc] = await Promise.all(fetches);
+      if (timeframe === "15m") fetches.push(fetchCandlesForTimeframe(symbol, "4h"), fetchCandlesForTimeframe(symbol, "1h"));
+      const [c, sp, dc, h4, h1] = await Promise.all(fetches);
       candles = c as typeof candles;
       spotPrice = sp as typeof spotPrice;
       if (dc) dailyForWeekly = dc as typeof candles;
+      if (h4) htf4hCandles = h4 as typeof candles;
+      if (h1) htf1hCandles = h1 as typeof candles;
     } else {
       // Dynamic trending coin — use OKX candles and spot price.
       const needDailyForWeekly = timeframe === "1h" || timeframe === "4h";
+      const needHtfForPriceAction = timeframe === "15m";
       const fetches: Promise<unknown>[] = [
         fetchCandlesForDynamic(trendingMeta!.okxPerp!, timeframe),
         fetchSpotForDynamic(trendingMeta!.okxPerp!),
       ];
       if (needDailyForWeekly) fetches.push(fetchCandlesForDynamic(trendingMeta!.okxPerp!, "1d"));
-      const [c, sp, dc] = await Promise.all(fetches);
+      if (needHtfForPriceAction) fetches.push(fetchCandlesForDynamic(trendingMeta!.okxPerp!, "4h"), fetchCandlesForDynamic(trendingMeta!.okxPerp!, "1h"));
+      const [c, sp, dc, h4, h1] = await Promise.all(fetches);
       candles = c as typeof candles;
       spotPrice = sp as typeof spotPrice;
       if (dc) dailyForWeekly = dc as typeof candles;
+      if (h4) htf4hCandles = h4 as typeof candles;
+      if (h1) htf1hCandles = h1 as typeof candles;
     }
 
     // Fetch higher-TF candles for gate checks — applies to both static and dynamic symbols.
@@ -273,6 +283,8 @@ router.get("/levels", async (req: Request, res: Response) => {
       mt5Lots,
       dailyForWeekly,
       weeklyCandlesForDaily,
+      htf4hCandles,
+      htf1hCandles,
     );
 
     // ── Multi-gate alignment check (applies to both static and dynamic symbols) ─
@@ -345,7 +357,7 @@ router.get("/price-history", async (req: Request, res: Response) => {
     // accepted. Timeframe and bars still go through the generated schema.
     const rawSymbol = typeof req.query.symbol === "string" ? req.query.symbol : "XAGUSD";
     const rawTf     = typeof req.query.timeframe === "string" ? req.query.timeframe : "1d";
-    const VALID_TIMEFRAMES: Timeframe[] = ["1h", "4h", "1d", "1w"];
+    const VALID_TIMEFRAMES: Timeframe[] = ["15m", "1h", "4h", "1d", "1w"];
     if (!VALID_TIMEFRAMES.includes(rawTf as Timeframe)) {
       res.status(400).json({ error: `Invalid timeframe: ${rawTf}` });
       return;
@@ -480,11 +492,14 @@ router.get("/active-signals", async (req: Request, res: Response) => {
             ];
             if (timeframe === "1h" || timeframe === "4h") fetches.push(fetchCandlesForTimeframe(symbol, "1d"));
             if (timeframe === "1d") fetches.push(fetchCandlesForTimeframe(symbol, "1w"));
-            const [candlesRaw, spotRaw, extraRaw] = await Promise.all(fetches);
+            if (timeframe === "15m") fetches.push(fetchCandlesForTimeframe(symbol, "4h"), fetchCandlesForTimeframe(symbol, "1h"));
+            const [candlesRaw, spotRaw, extraRaw, extra2Raw] = await Promise.all(fetches);
             const candles = candlesRaw as Awaited<ReturnType<typeof fetchCandlesForTimeframe>>;
             const spot = spotRaw as number | null;
             const dailyForWeekly = (timeframe === "1h" || timeframe === "4h") && extraRaw ? (extraRaw as typeof candles) : undefined;
             const weeklyCandlesForDailyStatic = timeframe === "1d" && extraRaw ? (extraRaw as typeof candles) : undefined;
+            const htf4hCandlesStatic = timeframe === "15m" && extraRaw ? (extraRaw as typeof candles) : undefined;
+            const htf1hCandlesStatic = timeframe === "15m" && extra2Raw ? (extra2Raw as typeof candles) : undefined;
             if (candles.length < 2) return { ok: false, symbolKey, timeframe };
             const adjRound = makeRounder(SYMBOLS[symbol].decimals);
             const adjustedCandles =
@@ -504,6 +519,8 @@ router.get("/active-signals", async (req: Request, res: Response) => {
               mt5Lots,
               dailyForWeekly,
               weeklyCandlesForDailyStatic,
+              htf4hCandlesStatic,
+              htf1hCandlesStatic,
             );
 
             // Apply TF_GATES for this timeframe (filled trades bypass gates).
@@ -563,14 +580,23 @@ router.get("/active-signals", async (req: Request, res: Response) => {
             const tMeta = trendingNow.find((t) => t.symbolKey === combo.symbolKey);
             if (!tMeta) return { ok: false, symbolKey, timeframe };
             const needDailyForWeekly = timeframe === "1h" || timeframe === "4h";
-            const [candles, spot, rawDailyForWeekly] = await Promise.all([
+            const needHtfForPriceAction = timeframe === "15m";
+            const [candles, spot, rawDailyForWeekly, rawHtf4h, rawHtf1h] = await Promise.all([
               fetchCandlesForDynamic(tMeta.okxPerp!, timeframe),
               spotPromises.get(combo.symbolKey)!,
               needDailyForWeekly ? fetchCandlesForDynamic(tMeta.okxPerp!, "1d") : Promise.resolve([]),
+              needHtfForPriceAction ? fetchCandlesForDynamic(tMeta.okxPerp!, "4h") : Promise.resolve([]),
+              needHtfForPriceAction ? fetchCandlesForDynamic(tMeta.okxPerp!, "1h") : Promise.resolve([]),
             ]);
             if (candles.length < 2) return { ok: false, symbolKey, timeframe };
             const dailyForWeekly = needDailyForWeekly && (rawDailyForWeekly as CandleRaw[]).length > 0
               ? (rawDailyForWeekly as CandleRaw[])
+              : undefined;
+            const htf4hCandlesDynamic = needHtfForPriceAction && (rawHtf4h as CandleRaw[]).length > 0
+              ? (rawHtf4h as CandleRaw[])
+              : undefined;
+            const htf1hCandlesDynamic = needHtfForPriceAction && (rawHtf1h as CandleRaw[]).length > 0
+              ? (rawHtf1h as CandleRaw[])
               : undefined;
             const levels = computeLevelsStable(
               candles,
@@ -584,6 +610,9 @@ router.get("/active-signals", async (req: Request, res: Response) => {
               maxLeverage,
               mt5Lots,
               dailyForWeekly,
+              undefined,
+              htf4hCandlesDynamic,
+              htf1hCandlesDynamic,
             );
 
             const dynFilledTrade =

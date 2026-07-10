@@ -348,3 +348,94 @@ export function computeTarget(
     .sort((a, b) => b.price - a.price);
   return below[0]?.price ?? null;
 }
+
+// ─── 6. Top-level orchestrator ────────────────────────────────────────────────
+// Combines all tiers: 4H structure → 1H S/R zone → 15m trigger (sweep or EMA
+// cross), preferring momentum + volume confirmation. Entry is a limit at the
+// zone level; stop beyond the local swing + ATR buffer; target is the next
+// opposing 1H zone (informational only — the real exit is a trailing stop,
+// wired in Stage 3).
+
+export interface PriceActionSignalResult {
+  signal: "BUY" | "SELL" | "WAIT";
+  reason: string;
+  entryPrice: number | null;
+  stopLoss: number | null;
+  target: number | null;
+  structure: MarketStructure;
+  zone: SRZone | null;
+  hasMomentum: boolean;
+  hasVolume: boolean;
+}
+
+export function computePriceActionSignal(
+  candles4h: CandleRaw[],
+  candles1h: CandleRaw[],
+  candles15m: CandleRaw[],
+): PriceActionSignalResult {
+  const wait = (reason: string): PriceActionSignalResult => ({
+    signal: "WAIT",
+    reason,
+    entryPrice: null,
+    stopLoss: null,
+    target: null,
+    structure: null,
+    zone: null,
+    hasMomentum: false,
+    hasVolume: false,
+  });
+
+  if (candles15m.length < 30) return wait("Insufficient 15m candle history");
+
+  const structure = detectMarketStructure(candles4h);
+  if (!structure) return wait("No clear 4H market structure (ranging or insufficient history)");
+
+  const zones = detectSRZones(candles1h);
+  if (zones.length === 0) return wait("No qualifying 1H S/R zone (needs 3+ weighted touches + volume bump)");
+
+  const direction: "bullish" | "bearish" = structure === "up" ? "bullish" : "bearish";
+  const relevantType: "support" | "resistance" = structure === "up" ? "support" : "resistance";
+  const atr15 = calcATR(candles15m, 14);
+  if (atr15 <= 0) return wait("ATR not warm on 15m");
+
+  const currentPrice = candles15m[candles15m.length - 1].close;
+  const candidateZones = zones
+    .filter((z) => z.type === relevantType)
+    .sort((a, b) => Math.abs(a.price - currentPrice) - Math.abs(b.price - currentPrice));
+
+  for (const zone of candidateZones) {
+    const sweep = detectSweep(candles15m, zone, atr15);
+    const emaTrigger = detectEmaTrigger(candles15m);
+    const sweepFired = sweep?.direction === direction;
+    const emaFired = emaTrigger?.direction === direction;
+    if (!sweepFired && !emaFired) continue;
+
+    const stop = computeStopLoss(candles15m, direction, atr15);
+    if (stop == null) continue;
+    const target = computeTarget(zones, zone.price, direction);
+    const hasMomentum = hasMomentumConfirmation(candles15m, direction);
+    const hasVolume = hasVolumeConfirmation(candles15m);
+
+    const triggerLabel = sweepFired
+      ? `${sweep!.variant === "wick" ? "wick" : "close-return"} liquidity sweep`
+      : `${emaTrigger!.kind.replace("-", " ")}`;
+
+    return {
+      signal: direction === "bullish" ? "BUY" : "SELL",
+      reason:
+        `4H structure ${structure.toUpperCase()} → 1H ${zone.type} zone @ ${zone.price.toFixed(5)} ` +
+        `→ 15m ${triggerLabel}` +
+        (hasMomentum ? " with momentum confirmation" : "") +
+        (hasVolume ? " and volume confirmation" : ""),
+      entryPrice: zone.price,
+      stopLoss: stop,
+      target,
+      structure,
+      zone,
+      hasMomentum,
+      hasVolume,
+    };
+  }
+
+  return wait(`4H structure ${structure.toUpperCase()} but no 15m trigger fired yet at the 1H ${relevantType} zone`);
+}

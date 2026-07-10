@@ -23,4 +23,5 @@ export const SignalLogEntrySignalType = {
   MACD_DIP_LONG: "MACD_DIP_LONG",
   BOS_SELL: "BOS_SELL",
   BOS_BUY: "BOS_BUY",
+  PRICE_ACTION_SR: "PRICE_ACTION_SR",
 } as const;
