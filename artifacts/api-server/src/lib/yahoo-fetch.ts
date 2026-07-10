@@ -1,7 +1,7 @@
 import { SYMBOLS, type Symbol } from "./symbols";
 import { fetchOkxPerpCandles } from "./crypto-perp-fetch";
 
-export type Timeframe = "1h" | "4h" | "1d" | "1w";
+export type Timeframe = "15m" | "1h" | "4h" | "1d" | "1w";
 
 export interface CandleRaw {
   date: string;
@@ -18,6 +18,7 @@ interface YahooConfig {
 }
 
 const TIMEFRAME_MAP: Record<Timeframe, YahooConfig> = {
+  "15m": { interval: "15m", range: "60d"  }, // Yahoo caps 15m history at ~60 days
   "1h": { interval: "60m", range: "730d" },
   "4h": { interval: "60m", range: "730d" }, // placeholder — 4h uses Twelve Data, not Yahoo
   "1d": { interval: "1d",  range: "2y"   },
@@ -30,6 +31,7 @@ interface CacheEntry {
 }
 
 const CACHE_TTL_MS: Record<Timeframe, number> = {
+  "15m": 2 * 60 * 1000,
   "1h": 5 * 60 * 1000,
   "4h": 15 * 60 * 1000,
   "1d": 5 * 60 * 1000,
@@ -72,6 +74,7 @@ export async function fetchCandlesForTimeframe(
 // Row format: [timestamp_s, vol_quote, open, high, low, close, vol_base, is_closed]
 const GATEIO_BASE = "https://api.gateio.ws/api/v4";
 const GATEIO_INTERVAL: Record<Timeframe, string> = {
+  "15m": "15m",
   "1h":  "1h",
   "4h":  "4h",
   "1d":  "1d",

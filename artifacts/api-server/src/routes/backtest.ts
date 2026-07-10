@@ -74,6 +74,7 @@ interface Trade {
 }
 
 const MAX_HOLD_BARS: Record<Timeframe, number> = {
+  "15m": 12,
   "1h": 12,
   "4h": 10,
   "1d": 10,
@@ -83,6 +84,7 @@ const MAX_HOLD_BARS: Record<Timeframe, number> = {
 // FIB_BOUNCE targets the swing high — a multi-bar swing trade, not a scalp.
 // 3× the pivot hold window gives price enough time to retrace back to the top.
 const FIB_MAX_HOLD_BARS: Record<Timeframe, number> = {
+  "15m": 36,   // 9 hours
   "1h":  36,   // 36 hours
   "4h":  24,   // 4 days
   "1d":  20,   // 20 days

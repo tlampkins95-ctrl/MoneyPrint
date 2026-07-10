@@ -632,6 +632,7 @@ function getWeeklyTrend(weeklyCandles: CandleRaw[]): "UP" | "DOWN" | "NEUTRAL" {
 }
 
 const TIMEFRAME_LABELS: Record<Timeframe, string> = {
+  "15m": "15-minute",
   "1h": "1-hour",
   "4h": "4-hour",
   "1d": "daily",

@@ -144,6 +144,7 @@ const ALERT_SEED_TIMEFRAMES = new Set<Timeframe>(["1h"]);
 const POLL_INTERVAL_MS = 20_000;
 
 const COOLDOWN_BY_TIMEFRAME: Record<Timeframe, number> = {
+  "15m": 45 * 60_000,
   "1h": 3 * 60 * 60_000,
   "4h": 8 * 60 * 60_000,
   "1d": 24 * 60 * 60_000,
@@ -156,6 +157,7 @@ const COOLDOWN_BY_TIMEFRAME: Record<Timeframe, number> = {
 // during US session hours produces a SELL → BUY flip within minutes on the 1d,
 // which is noise from the live candle, not a genuine daily structure change.
 const MIN_FLIP_COOLDOWN_MS: Record<Timeframe, number> = {
+  "15m": 0,
   "1h": 0,
   "4h": 60 * 60_000,        // 1h min between 4h flips
   "1d": 4 * 60 * 60_000,    // 4h min between daily flips
@@ -166,6 +168,7 @@ const MIN_FLIP_COOLDOWN_MS: Record<Timeframe, number> = {
 // This is the hard floor on effectiveCooldownMs — even with streak=0,
 // a re-entry cannot happen in the same polling tick that closed the prior trade.
 const CANDLE_PERIOD_MS: Record<Timeframe, number> = {
+  "15m": 15 * 60_000,
   "1h": 60 * 60_000,
   "4h": 4 * 60 * 60_000,
   "1d": 24 * 60 * 60_000,
@@ -173,6 +176,7 @@ const CANDLE_PERIOD_MS: Record<Timeframe, number> = {
 };
 
 const TIMEFRAME_LABEL: Record<Timeframe, string> = {
+  "15m": "15-minute",
   "1h": "1-hour",
   "4h": "4-hour",
   "1d": "Daily",
