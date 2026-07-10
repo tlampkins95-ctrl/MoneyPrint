@@ -134,7 +134,7 @@ export function getNotifierStatus(): NotifierStatus {
 const ALERT_SYMBOLS: Symbol[] = ["XAGUSD", "EURUSD"];
 
 // FIB50_SWING fires on 1H and 1D. 1H entries confirmed by weekly macro trend.
-const TRACKED_TIMEFRAMES: Timeframe[] = ["1h", "4h", "1d"];
+const TRACKED_TIMEFRAMES: Timeframe[] = ["15m", "1h", "4h", "1d"];
 // Only seed-alert on 30m at startup/restart for trending/all symbols.
 // ALERT_SYMBOLS (XAGUSD, EURUSD) also seed on 1h — there are only 2 symbols
 // so the risk of a barrage is minimal, and missing a live 1h metal BUY on
@@ -1267,13 +1267,19 @@ async function checkSymbol(
     // For 1H signals, also fetch daily candles so FIB50_SWING can synthesize
     // weekly bars for the macro trend gate (weekly SMA-30 confirmation).
     const needDailyForWeekly = timeframe === "1h";
-    const [candles, spot, higherCandles, rawDailyForWeekly] = await Promise.all([
+    // For 15m (PRICE_ACTION_SR), also fetch 4H (structure) and 1H (S/R zones).
+    const needHtfForPriceAction = timeframe === "15m";
+    const [candles, spot, higherCandles, rawDailyForWeekly, rawHtf4h, rawHtf1h] = await Promise.all([
       fetchCandlesForTimeframe(symbol, timeframe),
       fetchSpotPrice(symbol),
       higherTf ? fetchCandlesForTimeframe(symbol, higherTf) : Promise.resolve([]),
       needDailyForWeekly ? fetchCandlesForTimeframe(symbol, "1d") : Promise.resolve([]),
+      needHtfForPriceAction ? fetchCandlesForTimeframe(symbol, "4h") : Promise.resolve([]),
+      needHtfForPriceAction ? fetchCandlesForTimeframe(symbol, "1h") : Promise.resolve([]),
     ]);
     if (candles.length < 2) return;
+    const htf4hCandles = needHtfForPriceAction && rawHtf4h.length > 0 ? rawHtf4h : undefined;
+    const htf1hCandles = needHtfForPriceAction && rawHtf1h.length > 0 ? rawHtf1h : undefined;
 
     // Apply basis shift for metals so alert prices (entry/SL/TP) match broker
     // spot pricing (MT5 / OANDA) rather than SI=F / GC=F futures levels.
@@ -1307,7 +1313,7 @@ async function checkSymbol(
     const levels = computeLevelsStable(
       adjustedCandles, spot, timeframe, symbol, SYMBOLS[symbol],
       DEFAULT_ACCOUNT_SIZE, DEFAULT_RISK_PCT, DEFAULT_MIN_COLLATERAL, DEFAULT_MAX_LEVERAGE, DEFAULT_MT5_LOTS,
-      dailyForWeekly, weeklyCandlesForDaily,
+      dailyForWeekly, weeklyCandlesForDaily, htf4hCandles, htf1hCandles,
     );
     const k = key(symbol, timeframe);
     const prev = stateMap.get(k);
@@ -1425,12 +1431,15 @@ async function checkSymbol(
       }
 
       // Hard type filter. Only FIB50_SWING, DUMP_RECOVERY, DOUBLE_TOP, DOUBLE_BOTTOM,
-      // BB_REJECTION, and BB_WALK signals trigger notifications and Phemex auto-trades.
+      // BB_REJECTION, BB_WALK, and PRICE_ACTION_SR signals trigger notifications.
+      // PRICE_ACTION_SR is dashboard/notification-only — it is NOT in the Phemex
+      // auto-trader allowlist (DEFAULT_ALLOWED_SIGNAL_TYPES), so adding it here
+      // does not enable any live trading.
       // PATTERN_BREAKOUT is excluded — entries are time-sensitive and degrade rapidly
       // after the breakout bar. Filled trades bypass this: a fill notification is
       // always actionable regardless of what signal type originally opened the position.
       if (!isFilledTrade) {
-        const signalTypeAllowed = levels.signalType === "FIB50_SWING" || levels.signalType === "DOUBLE_TOP" || levels.signalType === "DOUBLE_BOTTOM" || levels.signalType === "BB_REJECTION" || levels.signalType === "BB_WALK" || levels.signalType === "BB_BREAKOUT" || levels.signalType === "BB_OVEREXTENSION";
+        const signalTypeAllowed = levels.signalType === "FIB50_SWING" || levels.signalType === "DOUBLE_TOP" || levels.signalType === "DOUBLE_BOTTOM" || levels.signalType === "BB_REJECTION" || levels.signalType === "BB_WALK" || levels.signalType === "BB_BREAKOUT" || levels.signalType === "BB_OVEREXTENSION" || levels.signalType === "PRICE_ACTION_SR";
         if (!signalTypeAllowed) {
           logger.info(
             { symbol, timeframe, signalType: levels.signalType },
@@ -1882,13 +1891,19 @@ async function checkTrendingSymbol(
     if (!tMeta) return; // expired or not in cache
     const higherTf = HIGHER_TIMEFRAME[timeframe];
     const needDailyForWeekly = timeframe === "1h";
-    const [candles, spot, higherCandles, rawDailyForWeekly] = await Promise.all([
+    // For 15m (PRICE_ACTION_SR), also fetch 4H (structure) and 1H (S/R zones).
+    const needHtfForPriceAction = timeframe === "15m";
+    const [candles, spot, higherCandles, rawDailyForWeekly, rawHtf4h, rawHtf1h] = await Promise.all([
       fetchCandlesForDynamic(tMeta.okxPerp!, timeframe),
       fetchSpotForDynamic(tMeta.okxPerp!),
       higherTf ? fetchCandlesForDynamic(tMeta.okxPerp!, higherTf) : Promise.resolve([]),
       needDailyForWeekly ? fetchCandlesForDynamic(tMeta.okxPerp!, "1d") : Promise.resolve([]),
+      needHtfForPriceAction ? fetchCandlesForDynamic(tMeta.okxPerp!, "4h") : Promise.resolve([]),
+      needHtfForPriceAction ? fetchCandlesForDynamic(tMeta.okxPerp!, "1h") : Promise.resolve([]),
     ]);
     if (candles.length < 2) return;
+    const htf4hCandles = needHtfForPriceAction && (rawHtf4h as typeof candles).length > 0 ? (rawHtf4h as typeof candles) : undefined;
+    const htf1hCandles = needHtfForPriceAction && (rawHtf1h as typeof candles).length > 0 ? (rawHtf1h as typeof candles) : undefined;
 
     // Same fix as checkSymbol: for 4h, higherCandles ARE daily candles — reuse them.
     const dailyForWeekly =
@@ -1915,7 +1930,7 @@ async function checkTrendingSymbol(
     const levels = computeLevelsStable(
       candles, spot, timeframe, symbolKey, tMeta,
       undefined, undefined, undefined, undefined, undefined,
-      dailyForWeekly, weeklyCandlesForDailyT,
+      dailyForWeekly, weeklyCandlesForDailyT, htf4hCandles, htf1hCandles,
     );
     const now = Date.now();
 
@@ -2028,7 +2043,7 @@ async function checkTrendingSymbol(
       // Filled trades bypass this: fills are always actionable regardless of
       // what signal type originally opened the position.
       if (!isFilledTrade) {
-        const trendingTypeAllowed = levels.signalType === "FIB50_SWING" || levels.signalType === "DOUBLE_TOP" || levels.signalType === "DOUBLE_BOTTOM" || levels.signalType === "BB_REJECTION" || levels.signalType === "BB_WALK" || levels.signalType === "BB_BREAKOUT" || levels.signalType === "BB_OVEREXTENSION";
+        const trendingTypeAllowed = levels.signalType === "FIB50_SWING" || levels.signalType === "DOUBLE_TOP" || levels.signalType === "DOUBLE_BOTTOM" || levels.signalType === "BB_REJECTION" || levels.signalType === "BB_WALK" || levels.signalType === "BB_BREAKOUT" || levels.signalType === "BB_OVEREXTENSION" || levels.signalType === "PRICE_ACTION_SR";
         if (!trendingTypeAllowed) {
           logger.info(
             { symbolKey, timeframe, signalType: levels.signalType, signal: levels.signal },
