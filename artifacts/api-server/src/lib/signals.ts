@@ -6,6 +6,7 @@ import { type CandleRaw, type Timeframe } from "./yahoo-fetch";
 import { fetchOkxPerpPrice, fetchPhemexPerpPrice } from "./crypto-perp-fetch";
 import { fetchPythPrice } from "./pyth-fetch";
 import { detectChartPattern, detectCandlestickSignal, detectFastDoubleTop, detectDoubleTop, detectDoubleBottom, findSwingHighs, findSwingLows, type PatternResult } from "./patterns";
+import { logger } from "./logger";
 
 // ─── Live spot price (per-symbol cache) ──────────────────────────────────────
 
@@ -1948,6 +1949,9 @@ export function computeLevels(
           const tp1 = round(rawMeasured);
           const tp2 = round(floorTarget(ep, sl, rawMeasured, MIN_RR_TP2, "SELL"));
           const rrAtTp1 = (ep - tp1) / risk;
+          if (tp1 < ep && tp2 < tp1 && rrAtTp1 < 1.5) {
+            logger.info({ symbolKey, tf: tfLabel, rrAtTp1, ep, tp1, sl }, "DEBUG: DOUBLE_TOP blocked by R:R gate");
+          }
           if (tp1 < ep && tp2 < tp1 && rrAtTp1 >= 1.5) {
             signal        = "SELL";
             signalType    = "DOUBLE_TOP";
@@ -1998,6 +2002,9 @@ export function computeLevels(
           const tp2         = round(floorTarget(ep, sl, rawMeasured, MIN_RR_TP2, "BUY"));
           const dbRisk      = ep - sl;
           const rrAtTp1     = dbRisk > 0 ? (tp1 - ep) / dbRisk : 0;
+          if (rrAtTp1 < 1.5) {
+            logger.info({ symbolKey, tf: tfLabel, rrAtTp1, ep, tp1, sl, mode: "forming" }, "DEBUG: DOUBLE_BOTTOM blocked by R:R gate");
+          }
           if (rrAtTp1 >= 1.5) {
             signal        = "BUY";
             signalType    = "DOUBLE_BOTTOM";
@@ -2019,6 +2026,9 @@ export function computeLevels(
           const tp2         = tp1; // measured move is already TP in confirmed mode
           const dbRisk      = ep - sl;
           const rrAtTp1     = dbRisk > 0 ? (tp1 - ep) / dbRisk : 0;
+          if (rrAtTp1 < 1.5) {
+            logger.info({ symbolKey, tf: tfLabel, rrAtTp1, ep, tp1, sl, mode: "confirmed" }, "DEBUG: DOUBLE_BOTTOM blocked by R:R gate");
+          }
           if (rrAtTp1 >= 1.5) {
             signal        = "BUY";
             signalType    = "DOUBLE_BOTTOM";
