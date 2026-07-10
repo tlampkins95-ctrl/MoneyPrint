@@ -119,7 +119,18 @@ export function detectMarketStructure(candles: CandleRaw[]): MarketStructure {
 
   if (higherHigh && higherLow) return "up";
   if (lowerHigh && lowerLow) return "down";
-  return null; // mixed structure — no clear bias, sit out
+
+  // Mixed swings (one flip, one lagging) — use EMA20 as tie-breaker.
+  // Price above EMA20 = bullish bias; below = bearish. This eliminates the
+  // ~8h confirmation lag that kept valid breakouts stuck at WAIT.
+  const closes = candles.map((c) => c.close);
+  const ema20 = calcEMA(closes, 20);
+  const currentPrice = closes[closes.length - 1];
+  const currentEma20 = ema20[ema20.length - 1];
+  if (!isFinite(currentEma20) || currentEma20 <= 0) return null;
+  if (currentPrice > currentEma20) return "up";
+  if (currentPrice < currentEma20) return "down";
+  return null;
 }
 
 // ─── 2. Support/Resistance zones (1H setup) ───────────────────────────────────
