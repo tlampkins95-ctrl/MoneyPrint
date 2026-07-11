@@ -329,17 +329,23 @@ export function computeStopLoss(
   candles: CandleRaw[],
   direction: "bullish" | "bearish",
   atr: number,
-): number | null {
+  entryPrice: number,
+  zoneBandWidth: number,
+): number {
   if (direction === "bullish") {
+    // Stop must be strictly BELOW entry. Use the most-recent 15m swing low that
+    // is already below the entry; if none exists (price hasn't pulled back to the
+    // zone yet), anchor to the zone bottom instead.
     const lows = findSwingLows(candles, 2, 30);
-    if (lows.length === 0) return null;
-    const lastLow = lows[lows.length - 1].price;
-    return lastLow - atr * STOP_BUFFER_ATR_MULT;
+    const validLow = [...lows].reverse().find((l) => l.price < entryPrice);
+    const anchor = validLow?.price ?? (entryPrice - zoneBandWidth);
+    return anchor - atr * STOP_BUFFER_ATR_MULT;
   }
+  // Sell: stop must be strictly ABOVE entry.
   const highs = findSwingHighs(candles, 2, 30);
-  if (highs.length === 0) return null;
-  const lastHigh = highs[highs.length - 1].price;
-  return lastHigh + atr * STOP_BUFFER_ATR_MULT;
+  const validHigh = [...highs].reverse().find((h) => h.price > entryPrice);
+  const anchor = validHigh?.price ?? (entryPrice + zoneBandWidth);
+  return anchor + atr * STOP_BUFFER_ATR_MULT;
 }
 
 // Target = next opposing S/R zone beyond the entry, in the trade's direction.
@@ -421,8 +427,7 @@ export function computePriceActionSignal(
     const emaFired = emaTrigger?.direction === direction;
     if (!sweepFired && !emaFired) continue;
 
-    const stop = computeStopLoss(candles15m, direction, atr15);
-    if (stop == null) continue;
+    const stop = computeStopLoss(candles15m, direction, atr15, zone.price, zone.bandWidth);
     const target = computeTarget(zones, zone.price, direction);
     const hasMomentum = hasMomentumConfirmation(candles15m, direction);
     const hasVolume = hasVolumeConfirmation(candles15m);
