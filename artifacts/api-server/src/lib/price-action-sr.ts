@@ -320,32 +320,39 @@ export function hasVolumeConfirmation(candles: CandleRaw[]): boolean {
 }
 
 // ─── 5. Stop / entry helpers ───────────────────────────────────────────────────
-// Stop sits just beyond the last local low (long) / high (short), buffered by
-// 0.5x ATR so a wick doesn't tag it exactly.
+// Stop sits just beyond the last local low (long) / high (short), with a fixed
+// 0.5% price buffer.  ATR is NOT used for the buffer — ATR balloons during
+// pumps and pushes the SL far below the structural level.
+//
+// Max-distance cap: if the nearest swing low/high is more than 2% from entry,
+// we clamp the anchor to 2% away (the zone bottom/top acts as the fallback).
 
-const STOP_BUFFER_ATR_MULT = 0.5;
+const STOP_BUFFER_PCT = 0.005;   // 0.5 % of the anchor price
+const STOP_MAX_DIST_PCT = 0.02;  // anchor never more than 2 % from entry
 
 export function computeStopLoss(
   candles: CandleRaw[],
   direction: "bullish" | "bearish",
-  atr: number,
   entryPrice: number,
   zoneBandWidth: number,
 ): number {
   if (direction === "bullish") {
-    // Stop must be strictly BELOW entry. Use the most-recent 15m swing low that
-    // is already below the entry; if none exists (price hasn't pulled back to the
-    // zone yet), anchor to the zone bottom instead.
+    // Find the most-recent 15m swing low strictly below entry.
     const lows = findSwingLows(candles, 2, 30);
     const validLow = [...lows].reverse().find((l) => l.price < entryPrice);
-    const anchor = validLow?.price ?? (entryPrice - zoneBandWidth);
-    return anchor - atr * STOP_BUFFER_ATR_MULT;
+    const minAnchor = entryPrice * (1 - STOP_MAX_DIST_PCT);
+    // If the swing low is further than the cap, or absent, use the cap/fallback.
+    const rawAnchor = validLow?.price ?? (entryPrice - zoneBandWidth);
+    const anchor = Math.max(rawAnchor, minAnchor);
+    return anchor * (1 - STOP_BUFFER_PCT);
   }
   // Sell: stop must be strictly ABOVE entry.
   const highs = findSwingHighs(candles, 2, 30);
   const validHigh = [...highs].reverse().find((h) => h.price > entryPrice);
-  const anchor = validHigh?.price ?? (entryPrice + zoneBandWidth);
-  return anchor + atr * STOP_BUFFER_ATR_MULT;
+  const maxAnchor = entryPrice * (1 + STOP_MAX_DIST_PCT);
+  const rawAnchor = validHigh?.price ?? (entryPrice + zoneBandWidth);
+  const anchor = Math.min(rawAnchor, maxAnchor);
+  return anchor * (1 + STOP_BUFFER_PCT);
 }
 
 // Target = next opposing S/R zone beyond the entry, in the trade's direction.
@@ -427,7 +434,7 @@ export function computePriceActionSignal(
     const emaFired = emaTrigger?.direction === direction;
     if (!sweepFired && !emaFired) continue;
 
-    const stop = computeStopLoss(candles15m, direction, atr15, zone.price, zone.bandWidth);
+    const stop = computeStopLoss(candles15m, direction, zone.price, zone.bandWidth);
     const target = computeTarget(zones, zone.price, direction);
     const hasMomentum = hasMomentumConfirmation(candles15m, direction);
     const hasVolume = hasVolumeConfirmation(candles15m);
