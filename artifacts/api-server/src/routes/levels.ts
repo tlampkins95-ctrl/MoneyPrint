@@ -436,6 +436,16 @@ router.get("/price-history", async (req: Request, res: Response) => {
   }
 });
 
+// ── Active-signals response cache ─────────────────────────────────────────────
+// computeLevelsStable over 100+ symbol×timeframe combos takes ~1-3 s even with
+// cached candles.  A 12-second server-side cache means every poll within the
+// 15 s frontend interval returns instantly except the first one after the window
+// expires.  Cache key = serialised query params so different account sizes get
+// their own entry.
+const ACTIVE_SIGNALS_CACHE_TTL_MS = 12_000;
+interface ActiveSignalsCacheEntry { ts: number; payload: unknown }
+const activeSignalsCache = new Map<string, ActiveSignalsCacheEntry>();
+
 // Overview of every currently-active BUY/SELL signal across all tracked
 // symbols × timeframes. Recomputes each combo via computeLevelsStable so
 // the response reflects fresh current price + dynamic state (PENDING vs
@@ -443,6 +453,12 @@ router.get("/price-history", async (req: Request, res: Response) => {
 router.get("/active-signals", async (req: Request, res: Response) => {
   try {
     const params = GetActiveSignalsQueryParams.parse(req.query);
+    const cacheKey = JSON.stringify(params);
+    const cached = activeSignalsCache.get(cacheKey);
+    if (cached && Date.now() - cached.ts < ACTIVE_SIGNALS_CACHE_TTL_MS) {
+      res.json(cached.payload);
+      return;
+    }
     const { accountSize, riskPct, minCollateral, maxLeverage, mt5Lots } = params;
 
     // Dedupe spot fetches per symbol.
@@ -657,7 +673,9 @@ router.get("/active-signals", async (req: Request, res: Response) => {
     if (!parsed.success) {
       req.log.warn({ err: parsed.error }, "GetActiveSignalsResponse schema mismatch — returning raw data");
     }
-    res.json(parsed.success ? parsed.data : payload);
+    const responsePayload = parsed.success ? parsed.data : payload;
+    activeSignalsCache.set(cacheKey, { ts: Date.now(), payload: responsePayload });
+    res.json(responsePayload);
   } catch (err) {
     req.log.error({ err }, "Failed to compute active signals");
     res.status(500).json({ error: "Failed to compute active signals" });
