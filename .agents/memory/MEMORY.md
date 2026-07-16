@@ -76,3 +76,4 @@
 - [PRICE_ACTION_SR 4H structure lag](price-action-sr-4h-structure-lag.md) — swing-confirmation lag can show WAIT/"no clear structure" even after price breaks above 20 EMA; expected, not a bug.
 - [DOUBLE_TOP/BOTTOM R:R gate + pre-trade block](double-pattern-rr-gate.md) — DOUBLE_TOP and DOUBLE_BOTTOM had no R:R check before firing; shallow patterns produce 1:1 or worse; now require rrAtTp1 >= 1.5 in signals.ts AND hard pre-trade abort in notifier.ts before placeOrder.
 - [PRICE_ACTION_SR signal (dashboard-only)](price-action-sr-signal.md) — second signal engine (4H→1H→15m), on-demand only, no polling, not in Phemex allowlist; routes must side-fetch 4H+1H candles for 15m.
+- [FIB50_SWING 1h daily alignment gate — REMOVED](fib50swing-1h-daily-gate.md) — gate requiring 1h fib50 price to match a daily fib level was never requested; 1h and daily 50% fibs almost never coincide; blocked every valid 1h bounce; do NOT re-add.
