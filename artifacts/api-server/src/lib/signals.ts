@@ -1732,33 +1732,6 @@ export function computeLevels(
           // Capture nearest valid BUY fib50 even when outside tolerance (for zone display).
           if (candidateBuyFib50 === 0) candidateBuyFib50 = fib50Buy;
           if (Math.abs(currentPrice - fib50Buy) <= FIB50_TOLERANCE_ATR * swingAtr) {
-            // Daily structure alignment check (1h only): the 1h fib50 entry must
-            // coincide with a meaningful daily fib level (0.236/0.382/0.5/0.618/0.786).
-            // Without this, the 1h swing detector fires at arbitrary small-swing
-            // midpoints that look like nothing on the daily chart. The check requires
-            // a valid daily UP swing (low A → high B) whose fib retracement levels
-            // include the 1h entry price within 0.5 daily ATR.
-            if (timeframe === "1h" && dailyCandlesForWeekly && dailyCandlesForWeekly.length >= 30) {
-              const dCompleted  = dailyCandlesForWeekly.slice(0, dailyCandlesForWeekly.length - 1);
-              const dAtr        = calcATR(dCompleted, 14);
-              const dSwingLows  = findSwingLows(dCompleted, 3, 30);
-              const dSwingHighs = findSwingHighs(dCompleted, 3, 30);
-              let dailyAligned  = false;
-              dBuyAlign: for (let di = dSwingLows.length - 1; di >= 0; di--) {
-                const { price: dLow, idx: dLowIdx } = dSwingLows[di];
-                const dHighCandidates = dSwingHighs.filter(s => s.idx > dLowIdx);
-                if (dHighCandidates.length === 0) continue;
-                const { price: dHigh } = dHighCandidates[dHighCandidates.length - 1];
-                const dRange = dHigh - dLow;
-                if (dRange < 2.5 * dAtr) continue;
-                const dFibs = [0.236, 0.382, 0.5, 0.618, 0.786].map(f => dHigh - f * dRange);
-                if (dFibs.some(fl => Math.abs(fib50Buy - fl) <= 0.5 * dAtr)) {
-                  dailyAligned = true;
-                  break dBuyAlign;
-                }
-              }
-              if (!dailyAligned) continue buySearch;
-            }
             const ep  = round(fib50Buy);
             const tp1 = round(swingALow + 0.786 * buySwingRange);  // 78.6% fib — TP1
             // 1d candles regularly span ≥1 ATR; enforce 1.5 ATR minimum on 1d. Other TFs: 2:1 R:R.
@@ -1850,31 +1823,6 @@ export function computeLevels(
           // Capture nearest valid SELL fib50 even when outside tolerance (for zone display).
           if (candidateSellFib50 === 0) candidateSellFib50 = fib50Sell;
           if (Math.abs(currentPrice - fib50Sell) <= FIB50_TOLERANCE_ATR * swingAtr) {
-            // Daily structure alignment check (1h only): the 1h fib50 SELL entry must
-            // coincide with a key daily fib level of a daily DOWN swing (high A → low B).
-            // If the daily only shows an UP swing (uptrend), no valid daily DOWN swing
-            // exists → SELL is blocked. This prevents shorting into daily support.
-            if (timeframe === "1h" && dailyCandlesForWeekly && dailyCandlesForWeekly.length >= 30) {
-              const dCompleted  = dailyCandlesForWeekly.slice(0, dailyCandlesForWeekly.length - 1);
-              const dAtr        = calcATR(dCompleted, 14);
-              const dSwingLows  = findSwingLows(dCompleted, 3, 30);
-              const dSwingHighs = findSwingHighs(dCompleted, 3, 30);
-              let dailyAligned  = false;
-              dSellAlign: for (let di = dSwingHighs.length - 1; di >= 0; di--) {
-                const { price: dHigh, idx: dHighIdx } = dSwingHighs[di];
-                const dLowCandidates = dSwingLows.filter(s => s.idx > dHighIdx);
-                if (dLowCandidates.length === 0) continue;
-                const { price: dLow } = dLowCandidates[dLowCandidates.length - 1];
-                const dRange = dHigh - dLow;
-                if (dRange < 2.5 * dAtr) continue;
-                const dFibs = [0.236, 0.382, 0.5, 0.618, 0.786].map(f => dLow + f * dRange);
-                if (dFibs.some(fl => Math.abs(fib50Sell - fl) <= 0.5 * dAtr)) {
-                  dailyAligned = true;
-                  break dSellAlign;
-                }
-              }
-              if (!dailyAligned) continue sellSearch;
-            }
             const ep  = round(fib50Sell);
             const tp1 = round(swingAHigh - 0.786 * sellSwingRange);  // 78.6% fib — TP1
             // 1d candles regularly span ≥1 ATR; the formula-derived SL (0.143×swingRange ≈ 1 ATR)
