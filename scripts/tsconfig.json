@@ -2,7 +2,10 @@
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "dist",
-    "rootDir": "src",
+    // ".." (repo root) rather than "src" — backtest-remaining-signals.ts
+    // imports computeLevels directly from artifacts/api-server for fidelity,
+    // which pulls files outside scripts/src into the type-check program.
+    "rootDir": "..",
     "types": ["node"]
   },
   "include": ["src"]

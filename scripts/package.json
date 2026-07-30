@@ -6,6 +6,9 @@
   "scripts": {
     "hello": "tsx ./src/hello.ts",
     "backtest:dagger": "tsx src/backtest-dagger.ts",
+    "backtest:harmonic": "tsx src/backtest-harmonic.ts",
+    "backtest:fib786": "tsx src/backtest-fib786.ts",
+    "backtest:remaining-signals": "tsx src/backtest-remaining-signals.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {

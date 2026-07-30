@@ -2,6 +2,8 @@ import app from "./app";
 import { logger } from "./lib/logger";
 import { startSignalNotifier, reconcilePhemexPositions } from "./lib/notifier";
 import { startTrendingDiscovery } from "./lib/trending-discovery";
+import { startCmcDiscovery } from "./lib/cmc-discovery";
+import { startFib786Notifier } from "./lib/fib786-notifier";
 import { syncFromDb } from "./lib/signals";
 
 const rawPort = process.env["PORT"];
@@ -34,4 +36,13 @@ app.listen(port, async (err) => {
 
   startSignalNotifier();
   startTrendingDiscovery();
+  startCmcDiscovery();
+
+  // FIB786 alert-only engine — ships dark by default; flip on deliberately
+  // once you're ready to start receiving live alerts.
+  if (process.env["ENABLE_FIB786_NOTIFIER"] === "true") {
+    startFib786Notifier();
+  } else {
+    logger.info("ENABLE_FIB786_NOTIFIER not set — FIB786 notifier disabled");
+  }
 });

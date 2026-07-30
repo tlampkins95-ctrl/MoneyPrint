@@ -1585,20 +1585,11 @@ export function computeLevels(
     }
   }
 
-  // ─── FIB50_SWING signal detection ──────────────────────────────────────────
-  // Swing fibonacci retracement entry on 1D and 1H timeframes.
-  //   UPTREND  (BUY):  find swing low A → price makes new high B → enter at 50% fib of A→B
-  //   DOWNTREND (SELL): find swing high A → price makes new low B → enter at 50% fib of A→B
-  //
-  // Entry:  50% fib of the A→B swing
-  // SL:     full swing invalidation (below A for BUY, above A for SELL) + ATR buffer
-  // TP1:    B — structural swing extreme (swing high for BUY, swing low for SELL), no R-floor override
-  // TP2:    B projected by one full swing range (measured move) — floored at 2.5R
-  //
-  // Confirmation filters applied to both timeframes:
-  //   • Weekly macro trend (SMA-30 of weekly closes): BUY only if UP, SELL only if DOWN (NEUTRAL = no trade)
-  //   • Bollinger Bands (SMA-30 close, 2σ): BUY entry ≤ BB mid, SELL entry ≥ BB mid
-  // ────────────────────────────────────────────────────────────────────────────
+  // FIB50_SWING was removed entirely per user request (the strategy this
+  // engine originally launched with) — see git history for the prior
+  // detection logic. SWING_LOOKBACK/MIN_SWING_ATR/FIB50_TOLERANCE_ATR below
+  // are kept because DOUBLE_BOTTOM, DUMP_RECOVERY, and the WAIT-state zone
+  // display fallback still reuse them.
   // Lookback: 1D uses 60 completed bars; 1H uses 120 bars (≈ 5 trading days).
   const SWING_LOOKBACK_BY_TF: Partial<Record<Timeframe, number>> = {
     "1h": 60,   // ~2.5 days  — recent hourly swing structure
@@ -1614,6 +1605,18 @@ export function computeLevels(
   // type away from these two values elsewhere in the file.
   const DUMP_RECOVERY_ENABLED: boolean = false;
   const MACD_DIP_LONG_ENABLED: boolean = false;
+  // Disabled per user request — over the last 50 closed trades: SWING_BREAK
+  // was 0W/3L (-3R), BB_BREAKOUT was 0W/1L (-1R). See PRICE_ACTION_SR_ENABLED
+  // below for the third (and by far largest) offender.
+  const SWING_BREAK_ENABLED: boolean = false;
+  const BB_BREAKOUT_ENABLED: boolean = false;
+  // DOUBLE_TOP: the TP1 R:R gate had a bug (reward was structurally always
+  // less than risk by construction, so it could never clear the 1.5R
+  // threshold — see the fixed formula below). After fixing it, the pattern
+  // fired for real (17 detected, 16 filled) but performed badly: 12.5% win
+  // rate, avg R -0.688, PF 0.21 over the backtest window. Disabled per user
+  // request — the bug is fixed, but the underlying pattern has no edge.
+  const DOUBLE_TOP_ENABLED: boolean = false;
   const MIN_SWING_ATR       = 2.5;  // swing height must be ≥ 2.5 × ATR to be meaningful
   const FIB50_TOLERANCE_ATR = 0.1;  // price must be within ±0.1 × ATR of the 50% fib
   const FIB50_SL_DISTANCE   = 10;   // fixed $10 stop distance from entry
@@ -1639,221 +1642,6 @@ export function computeLevels(
   // used to show distinct LONG/SHORT zone watch values in WAIT state.
   let candidateBuyFib50  = 0;
   let candidateSellFib50 = 0;
-
-  // Fire on 1D, 1H, and 1W.
-  if (timeframe === "1d" || timeframe === "1h" || timeframe === "1w") {
-    // Use only completed bars (exclude the still-forming current bar).
-    const completed = candles.slice(0, candles.length - 1);
-
-    // ATR on completed bars only — mirrors the backtest which uses calcATR(candles, i-1).
-    // The global `atr` computed above includes the live bar; we recompute here to avoid
-    // the live bar inflating/deflating the tolerance zone and swing-size gate.
-    const completedAtr = calcATR(completed, 14);
-    const swingAtr = completedAtr > 0 ? completedAtr : atr; // fall back to global if < 14 bars
-
-    // ── Weekly macro context (display only) ──────────────────────────────────
-    // Direction is gated by the MACD curl checks in higherTfAllowsBuy/Sell above.
-    // Weekly SMA-30 trend is kept for the signalReason label only — not a gate.
-    const weeklyCandles =
-      timeframe === "1w" ? completed :
-      timeframe === "1d" ? synthesizeWeeklyCandles(completed) :
-      (dailyCandlesForWeekly ? synthesizeWeeklyCandles(dailyCandlesForWeekly) : []);
-    const weeklyTrend = getWeeklyTrend(weeklyCandles);
-
-    // ── Bollinger Bands (SMA-30 close, 2σ) filter ────────────────────────────
-    // BUY: entry must be ≤ BB middle band (price in lower half of channel).
-    // SELL: entry must be ≥ BB middle band (price in upper half of channel).
-    // Fail-open when fewer than 30 bars are available.
-    const bb30 = calcBollingerBands(completed.map((c) => c.close), 30, 2);
-    // %B = (price − lower) / (upper − lower). >1 = above upper band; <0 = below lower band.
-    // Fails open (0.5) when BB isn't warm.
-    const pctB30 = bb30
-      ? (currentPrice - bb30.lower) / (bb30.upper - bb30.lower)
-      : 0.5;
-
-    // ── BUY Setup: swing low A → new high B → retrace to 50% fib ────────────
-    // Iterates structural swing lows from most-recent to oldest so the first
-    // qualifying fib that matches current price wins — prevents an older,
-    // deeper extreme from masking a more relevant recent setup.
-    // BB midline gate: only buy from the LOWER half of the range.
-    // Price above the midline = already in "sell zone" — a BUY here is
-    // buying the top half. Fails open when BB isn't warm yet.
-    // pctB30 > 0.15: reserve lower 15% of BB range for BB_REJECTION BUY — symmetric to
-    // the pctB30 < 0.85 cap on FIB50_SWING SELL. When the 50% fib ≈ lower BB, the
-    // BB_REJECTION signal should own that slot (it is excluded from catch-up re-entry
-    // because it is price-pinned). FIB50_SWING runs first in the cascade; allowing
-    // pctB30 >= 0 lets it steal the lower-band slot and mislabel the trade as
-    // FIB50_SWING, which permits catch-up re-entry after a restart at the wrong price.
-    const fibBuyBbOk = !bb || (currentPrice < bb.middle && pctB30 > 0.15);
-    if (signal === "WAIT" && higherTfAllowsBuy && (macdBuyOk || twoConsecutiveHigherCloses) && fibBuyBbOk) {
-      const swingLows        = findSwingLows(completed, 3, SWING_LOOKBACK);
-      const swingHighsForBuy = findSwingHighs(completed, 3, SWING_LOOKBACK);
-      buySearch: for (let j = swingLows.length - 1; j >= 0; j--) {
-        const { price: swingALow, idx: swingALowIdx } = swingLows[j];
-        // Most-recent confirmed structural swing HIGH after swingA — swingB for BUY
-        const validBuyBs = swingHighsForBuy.filter(s => s.idx > swingALowIdx && s.idx <= completed.length - 4);
-        if (validBuyBs.length === 0) continue;
-        const { price: swingBHigh, idx: swingBHighIdx } = validBuyBs[validBuyBs.length - 1];
-        const buySwingRange = swingBHigh - swingALow;
-        if (
-          buySwingRange >= MIN_SWING_ATR * swingAtr &&
-          currentPrice < swingBHigh
-        ) {
-          const fib50Buy = swingALow + 0.5 * buySwingRange;
-          // Fib-violation guard: if any candle after swingB closed BELOW the
-          // 50% fib, price already blew through the level. The setup is
-          // invalid — a re-visit after a violation is not a fresh bounce.
-          const fibViolatedBuy = completed
-            .slice(swingBHighIdx + 1)
-            .some((c) => c.close < fib50Buy);
-          if (fibViolatedBuy) continue;
-          // Resistance-exhaustion guard: if swingBHigh has been wicked ≥ 2 times
-          // without a close above it, the ceiling is proven overhead resistance and
-          // the fib-bounce setup is exhausted. A "touch" is any candle whose HIGH
-          // reached within 0.5 ATR of swingBHigh but whose CLOSE stayed below it.
-          const candlesAfterB = completed.slice(swingBHighIdx + 1);
-          const resistanceTouches = candlesAfterB.filter(
-            (c) => c.high >= swingBHigh - 0.5 * swingAtr && c.close < swingBHigh,
-          ).length;
-          if (resistanceTouches >= 2) continue;
-          // Trend structure guard (higher-high requirement): swingBHigh must be a
-          // NEW high relative to the swing highs that existed BEFORE swingALow.
-          // If swingBHigh is at or below the prior ceiling, price is ranging —
-          // no directional impulse, no valid FIB50_SWING entry.
-          // Tolerance: 0.25 ATR to handle measurement noise without letting clear
-          // range-tops through.
-          const priorHighsBeforeA = swingHighsForBuy
-            .filter(s => s.idx < swingALowIdx)
-            .map(s => s.price);
-          if (priorHighsBeforeA.length > 0) {
-            const prevHighCeiling = Math.max(...priorHighsBeforeA);
-            if (swingBHigh <= prevHighCeiling + 0.25 * swingAtr) continue;
-          }
-          // Capture nearest valid BUY fib50 even when outside tolerance (for zone display).
-          if (candidateBuyFib50 === 0) candidateBuyFib50 = fib50Buy;
-          if (Math.abs(currentPrice - fib50Buy) <= FIB50_TOLERANCE_ATR * swingAtr) {
-            const ep  = round(fib50Buy);
-            const tp1 = round(swingALow + 0.786 * buySwingRange);  // 78.6% fib — TP1
-            // 1d candles regularly span ≥1 ATR; enforce 1.5 ATR minimum on 1d. Other TFs: 2:1 R:R.
-            const slFormula = ep - 0.5 * (tp1 - ep);
-            const sl  = round(timeframe === "1d"
-              ? Math.min(slFormula, ep - 1.5 * swingAtr)
-              : slFormula);
-            // After potentially widening the 1d SL, verify R:R at TP1 is still ≥ 1.5.
-            // On narrow swings the 1.5×ATR floor can push SL far enough to drop below 1.5:1.
-            if (ep - sl <= 0 || (tp1 - ep) / (ep - sl) < 1.5) continue buySearch;
-            const tp2 = round(floorTarget(ep, sl, swingBHigh, MIN_RR_TP2, "BUY")); // swing high
-            signal       = "BUY";
-            signalType   = "FIB50_SWING"; // explicit — do not rely on let-initializer default
-            entryPrice   = ep;
-            stopLoss     = sl;
-            takeProfit1  = tp1;
-            dca1         = round(swingBHigh - 0.618 * buySwingRange);  // 38.2% fib (add on deeper dip)
-            takeProfit2  = tp2;
-            displaySwingHigh = swingBHigh;
-            displaySwingLow  = swingALow;
-            displayFib50     = ep;
-            const bbTag     = bb30 ? ` BB-mid ${fmt(bb30.middle)}` : "";
-            const weeklyTag = ` | Weekly ${weeklyTrend}`;
-            signalReason = `[${tfLabel}] FIB50 SWING BUY: Swing low ${fmt(swingALow)} → new high ${fmt(swingBHigh)} (range ${fmt(buySwingRange)}). Entry at 50% fib ${fmt(ep)}, TP1 ${fmt(tp1)} (78.6% fib), SL ${fmt(sl)} (2:1 R:R), TP2 ${fmt(tp2)} (swing high).${bbTag}${weeklyTag}`;
-            break buySearch;
-          }
-        }
-      }
-    }
-
-    // ── SELL Setup: swing high A → new low B → bounce to 50% fib ────────────
-    // Iterates structural swing highs from most-recent to oldest so the first
-    // qualifying fib that matches current price wins — prevents an older,
-    // higher extreme from masking a more relevant recent setup.
-    // BB midline gate: only short from the UPPER half of the range.
-    // Price below the midline = already in "buy zone" — a SELL here is
-    // shorting the bottom (the TAO/ZEC weekend problem). Fails open when
-    // BB isn't warm yet.
-    // pctB30 > 1 guard: price is ABOVE the upper band — a momentum breakout, not
-    // a mean-reversion fade. Block the fib SELL; BB_BREAKOUT BUY handles it.
-    // Price in the upper BB zone (pctB30 ≥ 0.85) is reserved for BB_REJECTION.
-    // FIB50_SWING SELL handles mid-range fib setups only — if we allow it to
-    // fire at the upper band it wins the cascade slot (runs first) and gets
-    // labelled FIB50_SWING, bypassing the catch-up guard that blocks
-    // BB_REJECTION re-entries.
-    const fibSellBbOk = !bb || (currentPrice > bb.middle && pctB30 < 0.85);
-    if (signal === "WAIT" && !isLongOnly && higherTfAllowsSell && bwContractingForSell && ((histPrev1 < histPrev2) || twoConsecutiveLowerCloses) && fibSellBbOk) {
-      const swingHighs        = findSwingHighs(completed, 3, SWING_LOOKBACK);
-      const swingLowsForSell  = findSwingLows(completed, 3, SWING_LOOKBACK);
-      sellSearch: for (let j = swingHighs.length - 1; j >= 0; j--) {
-        const { price: swingAHigh, idx: swingAHighIdx } = swingHighs[j];
-        // Most-recent confirmed structural swing LOW after swingA — swingB for SELL
-        const validSellBs = swingLowsForSell.filter(s => s.idx > swingAHighIdx && s.idx <= completed.length - 4);
-        if (validSellBs.length === 0) continue;
-        const { price: swingBLow, idx: swingBLowIdx } = validSellBs[validSellBs.length - 1];
-        const sellSwingRange = swingAHigh - swingBLow;
-        if (
-          sellSwingRange >= MIN_SWING_ATR * swingAtr &&
-          currentPrice > swingBLow
-        ) {
-          const fib50Sell = swingAHigh - 0.5 * sellSwingRange;
-          // Fib-violation guard: if any candle after swingB closed ABOVE the
-          // 50% fib, price already blew through the level. The setup is
-          // invalid — a re-visit after a violation is not a fresh rejection.
-          const fibViolatedSell = completed
-            .slice(swingBLowIdx + 1)
-            .some((c) => c.close > fib50Sell);
-          if (fibViolatedSell) continue;
-          // Support-exhaustion guard: if swingBLow has been wicked ≥ 2 times
-          // without a close below it, the floor is proven support and the
-          // fib-rejection setup is exhausted. A "touch" is any candle whose LOW
-          // reached within 0.5 ATR of swingBLow but whose CLOSE stayed above it.
-          const candlesAfterBSell = completed.slice(swingBLowIdx + 1);
-          const supportTouches = candlesAfterBSell.filter(
-            (c) => c.low <= swingBLow + 0.5 * swingAtr && c.close > swingBLow,
-          ).length;
-          if (supportTouches >= 2) continue;
-          // Trend structure guard (lower-low requirement): swingBLow must be a
-          // NEW low relative to the swing lows that existed BEFORE swingAHigh.
-          // If swingBLow is at or above the prior floor, price is ranging —
-          // no directional impulse, no valid FIB50_SWING SELL entry.
-          const priorLowsBeforeA = swingLowsForSell
-            .filter(s => s.idx < swingAHighIdx)
-            .map(s => s.price);
-          if (priorLowsBeforeA.length > 0) {
-            const prevLowFloor = Math.min(...priorLowsBeforeA);
-            if (swingBLow >= prevLowFloor - 0.25 * swingAtr) continue;
-          }
-          // Capture nearest valid SELL fib50 even when outside tolerance (for zone display).
-          if (candidateSellFib50 === 0) candidateSellFib50 = fib50Sell;
-          if (Math.abs(currentPrice - fib50Sell) <= FIB50_TOLERANCE_ATR * swingAtr) {
-            const ep  = round(fib50Sell);
-            const tp1 = round(swingAHigh - 0.786 * sellSwingRange);  // 78.6% fib — TP1
-            // 1d candles regularly span ≥1 ATR; the formula-derived SL (0.143×swingRange ≈ 1 ATR)
-            // gets clipped by normal daily candle noise. Enforce a 1.5 ATR minimum on 1d so
-            // the trade has room to breathe. Other TFs keep the strict 2:1 R:R.
-            const slFormula = ep + 0.5 * (ep - tp1);
-            const sl  = round(timeframe === "1d"
-              ? Math.max(slFormula, ep + 1.5 * swingAtr)
-              : slFormula);
-            // After potentially widening the 1d SL, verify R:R at TP1 is still ≥ 1.5.
-            if (sl - ep <= 0 || (ep - tp1) / (sl - ep) < 1.5) continue sellSearch;
-            const tp2 = round(floorTarget(ep, sl, swingBLow, MIN_RR_TP2, "SELL")); // swing low
-            signal       = "SELL";
-            signalType   = "FIB50_SWING"; // explicit — do not rely on let-initializer default
-            entryPrice   = ep;
-            stopLoss     = sl;
-            takeProfit1  = tp1;
-            dca1         = round(swingBLow + 0.618 * sellSwingRange);  // 61.8% fib (add on higher bounce)
-            takeProfit2  = tp2;
-            displaySwingHigh = swingAHigh;
-            displaySwingLow  = swingBLow;
-            displayFib50     = ep;
-            const bbTag     = bb30 ? ` BB-mid ${fmt(bb30.middle)}` : "";
-            const weeklyTag = ` | Weekly ${weeklyTrend}`;
-            signalReason = `[${tfLabel}] FIB50 SWING SELL: Swing high ${fmt(swingAHigh)} → new low ${fmt(swingBLow)} (range ${fmt(sellSwingRange)}). Entry at 50% fib ${fmt(ep)}, TP1 ${fmt(tp1)} (78.6% fib), SL ${fmt(sl)} (2:1 R:R), TP2 ${fmt(tp2)} (swing low).${bbTag}${weeklyTag}`;
-            break sellSearch;
-          }
-        }
-      }
-    }
-  }
 
   // ── Structural zone display fallback ────────────────────────────────────────
   // When the FIB50_SWING search (gated by MACD/BB) finds no candidates, both
@@ -1886,7 +1674,7 @@ export function computeLevels(
   //      20-vol-MA — already enforced inside detectDoubleTop/detectFastDoubleTop.
   //   3. 1 or 2 candles trending down (declining closes) after the second peak.
   //   4. MACD confirms: same-TF histogram negative and declining (macdSellOk).
-  if (signal === "WAIT" && !isLongOnly && macdSellOk) {
+  if (DOUBLE_TOP_ENABLED && signal === "WAIT" && !isLongOnly && macdSellOk) {
     const dtBars = candles.slice(0, candles.length - 1);
     const dtResult = detectFastDoubleTop(dtBars) ?? detectDoubleTop(dtBars);
     if (
@@ -1913,14 +1701,20 @@ export function computeLevels(
         const sl   = round(resistance + atr * 0.5);
         const risk = sl - ep;
         if (risk > 0) {
+          // TP1 previously used the raw measured-move (neckline − pattern
+          // height) directly, then hard-rejected the trade if that raw
+          // target didn't clear 1.5R. But reward-to-TP1 = pattern height
+          // while risk-to-SL = pattern height + 0.5×ATR — risk is always
+          // bigger than reward by construction, so rrAtTp1 was
+          // mathematically bounded below 1.0 and could never reach 1.5.
+          // Every valid double-top got detected and then unconditionally
+          // discarded. Fixed the same way DOUBLE_BOTTOM already handles
+          // this: floorTarget extends TP1 to guarantee ≥1.5R when the raw
+          // measured-move falls short, instead of rejecting the trade.
           const rawMeasured = neckline - (resistance - neckline);
-          const tp1 = round(rawMeasured);
+          const tp1 = round(floorTarget(ep, sl, rawMeasured, 1.5, "SELL"));
           const tp2 = round(floorTarget(ep, sl, rawMeasured, MIN_RR_TP2, "SELL"));
-          const rrAtTp1 = (ep - tp1) / risk;
-          if (tp1 < ep && tp2 < tp1 && rrAtTp1 < 1.5) {
-            logger.info({ symbolKey, tf: tfLabel, rrAtTp1, ep, tp1, sl }, "DEBUG: DOUBLE_TOP blocked by R:R gate");
-          }
-          if (tp1 < ep && tp2 < tp1 && rrAtTp1 >= 1.5) {
+          if (tp1 < ep && tp2 < tp1) {
             signal        = "SELL";
             signalType    = "DOUBLE_TOP";
             entryPrice    = ep;
@@ -2437,7 +2231,7 @@ export function computeLevels(
   // TP2:    entry ± 2.5×risk
   //
   // Gates: same-TF macdBuyOk/macdSellOk + daily curl gate (higherTfAllows*)
-  if (signal === "WAIT" && macdWarm) {
+  if (BB_BREAKOUT_ENABLED && signal === "WAIT" && macdWarm) {
     const bbkCompleted = candles.slice(0, candles.length - 1);
     if (bbkCompleted.length >= 30) {
       const bbkBands = calcBollingerBands(bbkCompleted.map((c) => c.close), 30, 2);
@@ -2526,7 +2320,7 @@ export function computeLevels(
   // Fresh-break gate: at least one of the last 3 completed candles must have
   //   closed on the "old" side of the level — prevents firing mid-range when
   //   price has been above the swing high for many bars already.
-  if (signal === "WAIT") {
+  if (SWING_BREAK_ENABLED && signal === "WAIT") {
     const sbCompleted = candles.slice(0, candles.length - 1);
 
     if (macdBuyOk && higherTfAllowsBuy) {
@@ -3048,7 +2842,12 @@ function computePriceActionLevels(
 
   const result = computePriceActionSignal(candles4h, candles1h, candles15m);
 
-  const signal = result.signal;
+  // Disabled per user request — 6W/14L (-6.8R) over the last 45 closed
+  // trades, ~90% of all trade volume across every signal type combined.
+  // `boolean`-typed (not literal `false`) so TS doesn't narrow `signal`'s
+  // inferred type away from "WAIT" elsewhere in this function.
+  const PRICE_ACTION_SR_ENABLED: boolean = false;
+  const signal = PRICE_ACTION_SR_ENABLED ? result.signal : "WAIT";
   const entryPrice = round(result.entryPrice ?? currentPrice);
   const stopLoss = round(result.stopLoss ?? currentPrice);
   const takeProfit1 = round(result.target ?? entryPrice);
