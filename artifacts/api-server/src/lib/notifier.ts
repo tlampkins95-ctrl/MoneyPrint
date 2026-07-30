@@ -339,7 +339,7 @@ async function executePhemexTrade(
   // Per-signal-type auto-trade gate. PHEMEX_AUTOTRADER_SIGNAL_TYPES overrides
   // the default allowlist. Unset = use the hardcoded default below.
   // Alerts still fire for blocked types — only Phemex order placement is suppressed.
-  const DEFAULT_ALLOWED_SIGNAL_TYPES = "FIB50_SWING,BB_REJECTION,DOUBLE_BOTTOM,DOUBLE_TOP";
+  const DEFAULT_ALLOWED_SIGNAL_TYPES = "BB_REJECTION,DOUBLE_BOTTOM,DOUBLE_TOP";
   const allowedSignalTypes = (process.env.PHEMEX_AUTOTRADER_SIGNAL_TYPES ?? "").trim() || DEFAULT_ALLOWED_SIGNAL_TYPES;
   const allowed = allowedSignalTypes.split(",").map(s => s.trim()).filter(Boolean);
   if (levels.signalType && !allowed.includes(levels.signalType)) {
@@ -1439,7 +1439,7 @@ async function checkSymbol(
       // after the breakout bar. Filled trades bypass this: a fill notification is
       // always actionable regardless of what signal type originally opened the position.
       if (!isFilledTrade) {
-        const signalTypeAllowed = levels.signalType === "FIB50_SWING" || levels.signalType === "DOUBLE_TOP" || levels.signalType === "DOUBLE_BOTTOM" || levels.signalType === "BB_REJECTION" || levels.signalType === "BB_WALK" || levels.signalType === "BB_BREAKOUT" || levels.signalType === "BB_OVEREXTENSION" || levels.signalType === "PRICE_ACTION_SR";
+        const signalTypeAllowed = levels.signalType === "DOUBLE_TOP" || levels.signalType === "DOUBLE_BOTTOM" || levels.signalType === "BB_REJECTION" || levels.signalType === "BB_WALK" || levels.signalType === "BB_BREAKOUT" || levels.signalType === "BB_OVEREXTENSION" || levels.signalType === "PRICE_ACTION_SR";
         if (!signalTypeAllowed) {
           logger.info(
             { symbol, timeframe, signalType: levels.signalType },
@@ -1458,7 +1458,6 @@ async function checkSymbol(
       // for those setups, not a reason to block them.
       // Filled trades and direction flips are always exempt.
       const isTrendFollowing =
-        levels.signalType === "FIB50_SWING" ||
         levels.signalType === "BB_BREAKOUT" ||
         levels.signalType === "BB_WALK";
       if (!isFilledTrade && !isDirectionFlip && isTrendFollowing && (levels.signal === "BUY" || levels.signal === "SELL")) {
@@ -2043,7 +2042,7 @@ async function checkTrendingSymbol(
       // Filled trades bypass this: fills are always actionable regardless of
       // what signal type originally opened the position.
       if (!isFilledTrade) {
-        const trendingTypeAllowed = levels.signalType === "FIB50_SWING" || levels.signalType === "DOUBLE_TOP" || levels.signalType === "DOUBLE_BOTTOM" || levels.signalType === "BB_REJECTION" || levels.signalType === "BB_WALK" || levels.signalType === "BB_BREAKOUT" || levels.signalType === "BB_OVEREXTENSION" || levels.signalType === "PRICE_ACTION_SR";
+        const trendingTypeAllowed = levels.signalType === "DOUBLE_TOP" || levels.signalType === "DOUBLE_BOTTOM" || levels.signalType === "BB_REJECTION" || levels.signalType === "BB_WALK" || levels.signalType === "BB_BREAKOUT" || levels.signalType === "BB_OVEREXTENSION" || levels.signalType === "PRICE_ACTION_SR";
         if (!trendingTypeAllowed) {
           logger.info(
             { symbolKey, timeframe, signalType: levels.signalType, signal: levels.signal },
@@ -2081,7 +2080,6 @@ async function checkTrendingSymbol(
       // are exempt — a big 24h move is a precondition for those setups.
       // Filled trades and direction flips are always exempt.
       const isTrendFollowingT =
-        levels.signalType === "FIB50_SWING" ||
         levels.signalType === "BB_BREAKOUT" ||
         levels.signalType === "BB_WALK";
       if (!isFilledTrade && !isDirectionFlip && isTrendFollowingT && (levels.signal === "BUY" || levels.signal === "SELL")) {
@@ -2229,36 +2227,6 @@ async function checkTrendingSymbol(
           logger.info(
             { symbolKey, timeframe, signalType: levels.signalType, dailySignal: dailyResultBbrT.signal },
             "Trending BB_REJECTION SELL suppressed — daily is actively bullish (conflict guard)",
-          );
-          stateMap.set(k, {
-            ...(prev ?? {}),
-            signal: prev?.signal ?? "WAIT",
-            lastAlertAt: prev?.lastAlertAt ?? 0,
-          });
-          return;
-        }
-      }
-
-      // FIB50_SWING SELL guard (trending coins): require daily to be actively SELL.
-      // FIB50_SWING is trend-following — a SELL fires when price rejects a fib
-      // level. On a trending coin (discovered because it's pumping), a 1h fib
-      // rejection during a daily uptrend is a pullback, not a reversal.
-      // Applies even on direction flips: a flip from BUY→SELL on a coin whose
-      // daily is BUY or WAIT is still just a short-term pullback.
-      if (
-        !isFilledTrade &&
-        levels.signalType === "FIB50_SWING" &&
-        levels.signal === "SELL" &&
-        higherTf === "1d" &&
-        (higherCandles as typeof candles).length >= 2
-      ) {
-        const dailyResultFibT = computeLevelsStable(
-          higherCandles as typeof candles, spot, "1d", symbolKey, tMeta,
-        );
-        if (dailyResultFibT.signal !== "SELL") {
-          logger.info(
-            { symbolKey, timeframe, signalType: levels.signalType, dailySignal: dailyResultFibT.signal },
-            "Trending FIB50_SWING SELL suppressed — daily not actively bearish (uptrend pullback guard)",
           );
           stateMap.set(k, {
             ...(prev ?? {}),
@@ -2508,7 +2476,7 @@ async function checkTrendingSymbol(
     // to restore TP orders — skip the type gate entirely in that case.
     // Externally-closed sentinel persists until signal flips — same rule as static symbols.
     const trendingCatchUpTypeAllowed =
-      levels.signalType === "FIB50_SWING" || levels.signalType === "DUMP_RECOVERY" || levels.signalType === "MACD_DIP_LONG" || levels.signalType === "BB_BREAKOUT" || levels.signalType === "BB_REJECTION" || levels.tradeState === "FILLED_PROFIT" || levels.tradeState === "FILLED_DRAWDOWN";
+      levels.signalType === "DUMP_RECOVERY" || levels.signalType === "MACD_DIP_LONG" || levels.signalType === "BB_BREAKOUT" || levels.signalType === "BB_REJECTION" || levels.tradeState === "FILLED_PROFIT" || levels.tradeState === "FILLED_DRAWDOWN";
     if (
       (levels.signal === "BUY" || levels.signal === "SELL") &&
       (levels.tradeState === "PENDING" || levels.tradeState === "FILLED_PROFIT" || levels.tradeState === "FILLED_DRAWDOWN") &&
