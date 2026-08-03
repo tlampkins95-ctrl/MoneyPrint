@@ -7,6 +7,7 @@ import tradeHistoryRouter from "./trade-history";
 import signalLogRouter from "./signal-log";
 import newsRouter from "./news";
 import phemexRouter from "./phemex";
+import fib786HistoryRouter from "./fib786-history";
 
 const router: IRouter = Router();
 
@@ -18,5 +19,6 @@ router.use(tradeHistoryRouter);
 router.use(signalLogRouter);
 router.use(newsRouter);
 router.use(phemexRouter);
+router.use(fib786HistoryRouter);
 
 export default router;

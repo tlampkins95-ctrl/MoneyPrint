@@ -213,7 +213,14 @@ async function checkActiveAlert(tracked: TrackedSymbol, state: Fib786AlertState)
   }
 }
 
-const POLL_INTERVAL_MS = 15 * 60 * 1000;
+// Was 15 min — user reported an ALLO alert arriving ~1h after price tagged
+// the .786 zone, well past a usable entry. Most of that lag was the 1h
+// entry-confirmation candle needing to fully close (unchanged here), but the
+// poll cadence added up to 15 more minutes on top of that. Dropped to 1 min
+// — fetchCandlesForDynamic/fetchSpotForDynamic already cache internally (1h:
+// 5min TTL, spot: 30s TTL), so this doesn't multiply OKX API load anywhere
+// near 15x; most ticks just hit the cache.
+const POLL_INTERVAL_MS = 60 * 1000;
 
 async function pollCycle(): Promise<void> {
   const tracked = buildTrackedSymbols();
