@@ -437,12 +437,17 @@ router.get("/price-history", async (req: Request, res: Response) => {
 });
 
 // ── Active-signals response cache ─────────────────────────────────────────────
-// computeLevelsStable over 100+ symbol×timeframe combos takes ~1-3 s even with
-// cached candles.  A 12-second server-side cache means every poll within the
-// 15 s frontend interval returns instantly except the first one after the window
-// expires.  Cache key = serialised query params so different account sizes get
-// their own entry.
-const ACTIVE_SIGNALS_CACHE_TTL_MS = 12_000;
+// computeLevelsStable over 100+ symbol×timeframe combos was assumed to take
+// ~1-3s with warm candle caches, so a 12s TTL was meant to sit comfortably
+// under the 15s frontend poll interval. In practice this endpoint measured
+// at ~13s per uncached call (real Yahoo/OKX fetch latency across ~125
+// combos, not the assumed 1-3s) — meaning the TTL was expiring at almost
+// exactly the same time the computation finished, so it essentially never
+// served a cache hit and every poll paid the full cost. Widened to 60s so a
+// cold computation's result actually gets reused across several 15s poll
+// cycles instead of recomputing on nearly every request. Cache key =
+// serialised query params so different account sizes get their own entry.
+const ACTIVE_SIGNALS_CACHE_TTL_MS = 60_000;
 interface ActiveSignalsCacheEntry { ts: number; payload: unknown }
 const activeSignalsCache = new Map<string, ActiveSignalsCacheEntry>();
 
