@@ -1,0 +1,17 @@
+Pull the latest commits from origin/main (git pull origin main) and publish/deploy — all changes below are already committed and pushed to GitHub, I just need this Repl synced and published, not re-implemented. Latest commit: 0c2d299. (If you already pulled/deployed up through fad993e or 1b7a22c, this just adds one more small fix on top — pulling again is safe either way.)
+After pulling, run a typecheck/build to confirm everything compiles cleanly, then publish.
+## Newest fix (commit 0c2d299): active-signals / P&L page slowness
+GET /api/active-signals was taking ~13 seconds to load, but its server-side cache TTL was only 12 seconds — the cache was expiring right as each slow computation finished, so it almost never served a cached hit and every page load paid the full cost. Widened the TTL from 12s to 60s in artifacts/api-server/src/routes/levels.ts. First load after deploy/cache-expiry will still take ~13s (that's real Yahoo/OKX fetch latency across ~125 symbol x timeframe combos), but repeat loads within a minute should now be fast.
+## Earlier fixes (commits 1b7a22c, fad993e)
+Retired unprofitable/broken signal types (artifacts/api-server/src/lib/signals.ts, notifier.ts):
+- FIB50_SWING: removed entirely.
+- PRICE_ACTION_SR, SWING_BREAK, BB_BREAKOUT: disabled via boolean kill-switches (all confirmed net-negative on real trade history).
+- DOUBLE_TOP: had an actual math bug in its TP1 formula (reward was structurally always less than risk, so it could never clear its own 1.5R gate). Fixed the formula, backtested with the fix, confirmed still unprofitable (12.5% win rate), so it's disabled too.
+- BB_REJECTION is the only signal left in the real-money auto-trade allowlist (DEFAULT_ALLOWED_SIGNAL_TYPES in notifier.ts) — the only one with a real edge.
+New FIB786 alert-only strategy (already running live, no real orders placed): artifacts/api-server/src/lib/fib786-detector.ts, fib786-alerts.ts, fib786-notifier.ts, new fib786_alerts Postgres table, wired into index.ts behind ENABLE_FIB786_NOTIFIER=true. Backtested 190 trades, 69.5% win rate, PF 1.42. Poll interval dropped from 15min to 1min (was causing alerts to arrive up to an hour late). New GET /api/fib786-history endpoint to see real (non-backtest) performance.
+New symbol universe used by FIB786: artifacts/api-server/src/lib/tradingViewWatchlist.ts + cmc-discovery.ts + new cmc_symbols table, wired in as startCmcDiscovery().
+Reference-only, not live: artifacts/api-server/src/lib/harmonic-xabcd.ts (Gartley/Bat detector, unused, don't be surprised it's there).
+## Verify after deploying
+1. Reload the active-signals/P&L page twice within ~30-60s of each other — the second load should be noticeably faster than the first.
+2. GET /api/fib786-history returns data.
+3. Check that PRICE_ACTION_SR/SWING_BREAK/BB_BREAKOUT/DOUBLE_TOP/FIB50_SWING stop appearing in new /api/trade-history entries going forward.
