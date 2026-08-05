@@ -236,6 +236,30 @@ async function pollCycle(): Promise<void> {
 }
 
 let started = false;
+let cycleInFlight = false;
+
+// Self-scheduling (setTimeout after completion) rather than setInterval —
+// pollCycle loops sequentially over the full tracked-symbol universe with a
+// network await per symbol, so a single cycle can take longer than
+// POLL_INTERVAL_MS. setInterval doesn't wait for the previous callback to
+// finish, so overlapping cycles could both see "no active alert yet" for the
+// same symbol (the lock from setActiveAlert hadn't been written yet by the
+// still-running cycle) and both fire — this is what produced 10 duplicate
+// RENDERUSDT alerts sharing one firedAt in production. The cycleInFlight
+// guard is a second line of defense in case anything ever calls pollCycle
+// from elsewhere.
+async function scheduleNextCycle(): Promise<void> {
+  if (cycleInFlight) return;
+  cycleInFlight = true;
+  try {
+    await pollCycle();
+  } catch (err) {
+    logger.warn({ err }, "FIB786 pollCycle failed");
+  } finally {
+    cycleInFlight = false;
+  }
+  setTimeout(() => { void scheduleNextCycle(); }, POLL_INTERVAL_MS);
+}
 
 export function startFib786Notifier(): void {
   if (started) return;
@@ -245,8 +269,7 @@ export function startFib786Notifier(): void {
     logger.info("No DATABASE_URL — FIB786 notifier will run without outcome logging");
   }
 
-  void pollCycle();
-  setInterval(() => { void pollCycle(); }, POLL_INTERVAL_MS);
+  void scheduleNextCycle();
 }
 
 export function getFib786Status(): { activeAlerts: Fib786AlertState[] } {
