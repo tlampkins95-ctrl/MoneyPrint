@@ -198,10 +198,9 @@ const AUTO_TRADER_STATE_FILE = join(
 function loadAutoTraderState(): boolean {
   try {
     if (!existsSync(AUTO_TRADER_STATE_FILE)) {
-      // No persisted state — default to ON whenever Phemex keys are present.
-      // This ensures both dev and production start trading immediately without
-      // a manual API call to enable the auto-trader.
-      return isPhemexTradingEnabled();
+      // No persisted state — default to OFF always.
+      // The toggle button is the only way to enable the auto-trader.
+      return false;
     }
     const raw = readFileSync(AUTO_TRADER_STATE_FILE, "utf8");
     const parsed = JSON.parse(raw) as { enabled?: boolean };

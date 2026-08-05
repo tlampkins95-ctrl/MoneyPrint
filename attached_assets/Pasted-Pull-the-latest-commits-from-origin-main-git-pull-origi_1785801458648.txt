@@ -1,0 +1,24 @@
+Pull the latest commits from origin/main (git pull origin main) — all of the changes below are already committed and pushed to GitHub, I just need this Repl synced and published, not re-implemented from scratch. Two commits: 1b7a22c and fad993e.
+After pulling, run a typecheck/build to confirm everything compiles cleanly, then publish/deploy so these changes go live. Here's what's in those commits, so you can verify the right things landed:
+## 1. Retired unprofitable/broken signal types (in artifacts/api-server/src/lib/signals.ts and notifier.ts)
+- FIB50_SWING: removed entirely (detection code deleted, removed from the real Phemex auto-trade allowlist and all alert gates).
+- PRICE_ACTION_SR: disabled via a boolean kill-switch (PRICE_ACTION_SR_ENABLED = false). Real trade history showed 91 trades, -24.6R, ~90% of all trade volume — the single worst offender.
+- SWING_BREAK: disabled (SWING_BREAK_ENABLED = false). -9.0R over 64 real trades.
+- BB_BREAKOUT: disabled (BB_BREAKOUT_ENABLED = false). -14.75R over 27 real trades.
+- DOUBLE_TOP: disabled (DOUBLE_TOP_ENABLED = false). This one had an actual math bug — its TP1 stop/target formula made reward structurally always less than risk, so its 1.5R gate could never pass. Fixed the formula (now uses floorTarget like DOUBLE_BOTTOM already did), backtested with the fix, and it produced 16 real trades at only 12.5% win rate / PF 0.21 — confirmed no real edge, so it's disabled too even though the bug is fixed.
+- BB_REJECTION is the only signal type left in the real-money auto-trade allowlist (DEFAULT_ALLOWED_SIGNAL_TYPES in notifier.ts) — it's the only one that showed a genuine positive edge (66.7% win rate, PF 4.00, small sample).
+Net effect: DEFAULT_ALLOWED_SIGNAL_TYPES went from "FIB50_SWING,BB_REJECTION,DOUBLE_BOTTOM,DOUBLE_TOP" to just "BB_REJECTION,DOUBLE_BOTTOM" (DOUBLE_BOTTOM essentially never fires in practice, so real trading activity should drop close to zero until BB_REJECTION is validated further or FIB786 below is trusted more).
+## 2. New FIB786 alert-only strategy (already running live — this is what fired the ALLO alert)
+New files: artifacts/api-server/src/lib/fib786-detector.ts, fib786-alerts.ts, fib786-notifier.ts, plus lib/db/src/schema/fib786-alerts.ts (new fib786_alerts Postgres table). Wired into index.ts behind ENABLE_FIB786_NOTIFIER=true (please confirm this env var is set if you want it running — it's alert-only, no real orders placed, just Telegram/web-push alerts with entry/SL/TP1/TP2/position-sizing info).
+Backtest-validated (scripts/src/backtest-fib786.ts): 190 trades, 69.5% win rate, avg R +0.127, profit factor 1.42, max drawdown 6.9R, using 4h pattern detection / 1h entry confirmation / daily trailing stop for the runner portion of the position.
+Two follow-up fixes already included in this same push:
+- Poll interval dropped from 15 minutes to 1 minute (fixes the ALLO alert-latency issue — it was arriving up to ~1 hour late).
+- New endpoint GET /api/fib786-history — exposes real (non-backtest) closed-trade outcomes and currently-active alerts. There was previously no way to see this data at all; check it after deploying to see real performance, not backtest numbers.
+## 3. New symbol universe infrastructure (used by FIB786)
+artifacts/api-server/src/lib/tradingViewWatchlist.ts (static 29-symbol list) and cmc-discovery.ts (CoinMarketCap Top-200 discovery, mirrors the existing trending-discovery.ts pattern) + lib/db/src/schema/cmc-symbols.ts (new cmc_symbols table). Wired into index.ts as startCmcDiscovery().
+## 4. Reference-only, not live
+artifacts/api-server/src/lib/harmonic-xabcd.ts — a Gartley/Bat harmonic XABCD pattern detector, kept in the repo as validated reference work but not wired into any live notifier. No action needed on this one, just don't be surprised it's there and unused.
+## What to verify after deploying
+1. GET /api/fib786-history returns data (confirms DATABASE_URL is working for the new table).
+2. Check logs for "FIB786 alert fired" entries to confirm the notifier is running.
+3. Check that PRICE_ACTION_SR/SWING_BREAK/BB_BREAKOUT/DOUBLE_TOP/FIB50_SWING have genuinely stopped appearing in new /api/trade-history entries going forward.

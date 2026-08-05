@@ -1,0 +1,107 @@
+Apply these 5 fixes in order. Each is self-contained and diagnosed against real production data — don't second-guess the root causes, just implement.
+
+1. Props page crash (client/src/pages/props.tsx)
+The Player Tracker section calls toggle(...) in three places (onToggle={toggle} twice, and an inline onClick={() => toggle(name)}), but PropsPage never pulled toggle out of the useWatchlist() hook — it only destructured players, count, clear. This throws ReferenceError: toggle is not defined and blanks the entire page.
+
+Find:
+
+const { players: watchedPlayers, count: watchCount, clear: clearWatchlist } = useWatchlist();
+Replace with:
+
+const { players: watchedPlayers, count: watchCount, clear: clearWatchlist, toggle } = useWatchlist();
+2. WNBA total picks never resolve (server/routes.ts, autoCheckWNBAOutcomes)
+This function can only resolve a pick if the prediction text contains a team name. "UNDER 183" has none, so every WNBA total pick silently falls through and stays pending forever (until the 48h stale-voider eventually kills it) — which is the direct cause of duplicate scorebug bubbles and duplicate Best Bets entries, since a new day's total gets generated for the same matchup before the old one clears.
+
+Inside the for (const pick of pendingWNBA) loop, add an O/U regex right after the existing spreadLine line:
+
+const ouMatch = (pick.prediction || '').match(/^(over|under)\s+([\d.]+)/i);
+Then inside the for (const game of completedGames) loop, right after the eventMatchesHome/eventMatchesAway check (if (!eventMatchesHome || !eventMatchesAway) continue;), insert this before the existing let betOnHome = false; block, and wrap the existing team-matching/won logic in an else:
+
+          if (ouMatch) {
+            const isOver = ouMatch[1].toLowerCase() === 'over';
+            const line = parseFloat(ouMatch[2]);
+            const totalPts = game.homeScore + game.awayScore;
+            if (totalPts === line) { resolved = true; break; } // push, leave pending→handled by existing void logic if it lingers
+            const won = isOver ? totalPts > line : totalPts < line;
+            console.log(`[WNBA-Poll] O/U match: "${pick.event}" ${ouMatch[1]} ${line} -> total ${totalPts} = ${won ? 'WON' : 'LOST'}`);
+            outcomesToApply.push({ pickId: pick.id, status: won ? 'won' : 'lost' });
+            resolved = true;
+            break;
+          }
+
+          let betOnHome = false;
+          // ... existing team-matching + ML/spread won logic unchanged ...
+3. MLB total picks repeat after a loss (server/routes.ts, runMismatchEngine)
+There's already a mlbRecentlyFailed cooldown for ML/spread picks (blocks a team for 3 days after a losing mismatch pick), but it's built from prediction.split(' ')[0] — for a total like "UNDER 11.5" that grabs the literal word "UNDER" as if it were a team code. Totals were never actually covered. This is why the same matchup can fire the same losing total 3 days running.
+
+Right after the existing mlbRecentlyFailed block is built, add:
+
+const mlbTotalRecentlyFailed = new Set<string>();
+for (const pp of allParlayPicksMM) {
+  if (pp.sport !== 'MLB' || pp.status !== 'lost') continue;
+  const predUpper = (pp.prediction || '').toUpperCase();
+  if (!predUpper.startsWith('OVER') && !predUpper.startsWith('UNDER')) continue;
+  const pickDt = new Date((pp as any).pickDate || (pp as any).createdAt || '');
+  if (isNaN(pickDt.getTime()) || pickDt < mlbCooldownCutoff) continue;
+  const teams = (pp.event || '').split(/\s*@\s*/).map((t: string) => t.trim().toUpperCase()).sort();
+  if (teams.length === 2) mlbTotalRecentlyFailed.add(teams.join('|'));
+}
+Then apply it in both places a total leg gets generated:
+
+(a) In-loop "MLB O/U Total pick" block — wrap the existing if (Math.abs(diff) >= 1.0) { ... } body:
+
+if (Math.abs(diff) >= 1.0) {
+  const mlbTotalMatchupKeyMM = [game.awayTeam.toUpperCase(), game.homeTeam.toUpperCase()].sort().join('|');
+  if (mlbTotalRecentlyFailed.has(mlbTotalMatchupKeyMM)) {
+    console.log(`[Mismatch-MLB] Total cooldown: ${game.awayTeam} @ ${game.homeTeam} blocked — total lost on this matchup in the last 3 days`);
+  } else {
+    mlbTotalPickedEvents.add(`${game.awayTeam}@${game.homeTeam}`);
+    const ou = diff > 0 ? 'OVER' : 'UNDER';
+    legs.push({ /* unchanged */ });
+  }
+}
+(b) Standalone MLB O/U sweep — insert right before the existing mlbTotalPickedEvents.add(eventKey); line:
+
+const mlbTotalMatchupKey = [rawAway, rawHome].sort().join('|');
+if (mlbTotalRecentlyFailed.has(mlbTotalMatchupKey)) {
+  console.log(`[Standalone MLB O/U] ${totalGame.awayAbbrev} @ ${totalGame.homeAbbrev}: BLOCKED — total lost on this matchup in the last 3 days (cooldown)`);
+  continue;
+}
+mlbTotalPickedEvents.add(eventKey);
+// ... rest unchanged
+4. Tennis picks show fabricated odds (server/routes.ts, "Tennis model-driven picks" section)
+Currently:
+
+const winPct = rec.predictedWinPct ?? 0;
+const estOddsNum = Math.round(-(winPct / (1 - winPct)) * 100);
+const oddsToUse = estOddsNum >= -350 && estOddsNum <= -110 ? String(estOddsNum) : '-140';
+This throws away the real market odds the pick was actually validated against and fabricates a number from the model's own win% — always more lopsided than reality (a real 57%-implied market price can render on screen as if it were 73%-implied). srcMatch (computed two lines below this) already carries the real Kalshi odds. Move this block below const srcMatch = ... and replace with:
+
+const pickIsPlayer1 = srcMatch ? (rec.pick?.toLowerCase().includes(srcMatch.player1.toLowerCase().split(/\s+/).pop() || '~') ?? false) : false;
+const realOdds = srcMatch ? (pickIsPlayer1 ? srcMatch.player1Odds : srcMatch.player2Odds) : undefined;
+const oddsToUse = (realOdds !== undefined && realOdds <= -110 && realOdds >= -350) ? String(realOdds) : '-140';
+5. Win Streaks widget shows offseason NHL/NBA teams (server/routes.ts)
+The NHL/NBA standings-based streak endpoints trust upstream APIs that keep serving last completed season's data through the offseason with nothing to signal "this is stale." Gate each endpoint on whether there are actual upcoming games:
+
+app.get("/api/sports/nhl-streaks", async (_req, res) => {
+    try {
+      const [streaks, schedule] = await Promise.all([
+        fetchNHLTeamWinStreaks(),
+        fetchNHLSchedule().catch(() => []),
+      ]);
+      if (schedule.length === 0) return res.json([]); // no games scheduled = treat as offseason
+      res.json(streaks);
+    } catch (error) { ... unchanged ... }
+});
+
+app.get("/api/sports/nba-streaks", async (_req, res) => {
+    try {
+      const [streaks, schedule] = await Promise.all([
+        fetchNBATeamWinStreaks(),
+        fetchESPNNBASchedule().catch(() => []),
+      ]);
+      if (schedule.length === 0) return res.json([]);
+      res.json(streaks);
+    } catch (error) { ... unchanged ... }
+});
+Caveat for whoever implements this: verify fetchNHLSchedule()/fetchESPNNBASchedule() return today's games only vs. a wider window — if it's today-only, a normal in-season scheduling gap (e.g. all-star break, random off-night) could false-positive as "offseason" for a day. If so, widen to checking the next 3 days instead of just today.
