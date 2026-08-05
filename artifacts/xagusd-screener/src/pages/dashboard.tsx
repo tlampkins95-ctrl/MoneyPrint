@@ -231,7 +231,7 @@ export default function Dashboard() {
           />
         )}
 
-        {tab === "fib786" && <Fib786Panel />}
+        {tab === "fib786" && <Fib786Panel onNavigate={(s) => { setSymbol(s); setTab("signals"); }} />}
 
         {tab === "news" && <NewsPanel />}
 

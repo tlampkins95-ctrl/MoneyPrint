@@ -96,14 +96,17 @@ function progressLabel(a: Fib786ActiveAlert): { label: string; color: string } {
   return { label: "Open — awaiting TP1/SL", color: "text-amber-400" };
 }
 
-function ActiveAlertRow({ a }: { a: Fib786ActiveAlert }) {
+function ActiveAlertRow({ a, onNavigate }: { a: Fib786ActiveAlert; onNavigate?: (symbol: string) => void }) {
   const meta = getSymbolMeta(a.symbolKey);
   const { label, color } = progressLabel(a);
   const riskDist = a.entryPrice - a.initialSl;
   const stopPct = riskDist > 0 ? ((a.stopLoss - a.initialSl) / riskDist) * 100 : 0;
 
   return (
-    <div className="rounded-lg border border-zinc-800/70 bg-zinc-900/30 px-3 py-2.5 flex items-center gap-3">
+    <div
+      className={cn("rounded-lg border border-zinc-800/70 bg-zinc-900/30 px-3 py-2.5 flex items-center gap-3", onNavigate && "cursor-pointer hover:border-zinc-600 hover:bg-zinc-800/40 transition-colors")}
+      onClick={() => onNavigate?.(a.symbolKey)}
+    >
       <div className="w-0.5 self-stretch rounded-full shrink-0 bg-emerald-500" />
       <div className="flex flex-col gap-0.5 min-w-[90px]">
         <span className="text-[12px] font-bold text-zinc-100 leading-none">{meta.short ?? a.symbolKey}</span>
@@ -124,10 +127,13 @@ function ActiveAlertRow({ a }: { a: Fib786ActiveAlert }) {
   );
 }
 
-function ClosedTradeRow({ t }: { t: Fib786ClosedTrade }) {
+function ClosedTradeRow({ t, onNavigate }: { t: Fib786ClosedTrade; onNavigate?: (symbol: string) => void }) {
   const meta = getSymbolMeta(t.symbol);
   return (
-    <div className="rounded-lg border border-zinc-800/70 bg-zinc-900/30 px-3 py-2.5 flex items-center gap-3">
+    <div
+      className={cn("rounded-lg border border-zinc-800/70 bg-zinc-900/30 px-3 py-2.5 flex items-center gap-3", onNavigate && "cursor-pointer hover:border-zinc-600 hover:bg-zinc-800/40 transition-colors")}
+      onClick={() => onNavigate?.(t.symbol)}
+    >
       <div className={cn("w-0.5 self-stretch rounded-full shrink-0", t.rMultiple >= 0 ? "bg-emerald-500" : "bg-rose-500")} />
       <div className="flex flex-col gap-0.5 min-w-[90px]">
         <span className="text-[12px] font-bold text-zinc-100 leading-none">{meta.short ?? t.symbol}</span>
@@ -144,7 +150,7 @@ function ClosedTradeRow({ t }: { t: Fib786ClosedTrade }) {
   );
 }
 
-export function Fib786Panel() {
+export function Fib786Panel({ onNavigate }: { onNavigate?: (symbol: string) => void } = {}) {
   const [data, setData] = useState<Fib786HistoryResponse | null>(null);
   const [error, setError] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -272,7 +278,7 @@ export function Fib786Panel() {
             {activeAlerts
               .slice()
               .sort((a, b) => b.firedAt - a.firedAt)
-              .map((a) => <ActiveAlertRow key={a.symbolKey} a={a} />)}
+              .map((a) => <ActiveAlertRow key={a.symbolKey} a={a} onNavigate={onNavigate} />)}
           </div>
         )}
       </div>
@@ -288,7 +294,7 @@ export function Fib786Panel() {
         )}
         {closedTrades.length > 0 && (
           <div className="space-y-1.5">
-            {closedTrades.map((t) => <ClosedTradeRow key={t.id} t={t} />)}
+            {closedTrades.map((t) => <ClosedTradeRow key={t.id} t={t} onNavigate={onNavigate} />)}
           </div>
         )}
       </div>
