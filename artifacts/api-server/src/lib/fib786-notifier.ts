@@ -17,6 +17,7 @@ import { computePositionSizing, DEFAULT_ACCOUNT_SIZE } from "./signals";
 import { fetchCandlesForDynamic, fetchSpotForDynamic } from "./trending-discovery";
 import { getCmcUniverse } from "./cmc-discovery";
 import { TRADINGVIEW_WATCHLIST, watchlistToOkxInstId } from "./tradingViewWatchlist";
+import { hasPhemexPerp } from "./phemex-trader";
 import { findXAD, calcATR, computeFib786StopLoss, computeInsideBarFlags, trailingStopAt } from "./fib786-detector";
 import {
   getActiveAlert, setActiveAlert, clearActiveAlert, getAllActiveAlerts,
@@ -36,16 +37,18 @@ interface TrackedSymbol {
 }
 
 function buildTrackedSymbols(): TrackedSymbol[] {
-  const fromWatchlist: TrackedSymbol[] = TRADINGVIEW_WATCHLIST.map((ticker) => ({
-    symbolKey: ticker,
-    label: `${ticker.replace(/USDT$/, "")} / USDT`,
-    okxPerp: watchlistToOkxInstId(ticker),
-    decimals: 4,
-    prefix: "$",
-  }));
+  const fromWatchlist: TrackedSymbol[] = TRADINGVIEW_WATCHLIST
+    .filter((ticker) => hasPhemexPerp(ticker))
+    .map((ticker) => ({
+      symbolKey: ticker,
+      label: `${ticker.replace(/USDT$/, "")} / USDT`,
+      okxPerp: watchlistToOkxInstId(ticker),
+      decimals: 4,
+      prefix: "$",
+    }));
   const seen = new Set(fromWatchlist.map((s) => s.symbolKey));
   const fromCmc: TrackedSymbol[] = getCmcUniverse()
-    .filter((m) => !seen.has(m.symbolKey) && m.okxPerp)
+    .filter((m) => !seen.has(m.symbolKey) && m.okxPerp && hasPhemexPerp(m.symbolKey))
     .map((m) => ({
       symbolKey: m.symbolKey,
       label: m.label,

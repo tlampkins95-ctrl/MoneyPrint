@@ -133,6 +133,16 @@ export function getMinPriceRp(symbol: string): number {
   return contractSpecCache.get(symbol)?.minPriceRp ?? 0;
 }
 
+/**
+ * Returns true when the symbol is listed as a Phemex USDT-margined perp.
+ * Always returns true when the cache hasn't been populated yet (startup race),
+ * so a cold start doesn't silently drop the entire symbol universe.
+ */
+export function hasPhemexPerp(symbol: string): boolean {
+  if (contractSpecCache.size === 0) return true; // cache not ready yet — don't filter
+  return contractSpecCache.has(symbol);
+}
+
 // ─── Account ─────────────────────────────────────────────────────────────────
 
 interface AccountData {
